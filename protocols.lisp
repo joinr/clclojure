@@ -1,13 +1,21 @@
-;a simple implementation of clojure protocols.
-;this will help with building libraries, particularly 
-;the seq libraries.
+;;a simple implementation of clojure protocols, and deftype.
+;;this will help with building libraries, particularly 
+;;the seq libraries.
 
-(defpackage :clojure.protocol
+;;If we can bolt on a few fundamental operations, we can take 
+;;advantage of the bulk of the excellent bootstrapped clojure 
+;;defined in the clojurescript compiler.  
+(defpackage :clclojure.protocols  
+  (:use :common-utils)
   (:export :defprotocol
-	   :extend-protocol))
+	   :extend-protocol
+	   :satisfies?
+	   :protocol-exists?
+	   :list-protocols))
 
-(in-package clojure.protocol)
-
+(in-package :clclojure.protocols)
+;;protocols are used extensively, as is deftype.  There are a 
+;;few additional data types that we need to provide.
 
 ;Protocol specifications take on the form below:
 ;(protocolname 
@@ -20,7 +28,6 @@
 ;;      "Gets the next element from the sequence")
 ;;     (more (coll) 
 ;;      "Gets the rest of the sequence.")))
-
 
 (defun spec-name (protocolspec)
   (car protocolspec))
@@ -128,6 +135,7 @@
 		  "Not Documented")))	
     `(defgeneric ,(first functionspec) ,(second functionspec)
        (:documentation ,docs))))
+
 (defun quoted-names (xs)
   (mapcar (lambda (x) (list 'quote x))
 	  (function-names xs)))
@@ -217,8 +225,9 @@
 
 
 ;Extend-type is also particularly useful.
+;;Pending -> implement deftype.
 
-
+(comment 
 ;Testing....
 (defprotocol INamed 
     (get-name (thing) "gets the name of the thing!")
@@ -234,3 +243,44 @@
     (when (satisfies? 'Inamed data)
       (pprint (get-name data)))
       (say-name data)))
+)
+
+;;Deftype implementation.
+;;Once we have protocols, deftype is pretty easy.
+;;deftype is a hook into the type definition or object system of 
+;;the host environment.  We'll use it to generate CLOS classes via
+;;defclass.  I may include an option to use deftype to build structs
+;;which would likely kick ass for performance.
+
+;;A deftype form is pretty easy: 
+;;(deftype name-of-type (field1 field2 ... fieldn)
+;;   Protocol1
+;;   (function1 (args) body1)
+;;   Protocol2
+;;   (function2 (args)  body2))
+;;
+;;Should expand into:
+;;(progn
+;;  (defclass name-of-type
+;;    ((field1 :init-arg :field1)
+;;     (field2 :init-arg :field2)))
+;;  (extend-protocol Protocol1 name-of-type
+;;     (function1 (args) body1))
+;;  (extend-protocol Protool2 name-of-type
+;;     (function2 (args) body2)))
+
+(defun emit-class-field (s)
+ `(,s :init-arg ,(make-keyword s)))
+
+(defun emit-protocol-extension (proto-name type-name imps)
+  `(extend-protocol ,proto-name ,type-name ,@imps)) 
+
+;(defun emit-type-constructor (type-name fields)
+;  `(defun (concatenate 'string "->"
+
+;;Deftype exists in common lisp.  
+(defmacro clojure-deftype (name fields &rest implementations)
+  `(progn 
+     (defclass ,name () ,fields 
+       ,@(mapcar emit-class-field fields))
+     ()))

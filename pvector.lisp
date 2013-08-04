@@ -53,7 +53,6 @@
 ;;  Clojure has a pushTail method for this, where you basically just create a chain of 
 ;;  empty root nodes, n levels deep, with the tail as the last root node. 
 
-
 (defpackage :clojure.pvector
   (:use :common-lisp)
   (:export :persistent-vector
