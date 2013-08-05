@@ -6,7 +6,7 @@
 ;;advantage of the bulk of the excellent bootstrapped clojure 
 ;;defined in the clojurescript compiler.  
 (defpackage :clclojure.protocols  
-  (:use :common-utils)
+  (:use :common-lisp :common-utils)
   (:export :defprotocol
 	   :extend-protocol
 	   :satisfies?
@@ -83,6 +83,10 @@
     (when exists? 
       (push  membername (protocol-members p) ))))
 
+;Probably deprecated soon...
+(defun protocol-exists? (name)
+  (not (null (get-protocol name))))
+
 (defun drop-protocol (name) 
   "Eliminates any bindings to the quoted protocol name, 
    including generic functions."
@@ -91,10 +95,6 @@
 	(progn	 (dolist (n (protocol-functions p))
 		     (unintern n))
 		 (remhash name *protocols*)))))
-
-;Probably deprecated soon...
-(defun protocol-exists? (name)
-  (not (null (get-protocol name))))
 
 (defun list-protocols () 
   "Lists all known protocols."
@@ -240,7 +240,7 @@
 
 (defun test ()
   (let ((data '(:tom)))
-    (when (satisfies? 'Inamed data)
+    (when (satisfies? 'INamed data)
       (pprint (get-name data)))
       (say-name data)))
 )
@@ -282,5 +282,5 @@
 (defmacro clojure-deftype (name fields &rest implementations)
   `(progn 
      (defclass ,name () ,fields 
-       ,@(mapcar emit-class-field fields))
+       ,@(mapcar #'emit-class-field fields))
      ()))

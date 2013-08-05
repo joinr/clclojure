@@ -1,6 +1,7 @@
 ;;A package for useful library utilities that come up during the course
 ;;of implementing clclojure.
 (defpackage :common-utils
+  (:use :common-lisp)
   (:export  :comment :make-keyword :stringify :symb))
 (in-package :common-utils)
 

@@ -21,20 +21,16 @@
 ;;6) Destructuring.  This may be a bit tricky, although there are a limited number of 
 ;;                   clojure forms.  Since we have reader
 ;;7)                
-(load "common-utils.lisp") ;useful stuff like comment, keyword creation, and more.
-(load "protocols.lisp")
-(load "pvector.lisp") ;imports reader macros for vector literals i.e. [1 2 3] 
+
+;;loading handled by asdf now.
+;;(load "common-utils.lisp") ;useful stuff like comment, keyword creation, and more.
+;;(load "protocols.lisp")
+;;(load "pvector.lisp") ;imports reader macros for vector literals i.e. [1 2 3] 
 ;(load "pmap.lisp")  ;once pmap is finished, it'll be really useful for  
 ;(load "seq.lisp") ;might be nice to go ahead and clone the seq library to make this simpler.
-
 (defpackage :clclojure.base
-  (:use :pvector :common-utils)
-  (:export :comment))
-
+  (:use :common-lisp :common-utils :clclojure.pvector :clclojure.protocols))
 (in-package clclojure.base)
-
-;;one really useful macro is the comment form:
-(defmacro comment (&rest xs ))
 
 ;;Some basic stuff to facilitate clojure forms.
 
@@ -80,58 +76,58 @@
 )
 
 (defmacro doc (v) `(pprint (rest (assoc 'DOC (meta ,v)))))   
-(comment 
+;; (comment 
 
-(defmacro fn  (& sigs) 
-  (let* ((name (if (symbol? (first sigs)) (first sigs) nil)
-         sigs (if name (next sigs) sigs)
-         sigs (if (vector? (first sigs)) 
-                 (list sigs) 
-                 (if (seq? (first sigs))
-                   sigs
-                   ;; Assume single arity syntax
-                   (throw (IllegalArgumentException. 
-                            (if (seq sigs)
-                              (str "Parameter declaration " 
-                                   (first sigs)
-                                   " should be a vector")
-                              (str "Parameter declaration missing"))))))
-          psig (fn* [sig]
-                 ;; Ensure correct type before destructuring sig
-                 (when (not (seq? sig))
-                   (throw (IllegalArgumentException.
-                            (str "Invalid signature " sig
-                                 " should be a list"))))
-                 (let [[params & body] sig
-                       _ (when (not (vector? params))
-                           (throw (IllegalArgumentException. 
-                                    (if (seq? (first sigs))
-                                      (str "Parameter declaration " params
-                                           " should be a vector")
-                                      (str "Invalid signature " sig
-                                           " should be a list")))))
-                       conds (when (and (next body) (map? (first body))) 
-                                           (first body))
-                       body (if conds (next body) body)
-                       conds (or conds (meta params))
-                       pre (:pre conds)
-                       post (:post conds)                       
-                       body (if post
-                              `((let [~'% ~(if (< 1 (count body)) 
-                                            `(do ~@body) 
-                                            (first body))]
-                                 ~@(map (fn* [c] `(assert ~c)) post)
-                                 ~'%))
-                              body)
-                       body (if pre
-                              (concat (map (fn* [c] `(assert ~c)) pre) 
-                                      body)
-                              body)]
-                   (maybe-destructured params body)))
-          new-sigs (map psig sigs)]
-      (with-meta
-        (if name
-          (list* 'fn* name new-sigs)
-          (cons 'fn* new-sigs))
-        (meta &form))))
-)
+;; (defmacro fn  (& sigs) 
+;;   (let* ((name (if (symbol? (first sigs)) (first sigs) nil)
+;;          sigs (if name (next sigs) sigs)
+;;          sigs (if (vector? (first sigs)) 
+;;                  (list sigs) 
+;;                  (if (seq? (first sigs))
+;;                    sigs
+;;                    ;; Assume single arity syntax
+;;                    (throw (IllegalArgumentException. 
+;;                             (if (seq sigs)
+;;                               (str "Parameter declaration " 
+;;                                    (first sigs)
+;;                                    " should be a vector")
+;;                               (str "Parameter declaration missing"))))))
+;;           psig (fn* [sig]
+;;                  ;; Ensure correct type before destructuring sig
+;;                  (when (not (seq? sig))
+;;                    (throw (IllegalArgumentException.
+;;                             (str "Invalid signature " sig
+;;                                  " should be a list"))))
+;;                  (let [[params & body] sig
+;;                        _ (when (not (vector? params))
+;;                            (throw (IllegalArgumentException. 
+;;                                     (if (seq? (first sigs))
+;;                                       (str "Parameter declaration " params
+;;                                            " should be a vector")
+;;                                       (str "Invalid signature " sig
+;;                                            " should be a list")))))
+;;                        conds (when (and (next body) (map? (first body))) 
+;;                                            (first body))
+;;                        body (if conds (next body) body)
+;;                        conds (or conds (meta params))
+;;                        pre (:pre conds)
+;;                        post (:post conds)                       
+;;                        body (if post
+;;                               `((let [~'% ~(if (< 1 (count body)) 
+;;                                             `(do ~@body) 
+;;                                             (first body))]
+;;                                  ~@(map (fn* [c] `(assert ~c)) post)
+;;                                  ~'%))
+;;                               body)
+;;                        body (if pre
+;;                               (concat (map (fn* [c] `(assert ~c)) pre) 
+;;                                       body)
+;;                               body)]
+;;                    (maybe-destructured params body)))
+;;           new-sigs (map psig sigs)]
+;;       (with-meta
+;;         (if name
+;;           (list* 'fn* name new-sigs)
+;;           (cons 'fn* new-sigs))
+;;         (meta &form))))
+;; )
