@@ -64,24 +64,24 @@ Hurdles
 ======
 A couple of big hurdles:
  
-1.  Lisp1 vs Lisp2.  I'll hack the evaluator for this.
-2.  Persistent structures.  Already built Pvector and 1/2 done with Pmap.
-3.  Protocols.  Already implemented as generic functions. 
-4.  Multimethds.  Need to find a way to implement multiple dispatch.
-5.  Reader.  
+*  Lisp1 vs Lisp2.  I'll hack the evaluator for this.
+*  Persistent structures.  Already built Pvector and 1/2 done with Pmap.
+*  Protocols.  Already implemented as generic functions. 
+*  Multimethds.  Need to find a way to implement multiple dispatch.
+*  Reader.  
 
-* CL macros use , and ,@ in place of ~ and ~@ in Clojure.
-  We'll need to either cook the common lisp reader, or  build a separate clojure
-  reader that will perform the appropriate replacements. 
+** CL macros use , and ,@ in place of ~ and ~@ in Clojure.
+   We'll need to either cook the common lisp reader, or  build a separate clojure
+   reader that will perform the appropriate replacements. 
  
-* @ is a literal for #'deref in clojure, is whitespace in clojure.  
-* [] denote vectors -> already have a reader macro in pvector.lisp  
-* {} denote maps    -> already have a reader macro in pmap.lisp  
-* \#{} denote sets
+** @ is a literal for #'deref in clojure, is whitespace in clojure.  
+** [] denote vectors -> already have a reader macro in pvector.lisp  
+** {} denote maps    -> already have a reader macro in pmap.lisp  
+** \#{} denote sets
 
-6.  Destructuring.  
+*  Destructuring.  
 This may be a bit tricky, although there are a limited number of clojure forms.  
-7.  Seq library.  
+*  Seq library.  
 This shouldn't be too hard.  I already have a lazy list lib prototype as well as
 generic functions for the basic ops.  I think I'll try to use the protocols
 defined in the clojurescript version as much possible, rather than baking in a
