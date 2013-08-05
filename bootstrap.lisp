@@ -20,7 +20,12 @@
 ;;           #{} denote sets
 ;;6) Destructuring.  This may be a bit tricky, although there are a limited number of 
 ;;                   clojure forms.  Since we have reader
-;;7)                
+;;7)Seq library.  This shouldn't be too hard.  I already have a lazy list lib prototype
+;;                as well as generic functions for the basic ops.  I think I'll try to 
+;;                use the protocols defined in the clojurescript version as much possible,
+;;                rather than baking in a lot of the seq abstraction in the host language
+;;                like clojure does.                
+;;more?
 
 ;;loading handled by asdf now.
 ;;(load "common-utils.lisp") ;useful stuff like comment, keyword creation, and more.
