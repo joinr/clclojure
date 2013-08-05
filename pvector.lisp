@@ -73,14 +73,17 @@
 (in-package :clojure.pvector) 
 
 ;Original from Stack Overflow, with some slight modifications.
-(defun |bracket-reader| (stream char)
-  "A reader macro that allows us to define persistent vectors
-   inline, just like Clojure."
-  (declare (ignore char))
-  `(persistent-vector ,@(read-delimited-list #\] stream t)))
-(set-macro-character #\[ #'|bracket-reader|)
-(set-syntax-from-char #\] #\))
 
+;;Have to make this available to the compiler at compile time!
+;;Maybe move this into a clojure-readers.lisp or something.
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defun |bracket-reader| (stream char)
+    "A reader macro that allows us to define persistent vectors
+    inline, just like Clojure."
+    (declare (ignore char))
+    `(persistent-vector ,@(read-delimited-list #\] stream t)))
+  (set-macro-character #\[ #'|bracket-reader|)
+  (set-syntax-from-char #\] #\)))
 
 ;utility functions
 
@@ -174,11 +177,19 @@
 ;As we conjoin items, we may need to grow the trie. 
 ;Growth happens when the tail is full...
 
-(defstruct pvec (root nil)
-	        (tail nil)		
-		(shift 5)
-		(counter 0))
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute) 
+  (defstruct pvec (root nil)
+	     (tail nil)		
+	     (shift 5)
+             (counter 0)))
   
+;;From stack overflow.  It looks like the compiler needs a hint if we're 
+;;defining struct/class literals and using them as constants.
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defmethod make-load-form ((v pvec) &optional env)
+    (declare (ignore env))
+    (make-load-form-saving-slots v)))
+
 (defun ->pvec (root tail shift counter)
   "Simple persistent vector builder.  Used to derive from other pvectors 
    to share structure where possible."
