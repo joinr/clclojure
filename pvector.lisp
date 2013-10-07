@@ -59,8 +59,8 @@
 	   :empty-vec
 	   :empty-vec?
 	   :get-node
-	   :vec-to-list
-	   :vec-to-array
+	   :vector-to-list
+	   :vector-to-array
 	   :subvec
 	   :vector-count 
 	   :vector-map
@@ -641,9 +641,9 @@
 (defun sub-vec-test ()
   (let* ((myvec (sample-vec 90))
 	 (left-half (subvec myvec 0 44))
-	 (right-half (subvec myvec 45))
+	 (right-half (subvec myvec 44))
 	 (ninety (subvec myvec 90)))
     [left-half right-half ninety]))    
 
-
+;;I believe this error was resolved.  old message.
 ;note, there's an error showing up between 1056 and 1057

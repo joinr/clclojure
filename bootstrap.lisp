@@ -37,9 +37,6 @@
   (:use :common-lisp :common-utils :clclojure.pvector :clclojure.protocols))
 (in-package clclojure.base)
 
-
-
-
 ;;Some basic stuff to facilitate clojure forms.
 
 ;;I think we want to use persistent maps for meta data, as clojure does.
@@ -48,8 +45,8 @@
 (defmacro meta (symb) `(get (quote ,symb) 'meta))
 (defmacro with-meta (symb m) `(setf (get (quote ,symb) 'meta) ,m))
 
-(defprotocol IMeta 
-    (meta (obj)))
+;; (defprotocol IMeta 
+;;     (meta (obj)))
 
 ;;move this later...
 (defun vector? (x) (typep x 'clclojure.pvector::pvec))
@@ -75,20 +72,153 @@
           (with-meta ,var '((symbol . t) (doc . "none")))
 	  (quote ,var)))
 
+(defparameter special-forms 
+  '(quote defmacro lambda apply cl))
+
+(defun special? (x) (find x special-forms))
+(defun resolve (expr &rest env) 
+  (if (null env)  (handler-case (eval expr)  
+		    (unbound-variable () (eval `(function ,expr))))
+      (let ((res (second (assoc expr (first env)))))
+	(if (null res) (resolve expr) res))))
+
+;;weird
+(defun id-args (args)
+  (reduce (lambda (acc x) (cons (list  x  x) acc)) args :initial-value '()))
+
+(defun push-bindings (env args)
+  (reduce (lambda (x acc) (cons acc x)) args :initial-value env))
+
+(defun self-evaluating? (expr)  
+  (or (or (numberp expr) (stringp expr) (characterp expr) (keywordp expr))
+      (special? expr)))
+
+;;(def sample '(lambda (x) (+ x 1)))  
+(define-condition not-implemented (error) ())
+
+;;if we have a quasiquotation, clojure allows the following: 
+;;var# -> (with-gensym (var) ...)
+;;~expr  -> ,expr
+;;~@expr -> ,@expr
+
+;;a clojure-style macro..
+
+;;transform ~ into , for quasiquoting   
+(defun tildes->commas (the-string)
+  (substitute  #\, #\~ the-string))
+
+;;replaces the old ` with a quasiquote symbol, and wraps the expression as a list.
+;;We can then parse the list to make 
+(defun explicit-quasiquotes (the-string)
+  (format nil "(quote (~a))" (common-utils::replace-all  the-string "`(" "quasi-quote (")))
+
+(defun tilde-transformer
+  (stream subchar arg)
+    (let* ((sexp  (read (explicit-quasiquotes (tildes->commas stream)) t))
+           (fname (car sexp))
+           (arguments (cdr sexp)))
+     `(map 
+           (function ,fname)
+           ,@arguments)))
+
+(set-dispatch-macro-character  #\# #~  #'tilde-transformer)
+;;if there's a @, we want to turn that badboy into a deref...
+
+;;for code-walking later...
+(defun gensym-stub  (x) 
+  (let* ((the-string (str x))
+	 (bound (1- (length the-string))))
+    (when (char-equal #\# (aref the-string bound))
+      (format nil "~a" (subseq the-string 0  bound)))))
+
+
+;;given (defun (x) `(let ((x# ,x)) x#))
+;;or 
+;;(defun (x) 
+;; (quasi-quote 
+;;    (let ((x# (splice x)))
+;;      x#)))
+
+;;write a function, quasi-quote, that will traverse its args 
+;;and produce a compatible common lisp expression
+;;(quasiquote '(let ((x# (splice x))) x#)) => 
+;;'(with-gensyms (x#)
+;;   (let ((x# (splice x))) x#))
+;;we just need to find-gensyms...
+;;'(with-gensyms (scrape-gensyms expr)
+;;   expr)
+
+(defun scrape-gensyms (expr)         
+  (filter (lambda (x) (not (null x)))
+	  (mapcar #'gensym-stub (flatten expr))))
+
+(defmacro clojure-mac (name args body)
+  (let ((xs (union (mapcar #'intern (scrape-gensyms body)) '())))
+   `(with-gensyms ,xs 
+      (defmacro ,name ,args ,body))))
+
+;;a lot of this functionality is related to quasi-quoting...
+;;within a quasi quote, 
+;;on the read-side, we need to flip tildes to commas
+;;on the evaluation side, we need to handle defmacro specially 
+(defmacro clojuremacro (name args body)
+  (let ((
+  
+
+
+;;deref @
+;;we need to process the deref-able symbols 
+
+
+;;has to happen inside a quasi-quote....
+(defun scrape-gensyms (expr)
+  (
+
+(defun deref-symb? (x)
+  (char-equal #\@ (aref (str x) 0)))
+
+
+(defparameter mac-sample
+  `(defmacro the-macro (x)
+     (let ((many-xs (list x x)))
+       `(let ((xs# ~many-xs)))
+	  (~x ~@xs))))
+
+;;given a string...
+(defparameter mac-string
+ "`(defmacro the-macro (x)
+     (let ((many-xs (list x x)))
+       `(let ((xs# ~many-xs)))
+	  (~x ~@xs)))")
+
 ;;We have a lisp1, sorta! 
 ;;I need to add in some more evaluation semantics, but this might be the 
 ;;way to go.  For now, it allows us to have clojure semantics for functions 
 ;;and macros.  There's still some delegation to the common lisp evaluator - which is 
 ;;not a bad thing at all!
-(defun eval-clojure (expr)
-  (cond ((atom expr)  (eval expr))
-	((listp expr) (let* ((f (car expr)) ;must be a function...
-			    (res (eval f))) ;resolve the function			
-			(if (functionp res) ;apply the function
-			    (apply res (mapcar #'eval-clojure (rest expr)))
-			    (eval expr))))
-	))	    
+(defun lisp1 (expr env)
+  (cond ((atom expr)  (if (self-evaluating? expr) expr (resolve expr env)))
+	((null expr) '())
+	((listp expr)
+	 (let ((f (first expr)))	   
+	   (case (special? f) 
+	     ;Special forms evaluate to themselves.  These were trickier than I first thought.
+	     (quote   (if (atom (second expr)) (second expr) (list* (second expr))))
+	     (lambda  (let* ((args (second expr))
+			     (body (third expr))
+			     (env  (push-bindings env (id-args args))))			  
+			  (eval `(lambda ,args ,(if (atom body) (resolve body env) 
+						    (lisp1 body env))))))
+	     ;defmacro forms have a name, an args, and a body 
+	     (defmacro (error 'not-implemented))
+	     ;;allows common-lisp semantics
+	     (cl    (eval (first (rest expr))))
+    	     ;Otherwise it's a function call.
+	     (otherwise (apply (lisp1 f env) (mapcar (lambda (x) (lisp1 x env)) (rest expr)))))))))
 
+;;Our clojure evaluator uses the lisp1 evaluator, and tags on some extra 
+;;evaluation rules.  More to add to this.
+(defmacro clojure-eval (exprs)  `(eval-lisp1 (quote ,exprs) '()))
 
 ;;we need some basic transformations....
 ;;I guess we can write a simple clojure reader by swapping some symbols around..
@@ -115,6 +245,11 @@
 ;;(some-namespace-alias/the-function x) -> (some-package-alias::the-function x)
 ;;(ns blah)             -> (defpackage blah)
 ;;#"some-regex"         -> (make-regex "some-regex")  ;;need to use cl-ppre probably...
+
+;;Quasiquoting/macro expansion
+;;# means gensym.  We have to walk the code tree and detect any #-appended symbols, do 
+;;a with-gensym for them, and go on.  Usually only happens in let bindings.
+;;i.e. blah# -> #blah_286_whatever 
 
 ;;functions (specifically lambda lists) are going to be complicated...
 ;;need a way to define variadic functions...
@@ -154,16 +289,38 @@
 (defun destructure-bind (args body)
   (list args body))
  
-
 ;;go from [x y z] (+ x y z) -> ( (3 (x y z))  (+ x y z))
 (defun process-function-body (args body) nil)
+
+;(defmethod make-lazy ((v pvector))
+;  (if (<= (vector-count v) 32)
+;      (vector-to-list v)
+      
+;;parse an args input into a compatible CL lambda list
+;;(defun args->lambdalist (args)
+;;  (if ((vector? args) (seq args))
+;;      (throw (
+	
+;;let's do a simple fn and see if we can re-use anything...
+;;(simple-function ....) 
+;;(fn [x y z] (+ x y z))
+;;(defmacro fn (args body)
+;;  (let ((ll (args->lambdalist args)))
+;;    `(lambda ,args
+  
+
+;;(variadic-function ...) 
+;;(n-function ...)
+
+;;if we can get variadic functions and macros working, it'll make this a lot 
+;;easier...
 
 ;;and check out what the args looks like...
 ;;args could be [], [...], or ([] [...] [...])
 ;;(defun args->spec (args)
 ;;  (cond ((vector? args) (list (vector-count args) args)
 ;;	 (listp args)  (process-function-bodies args)))) ;actually function bodies. 
-			  
+		  
 
 (defun multiple-arity? (args) (listp args))
 
@@ -188,9 +345,9 @@
 
 ;;our specs for the-function.
 (def specs 
-    '(( (x) (do-stuff x 10))
-      ( (x y) (do-stuff x y))
-      ( (x y & rest) (reduce do-stuff x (conj y rest)))))
+    '(((x)   (do-stuff x 10))
+      ((x y) (do-stuff x y))
+      ((x y & rest) (reduce do-stuff x (conj y rest)))))
 
 ;;this works as well.
 (def vec-specs 
@@ -359,158 +516,158 @@
 
 
 ;;These work 
-(defprotocol ICounted
-  (-count [coll] "constant time count"))
+;; (defprotocol ICounted
+;;   (-count [coll] "constant time count"))
 
-(defprotocol IEmptyableCollection
-  (-empty [coll]))
+;; (defprotocol IEmptyableCollection
+;;   (-empty [coll]))
 
-(defprotocol ICollection
-  (-conj [coll o]))
+;; (defprotocol ICollection
+;;   (-conj [coll o]))
 
-(defprotocol IOrdinal
-    (-index [coll]))
+;; (defprotocol IOrdinal
+;;     (-index [coll]))
 
 ;;this will break.  current implementation of defprotocol doesn't allow for 
 ;;multiple arity functions like this.  Need to handle variadic functions...
-(defprotocol IIndexed
-  (-nth [coll n] [coll n not-found]))
+;; (defprotocol IIndexed
+;;   (-nth [coll n] [coll n not-found]))
 
-(defprotocol ASeq)
+;; (defprotocol ASeq)
 
-(defprotocol ISeq
-  (-first [coll])
-  (-rest [coll]))
+;; (defprotocol ISeq
+;;   (-first [coll])
+;;   (-rest [coll]))
 
-(defprotocol INext
-  (-next [coll]))
+;; (defprotocol INext
+;;   (-next [coll]))
 
-(defprotocol ILookup
-  (-lookup [o k] [o k not-found]))
+;; (defprotocol ILookup
+;;   (-lookup [o k] [o k not-found]))
 
-(defprotocol IAssociative
-  (-contains-key? [coll k])
-  (-entry-at [coll k])
-  (-assoc [coll k v]))
+;; (defprotocol IAssociative
+;;   (-contains-key? [coll k])
+;;   (-entry-at [coll k])
+;;   (-assoc [coll k v]))
 
-(defprotocol IMap
-  (-assoc-ex [coll k v])
-  (-dissoc [coll k]))
+;; (defprotocol IMap
+;;   (-assoc-ex [coll k v])
+;;   (-dissoc [coll k]))
 
-(defprotocol IMapEntry
-  (-key [coll])
-  (-val [coll]))
+;; (defprotocol IMapEntry
+;;   (-key [coll])
+;;   (-val [coll]))
 
-(defprotocol ISet
-  (-disjoin [coll v]))
+;; (defprotocol ISet
+;;   (-disjoin [coll v]))
 
-(defprotocol IStack
-  (-peek [coll])
-  (-pop [coll]))
+;; (defprotocol IStack
+;;   (-peek [coll])
+;;   (-pop [coll]))
 
-(defprotocol IVector
-  (-assoc-n [coll n val]))
+;; (defprotocol IVector
+;;   (-assoc-n [coll n val]))
 
-(defprotocol IDeref
- (-deref [o]))
+;; (defprotocol IDeref
+;;  (-deref [o]))
 
-(defprotocol IDerefWithTimeout
-  (-deref-with-timeout [o msec timeout-val]))
+;; (defprotocol IDerefWithTimeout
+;;   (-deref-with-timeout [o msec timeout-val]))
 
-(defprotocol IMeta
-  (-meta [o]))
+;; (defprotocol IMeta
+;;   (-meta [o]))
 
-(defprotocol IWithMeta
-  (-with-meta [o meta]))
+;; (defprotocol IWithMeta
+;;   (-with-meta [o meta]))
 
-(defprotocol IReduce
-  (-reduce [coll f] [coll f start]))
+;; (defprotocol IReduce
+;;   (-reduce [coll f] [coll f start]))
 
-(defprotocol IKVReduce
-  (-kv-reduce [coll f init]))
+;; (defprotocol IKVReduce
+;;   (-kv-reduce [coll f init]))
 
-(defprotocol IEquiv
-  (-equiv [o other]))
+;; (defprotocol IEquiv
+;;   (-equiv [o other]))
 
-(defprotocol IHash
-  (-hash [o]))
+;; (defprotocol IHash
+;;   (-hash [o]))
 
-(defprotocol ISeqable
-  (-seq [o]))
+;; (defprotocol ISeqable
+;;   (-seq [o]))
 
-(defprotocol ISequential
-  "Marker interface indicating a persistent collection of sequential items")
+;; (defprotocol ISequential
+;;   "Marker interface indicating a persistent collection of sequential items")
 
-(defprotocol IList
-  "Marker interface indicating a persistent list")
+;; (defprotocol IList
+;;   "Marker interface indicating a persistent list")
 
-(defprotocol IRecord
-  "Marker interface indicating a record object")
+;; (defprotocol IRecord
+;;   "Marker interface indicating a record object")
 
-(defprotocol IReversible
-  (-rseq [coll]))
+;; (defprotocol IReversible
+;;   (-rseq [coll]))
 
-(defprotocol ISorted
-  (-sorted-seq [coll ascending?])
-  (-sorted-seq-from [coll k ascending?])
-  (-entry-key [coll entry])
-  (-comparator [coll]))
+;; (defprotocol ISorted
+;;   (-sorted-seq [coll ascending?])
+;;   (-sorted-seq-from [coll k ascending?])
+;;   (-entry-key [coll entry])
+;;   (-comparator [coll]))
 
-(defprotocol ^:deprecated IPrintable
-  "Do not use this.  It is kept for backwards compatibility with existing
-   user code that depends on it, but it has been superceded by IPrintWithWriter
-   User code that depends on this should be changed to use -pr-writer instead."
-  (-pr-seq [o opts]))
+;; (defprotocol ^:deprecated IPrintable
+;;   "Do not use this.  It is kept for backwards compatibility with existing
+;;    user code that depends on it, but it has been superceded by IPrintWithWriter
+;;    User code that depends on this should be changed to use -pr-writer instead."
+;;   (-pr-seq [o opts]))
 
-(defprotocol IWriter
-  (-write [writer s])
-  (-flush [writer]))
+;; (defprotocol IWriter
+;;   (-write [writer s])
+;;   (-flush [writer]))
 
-(defprotocol IPrintWithWriter
-  "The old IPrintable protocol's implementation consisted of building a giant
-   list of strings to concatenate.  This involved lots of concat calls,
-   intermediate vectors, and lazy-seqs, and was very slow in some older JS
-   engines.  IPrintWithWriter implements printing via the IWriter protocol, so it
-   be implemented efficiently in terms of e.g. a StringBuffer append."
-  (-pr-writer [o writer opts]))
+;; (defprotocol IPrintWithWriter
+;;   "The old IPrintable protocol's implementation consisted of building a giant
+;;    list of strings to concatenate.  This involved lots of concat calls,
+;;    intermediate vectors, and lazy-seqs, and was very slow in some older JS
+;;    engines.  IPrintWithWriter implements printing via the IWriter protocol, so it
+;;    be implemented efficiently in terms of e.g. a StringBuffer append."
+;;   (-pr-writer [o writer opts]))
 
-(defprotocol IPending
-  (-realized? [d]))
+;; (defprotocol IPending
+;;   (-realized? [d]))
 
-(defprotocol IWatchable
-  (-notify-watches [this oldval newval])
-  (-add-watch [this key f])
-  (-remove-watch [this key]))
+;; (defprotocol IWatchable
+;;   (-notify-watches [this oldval newval])
+;;   (-add-watch [this key f])
+;;   (-remove-watch [this key]))
 
-(defprotocol IEditableCollection
-  (-as-transient [coll]))
+;; (defprotocol IEditableCollection
+;;   (-as-transient [coll]))
 
-(defprotocol ITransientCollection
-  (-conj! [tcoll val])
-  (-persistent! [tcoll]))
+;; (defprotocol ITransientCollection
+;;   (-conj! [tcoll val])
+;;   (-persistent! [tcoll]))
 
-(defprotocol ITransientAssociative
-  (-assoc! [tcoll key val]))
+;; (defprotocol ITransientAssociative
+;;   (-assoc! [tcoll key val]))
 
-(defprotocol ITransientMap
-  (-dissoc! [tcoll key]))
+;; (defprotocol ITransientMap
+;;   (-dissoc! [tcoll key]))
 
-(defprotocol ITransientVector
-  (-assoc-n! [tcoll n val])
-  (-pop! [tcoll]))
+;; (defprotocol ITransientVector
+;;   (-assoc-n! [tcoll n val])
+;;   (-pop! [tcoll]))
 
-(defprotocol ITransientSet
-  (-disjoin! [tcoll v]))
+;; (defprotocol ITransientSet
+;;   (-disjoin! [tcoll v]))
 
-(defprotocol IComparable
-  (-compare [x y]))
+;; (defprotocol IComparable
+;;   (-compare [x y]))
 
-(defprotocol IChunk
-  (-drop-first [coll]))
+;; (defprotocol IChunk
+;;   (-drop-first [coll]))
 
-(defprotocol IChunkedSeq
-  (-chunked-first [coll])
-  (-chunked-rest [coll]))
+;; (defprotocol IChunkedSeq
+;;   (-chunked-first [coll])
+;;   (-chunked-rest [coll]))
 
-(defprotocol IChunkedNext
-  (-chunked-next [coll]))
+;; (defprotocol IChunkedNext
+;;   (-chunked-next [coll]))

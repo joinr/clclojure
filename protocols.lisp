@@ -14,6 +14,11 @@
 	   :list-protocols))
 
 (in-package :clclojure.protocols)
+
+
+;;Note-> we need to add support for variadic functions, 
+;;and variadic protocols members.
+
 ;;protocols are used extensively, as is deftype.  There are a 
 ;;few additional data types that we need to provide.
 
@@ -59,13 +64,25 @@
 
 ;A protocol is a name, a set of generic functions, and a set of
 ;types that implement the protocol.
-(defstruct protocol name functions satisfier (members (list)))
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute) 
+  (defstruct protocol name functions satisfier (members (list))))
+
+;;From stack overflow.  It looks like the compiler needs a hint if we're 
+;;defining struct/class literals and using them as constants.
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defmethod make-load-form ((v protocol) &optional env)
+    (declare (ignore env))
+    (make-load-form-saving-slots v)))
+
 (defun ->protocol (name functions &optional satisfier)
   (make-protocol :name name :functions functions :satisfier satisfier))
 
 (defun protocol-to-spec (p)
   (with-slots (name functions) p
     (list name functions)))
+
+;;We won't keep a central listing of protocols.  They'll be first class objects, 
+;;as in Clojure on the JVM.
 
 ;Debating whether to keep this around, 
 ;I may not need it...
@@ -75,6 +92,17 @@
 ;Probably deprecated soon...
 (defun get-protocol (name)
   (gethash name *protocols*))
+
+;;we can replace this using CLOS.  We just add a generic function that 
+;;tells us if an object satisfies a protocol.  
+;;like (satisfies-protocol? (protocol obj)) 
+;;Since protocols are actual objects (structs in this case), we call 
+;;(satisfies? the-protocol-obj the-obj)
+;;which delegates to 
+;;((get-slot 'satisfier the-protocol-obj) the-obj) 
+;;So we let the protocol tell us if an object satisfies its protocol.
+
+;;When we do defprotocol then, we add an implementation of 
 
 (defun add-protocol-member (pname membername)
   "Identifies membername as an implementor of protocol 
@@ -100,11 +128,15 @@
   "Lists all known protocols."
   (loop for k being the hash-keys in *protocols* collect k))
 
-(defun satisfies? (pname x)
-  "Predicate to determine if protocol pname has an
-   an implementation for objects of type x."
-  (let ((p (get-protocol pname)))
-    (not (null (find (type-of x) (protocol-members p))))))
+(defgeneric satisfies? (p x))
+(defmethod  satisfies? ((p protocol) x)
+  (not (null (find (type-of x) (protocol-members p)))))
+
+;; (defun satisfies? (pname x)
+;;   "Predicate to determine if protocol pname has an
+;;    an implementation for objects of type x."
+;;   (let ((p (get-protocol pname)))
+;;     (not (null (find (type-of x) (protocol-members p))))))
 
 (define-condition protocol-exists (error) 
   ((text :initarg :text :reader text)))
@@ -145,6 +177,8 @@
 			 (list ,@(mapcar (lambda (x) (list 'quote x)) (function-names protocolspec)))
 			 (make-satisfier (quote ,protocolspec)))))
 
+;;we'll have to update this guy later, but for now it's okay.
+;;Added that a symbol gets created in the current package.
 (defmacro defprotocol (name &rest functions)
   (let ((p (gensym))
 	(spec (cons name functions)))
@@ -157,7 +191,8 @@
 		(error 'name-collision))
 	       (t
 		(let ((,p (eval (spec-to-protocol (quote ,spec)))))
-		  (progn (add-protocol ,p)))))
+		  (progn (add-protocol ,p)
+			 (defparameter ,name ,p)))))
        (protocol-exists () ;(progn (drop-protocol (quote ,name))
 				;  (defprotocol ,name ,functions)))
 	                  (error 'protocol-exists))
@@ -240,7 +275,7 @@
 
 (defun test ()
   (let ((data '(:tom)))
-    (when (satisfies? 'INamed data)
+    (when (satisfies? INamed data)
       (pprint (get-name data)))
       (say-name data)))
 )
@@ -284,3 +319,24 @@
      (defclass ,name () ,fields 
        ,@(mapcar #'emit-class-field fields))
      ()))
+
+;;An experimental class-bassed approach; putting this on ice for now.
+
+;;This is our interface, which is a base class all protocols will 
+;;derive from.
+;; (defclass IProtocol () 
+;;   (name 
+;;    functions 
+;;    satisfier 
+;;    (members 
+;;     :initform (list))))
+
+;;Defining a protocol is just a matter of defining a new class that inherits 
+;;from IProtocol.
+
+;; (defmacro defprotocol-1 (name functions &optional satisifer)
+;;  `(defclass ,name (IProtocol)
+;;     ((name :initform ,name)
+;;      (functions :initform functions)
+;;      (
+;;   )

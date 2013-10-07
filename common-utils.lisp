@@ -40,10 +40,45 @@
 
 ;;Turn x into a string.  
 (defun stringify (x) (format nil "~a" x))
+(defun str (x) (format nil "~A" x))
+
+;;Courtesy of the Common Lisp Cookbook, thank you kind souls.
+(defun replace-all (string part replacement &key (test #'char=))
+  "Returns a new string in which all the occurences of the part 
+   is replaced with replacement."
+  (with-output-to-string (out)
+    (loop with part-length = (length part)
+       for old-pos = 0 then (+ pos part-length)
+       for pos = (search part string
+			 :start2 old-pos
+			 :test test)
+       do (write-string string out
+			:start old-pos
+			:end (or pos (length string)))
+       when pos do (write-string replacement out)
+       while pos))) 
+
+;;hack.  I think Graham has a better one around somewhere.
+(defun flatten (expr)
+  (labels ((aux (acc xs)
+	     (if (atom xs) xs
+		 (progn (dolist (x xs)
+			  (if (atom x) (push x acc)
+			      (let ((res (nreverse (aux (list) x))))
+				(mapcar (lambda (x) (push x acc)) res))))
+			acc))))
+    (nreverse (aux (list) expr))))
 
 ;;Turn xs, assumably strings, into a symbol as if typed at the repl.
 (defun symb (&rest xs)
   (eval (read-from-string (concatenate 'string xs))))
+
+
+;;Need to add with-gensyms here..
+;;From PCL.
+(defmacro with-gensyms ((&rest names) &body body)
+  `(let ,(loop for n in names collect `(,n (gensym ,(stringify n))))
+     ,@body))
 
 ;;borrowed shamelessly from Conrad Barksi's excellent 
 ;;Land of Lisp....the definitive work on building lisp 
