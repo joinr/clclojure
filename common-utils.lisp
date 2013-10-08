@@ -6,7 +6,14 @@
    :comment 
    :make-keyword 
    :stringify 
+   :str   
    :symb  
+   :with-gensyms
+   :map-tree
+   :filter-tree 
+   :reduce-tree
+   :if-let
+   :when-let
    :take
    :drop
    :ndrop
@@ -58,6 +65,9 @@
        when pos do (write-string replacement out)
        while pos))) 
 
+;;Note -> CL has analogues for some of these built in.
+;;Tree manipulators include sublis, subst, and friends.
+
 ;;hack.  I think Graham has a better one around somewhere.
 (defun flatten (expr)
   (labels ((aux (acc xs)
@@ -69,6 +79,42 @@
 			acc))))
     (nreverse (aux (list) expr))))
 
+;;maps f to a list of lists, applying f to every leaf in the tree.
+(defun map-tree (f tree)
+  (labels ((aux (acc xs)
+	     (if (null xs) (nreverse acc)
+		 (let ((x (first xs)))
+		   (if (atom x) 
+		       (aux (push (funcall f x) acc) (rest xs))
+		       (aux (push (aux (list) x) acc) (rest xs)))))))
+  (aux (list) tree)))   
+;;filters the leaves of a tree according to f.  An optional branching function
+;;may be supplied, which given a list, returns a list of children.
+(defun filter-tree (filter tree &key (branch-func #'identity))
+  (labels ((aux (acc xs)
+	     (if (null xs) (nreverse acc)
+		 (let ((x (first xs)))
+		   (if (atom x)
+		       (aux (if (funcall filter x) (push x acc) acc) (rest xs))
+		       (if-let ((children (funcall branch-func x)))
+			       (aux (push (aux (list) children) acc) (rest xs))))))))
+    (aux (list) tree)))
+
+;; (defun reduce-tree (accum tree initial-value &key (branch-func #'identity) (finalize #'identity))
+;;   (labels ((aux (acc xs)
+;; 	     (if (null xs) (funcall finalize acc)
+;; 		 (let ((x (first xs)))
+;; 		   (if (atom x)
+;; 		       (aux (funcall accum acc x) (rest xs))
+;; 		       (if-let ((children (funcall branch-func x)))	       
+;; 			       (aux (funcall accum acc (aux acc children)) (rest xs))			      
+;; 			       (aux (funcall accum acc children) (rest xs))))))))
+;;     (aux initial-value tree)))
+
+;;This is a cop out.  Okay for small trees, and it's eager.
+(defun reduce-tree (f initial-value tree &key (finalize #'identity))
+  (funcall finalize (reduce f (flatten tree) :initial-value initial-value)))
+
 ;;Turn xs, assumably strings, into a symbol as if typed at the repl.
 (defun symb (&rest xs)
   (eval (read-from-string (concatenate 'string xs))))
@@ -79,6 +125,20 @@
 (defmacro with-gensyms ((&rest names) &body body)
   `(let ,(loop for n in names collect `(,n (gensym ,(stringify n))))
      ,@body))
+
+(defmacro if-let (binding body &rest false-body)
+  (let* ((binds (first binding))
+	 (pred (first  binds))
+	 (init (second binds)))    
+    `(let ((,pred ,init))
+       (if ,pred ,body ,@false-body))))
+
+(defmacro when-let (binding body)
+  (let* ((binds (first binding))
+	 (pred (first  binds))
+	 (init (second binds)))    
+    `(let ((,pred ,init))
+       (when ,pred ,body))))
 
 ;;borrowed shamelessly from Conrad Barksi's excellent 
 ;;Land of Lisp....the definitive work on building lisp 

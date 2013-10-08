@@ -72,29 +72,7 @@
           (with-meta ,var '((symbol . t) (doc . "none")))
 	  (quote ,var)))
 
-(defparameter special-forms 
-  '(quote defmacro lambda apply cl))
 
-(defun special? (x) (find x special-forms))
-(defun resolve (expr &rest env) 
-  (if (null env)  (handler-case (eval expr)  
-		    (unbound-variable () (eval `(function ,expr))))
-      (let ((res (second (assoc expr (first env)))))
-	(if (null res) (resolve expr) res))))
-
-;;weird
-(defun id-args (args)
-  (reduce (lambda (acc x) (cons (list  x  x) acc)) args :initial-value '()))
-
-(defun push-bindings (env args)
-  (reduce (lambda (x acc) (cons acc x)) args :initial-value env))
-
-(defun self-evaluating? (expr)  
-  (or (or (numberp expr) (stringp expr) (characterp expr) (keywordp expr))
-      (special? expr)))
-
-;;(def sample '(lambda (x) (+ x 1)))  
-(define-condition not-implemented (error) ())
 
 ;;if we have a quasiquotation, clojure allows the following: 
 ;;var# -> (with-gensym (var) ...)
@@ -112,16 +90,19 @@
 (defun explicit-quasiquotes (the-string)
   (format nil "(quote (~a))" (common-utils::replace-all  the-string "`(" "quasi-quote (")))
 
-(defun tilde-transformer
-  (stream subchar arg)
-    (let* ((sexp  (read (explicit-quasiquotes (tildes->commas stream)) t))
-           (fname (car sexp))
-           (arguments (cdr sexp)))
-     `(map 
-           (function ,fname)
-           ,@arguments)))
+;;delayed
+;; (defun tilde-transformer
+;;   (stream subchar arg)
+;;     (let* ((sexp  (read (explicit-quasiquotes (tildes->commas stream)) t))
+;;            (fname (car sexp))
+;;            (arguments (cdr sexp)))
+;;      `(map 
+;;            (function ,fname)
+;;            ,@arguments)))
 
-(set-dispatch-macro-character  #\# #~  #'tilde-transformer)
+;;(set-dispatch-macro-character  #\# #~  #'tilde-transformer)
+
+
 ;;if there's a @, we want to turn that badboy into a deref...
 
 ;;for code-walking later...
@@ -161,18 +142,15 @@
 ;;within a quasi quote, 
 ;;on the read-side, we need to flip tildes to commas
 ;;on the evaluation side, we need to handle defmacro specially 
-(defmacro clojuremacro (name args body)
-  (let ((
+
+;;(defmacro clojuremacro (name args body)
+;;  (let ((
   
 
 
 ;;deref @
 ;;we need to process the deref-able symbols 
 
-
-;;has to happen inside a quasi-quote....
-(defun scrape-gensyms (expr)
-  (
 
 (defun deref-symb? (x)
   (char-equal #\@ (aref (str x) 0)))
@@ -191,12 +169,77 @@
        `(let ((xs# ~many-xs)))
 	  (~x ~@xs)))")
 
+;;My good friend Mr. Hanson pointed out that I could hijack lambda entirely.
+;;In common lisp, symbols have a function slot and a value slot.
+;;So if we want to have a lisp1, we want to eliminate the partitioning between 
+;;function and var namespaces. 
+;;If we want to make a lisp1 style symbol, we just set the symbol-value 
+;;and the symbol-function to the same thing; i.e. we point the symbol-function 
+;;to the symbol value.  
+
+
+    
+;;(defmacro unify (symb) 
+;;  `(when (function (symbol-function ,symb) (symbol-value ,symb))))
+
+;;maybe useless.
+(defun macro?    (symb) (when (macro-function symb) 't))
+(defun function? (symb) (fboundp symb))
+(defun unify-function! (symb)
+  (if-let ((func (symbol-function symb))) 
+     (progn (setf (symbol-value x) func)
+	    symb)
+     symb))
+
+(defun unify-symbols (xs) (mapcar #'unify-function! xs))
+
+;;(defmacro defn (name &rest args body)
+;;  (let ((args (mapcar (lambda (x) (if-let ((func (symbol-function x))) (progn (setf (symbol-value x) func)))
+
+;;These are for convenience.  CL has a bunch of special operators...
+;;Note-> there's a schism over special-form-p, and special-operator-p, 
+;;special-operator is the accepted nomenclature, although older implementations
+;;use special-form...
+(defparameter special-forms 
+  '(quote defmacro lambda apply cl))
+
+    		   		  
+
+(defun special? (x) (or (special-operator-p x) (find x special-forms)))
+(defun resolve (expr &rest env) 
+  (if (null env)  (handler-case (eval expr)  
+		    (unbound-variable () (eval `(function ,expr))))
+      (let ((res (second (assoc expr (first env)))))
+	(if (null res) (resolve expr) res))))
+
+(defun resolve2 (expr &rest env) 
+  (if (null env)  (eval (symbol-value expr))
+      (let ((res (second (assoc expr (first env)))))
+	(if (null res) (resolve2 expr) res))))
+
+(defun resolve*     (xs &rest env) (mapcar (lambda (x) (resolve x env)) xs))
+(defun resolve-tree (xs &rest env) (map-tree (lambda (x) (resolve x env)) xs))
+
+;;weird
+(defun id-args (args)
+  (reduce (lambda (acc x) (cons (list  x  x) acc)) args :initial-value '()))
+
+(defun push-bindings (env args)
+  (reduce (lambda (x acc) (cons acc x)) args :initial-value env))
+
+(defun self-evaluating? (expr)  
+  (or (or (numberp expr) (stringp expr) (characterp expr) (keywordp expr))
+      (special? expr)))
+
+;;(def sample '(lambda (x) (+ x 1)))  
+(define-condition not-implemented (error) ())
+
 ;;We have a lisp1, sorta! 
 ;;I need to add in some more evaluation semantics, but this might be the 
 ;;way to go.  For now, it allows us to have clojure semantics for functions 
 ;;and macros.  There's still some delegation to the common lisp evaluator - which is 
 ;;not a bad thing at all!
-(defun lisp1 (expr env)
+(defun lisp1 (expr &optional (env '()))
   (cond ((atom expr)  (if (self-evaluating? expr) expr (resolve expr env)))
 	((null expr) '())
 	((listp expr)
@@ -205,10 +248,12 @@
 	     ;Special forms evaluate to themselves.  These were trickier than I first thought.
 	     (quote   (if (atom (second expr)) (second expr) (list* (second expr))))
 	     (lambda  (let* ((args (second expr))
-			     (body (third expr))
-			     (env  (push-bindings env (id-args args))))			  
-			  (eval `(lambda ,args ,(if (atom body) (resolve body env) 
-						    (lisp1 body env))))))
+			     (body (third  expr))
+			     (env  (push-bindings env (id-args args))))			
+			  ;(eval
+			   `(lambda ,args ,(if (atom body) (resolve body env) 
+						    (lisp1 body env)))))
+;)
 	     ;defmacro forms have a name, an args, and a body 
 	     (defmacro (error 'not-implemented))
 	     ;;allows common-lisp semantics
