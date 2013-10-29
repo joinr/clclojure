@@ -42,11 +42,13 @@
 ;;I think we want to use persistent maps for meta data, as clojure does.
 ;;I want to get the stubs in place, and am using property lists with a 'meta 
 ;;entry pointing at an assoc list for now.
-(defmacro meta (symb) `(get (quote ,symb) 'meta))
+(defmacro meta (symb)        `(get (quote ,symb) 'meta))
 (defmacro with-meta (symb m) `(setf (get (quote ,symb) 'meta) ,m))
 
-;; (defprotocol IMeta 
-;;     (meta (obj)))
+;;pending.
+;(defprotocol IMeta ;
+;  (-get-meta (obj) "returns the meta data associated with an object")
+;  (-set-meta (obj m) "sets the meta data associated with an object to m"))
 
 ;;move this later...
 (defun vector? (x) (typep x 'clclojure.pvector::pvec))
@@ -71,8 +73,6 @@
   `(progn (defparameter ,var ,@init-form)
           (with-meta ,var '((symbol . t) (doc . "none")))
 	  (quote ,var)))
-
-
 
 ;;if we have a quasiquotation, clojure allows the following: 
 ;;var# -> (with-gensym (var) ...)
@@ -131,7 +131,7 @@
 
 (defun scrape-gensyms (expr)         
   (filter (lambda (x) (not (null x)))
-	  (mapcar #'gensym-stub (flatten expr))))
+	  (mapcar #'gensym-stub (common-utils::flatten expr))))
 
 (defmacro clojure-mac (name args body)
   (let ((xs (union (mapcar #'intern (scrape-gensyms body)) '())))
@@ -203,13 +203,13 @@
 (defparameter special-forms 
   '(quote defmacro lambda apply cl))
 
-    		   		  
+(defparameter operators '(* / +))
 
-(defun special? (x) (or (special-operator-p x) (find x special-forms)))
+(defun special? (x) (or (when (special-operator-p x) x) (find x special-forms)))
 (defun resolve (expr &rest env) 
   (if (null env)  (handler-case (eval expr)  
 		    (unbound-variable () (eval `(function ,expr))))
-      (let ((res (second (assoc expr (first env)))))
+      (let ((res (second (assoc expr  (first env)))))
 	(if (null res) (resolve expr) res))))
 
 (defun resolve2 (expr &rest env) 
@@ -217,8 +217,10 @@
       (let ((res (second (assoc expr (first env)))))
 	(if (null res) (resolve2 expr) res))))
 
-(defun resolve*     (xs &rest env) (mapcar (lambda (x) (resolve x env)) xs))
-(defun resolve-tree (xs &rest env) (map-tree (lambda (x) (resolve x env)) xs))
+;;Change the lamba list for env from rest to optional.  Currently requires extraneous 
+;;first calls.
+(defun resolve*     (xs &rest env) (mapcar (lambda (x) (resolve x (first env))) xs))
+(defun resolve-tree (xs &rest env) (map-tree (lambda (x) (resolve x (first env))) xs))
 
 ;;weird
 (defun id-args (args)
@@ -234,25 +236,30 @@
 ;;(def sample '(lambda (x) (+ x 1)))  
 (define-condition not-implemented (error) ())
 
+(defparameter base-env (list (list '+ #'+)
+			     (list '* #'*)
+			     (list '/ #'/)))
 ;;We have a lisp1, sorta! 
 ;;I need to add in some more evaluation semantics, but this might be the 
 ;;way to go.  For now, it allows us to have clojure semantics for functions 
 ;;and macros.  There's still some delegation to the common lisp evaluator - which is 
 ;;not a bad thing at all!
-(defun lisp1 (expr &optional (env '()))
+(defun lisp1 (expr &optional (env base-env))
   (cond ((atom expr)  (if (self-evaluating? expr) expr (resolve expr env)))
+
 	((null expr) '())
 	((listp expr)
 	 (let ((f (first expr)))	   
 	   (case (special? f) 
 	     ;Special forms evaluate to themselves.  These were trickier than I first thought.
-	     (quote   (if (atom (second expr)) (second expr) (list* (second expr))))
+	     (function (eval `(function ,(second expr))))
+	     (quote   (second expr))
 	     (lambda  (let* ((args (second expr))
 			     (body (third  expr))
 			     (env  (push-bindings env (id-args args))))			
 			  ;(eval
 			   `(lambda ,args ,(if (atom body) (resolve body env) 
-						    (lisp1 body env)))))
+						    (resolve-tree body env)))))
 ;)
 	     ;defmacro forms have a name, an args, and a body 
 	     (defmacro (error 'not-implemented))
@@ -260,10 +267,11 @@
 	     (cl    (eval (first (rest expr))))
     	     ;Otherwise it's a function call.
 	     (otherwise (apply (lisp1 f env) (mapcar (lambda (x) (lisp1 x env)) (rest expr)))))))))
+;(defparameter lisp1 #'lisp1)
 
 ;;Our clojure evaluator uses the lisp1 evaluator, and tags on some extra 
 ;;evaluation rules.  More to add to this.
-(defmacro clojure-eval (exprs)  `(eval-lisp1 (quote ,exprs) '()))
+(defmacro clojure-eval (exprs) `(lisp1 (quote ,exprs)))
 
 ;;we need some basic transformations....
 ;;I guess we can write a simple clojure reader by swapping some symbols around..
@@ -396,7 +404,7 @@
 
 ;;this works as well.
 (def vec-specs 
-    '(([x] (do-stuff x 10))
+    '(([x]   (do-stuff x 10))
       ([x y] (do-stuff x y))
       ([x y & rest] (reduce do-stuff x (conj y rest)))))
   

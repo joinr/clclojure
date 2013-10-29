@@ -9,6 +9,7 @@
    :str   
    :symb  
    :with-gensyms
+   :flatten
    :map-tree
    :filter-tree 
    :reduce-tree
