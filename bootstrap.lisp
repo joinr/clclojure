@@ -8,7 +8,7 @@
 ;;1) Lisp1 vs Lisp2.  I'll hack the evaluator for this.
 ;;2) Persistent structures.  Already built Pvector and 1/2 done with Pmap.
 ;;3) Protocols.  Already implemented as generic functions. 
-;;4) Multimethds.  Need to find a way to implement multiple dispatch.
+;;4) Multimethods.  Need to find a way to implement multiple dispatch.
 ;;5) Reader.  CL macros use , and ,@ in place of ~ and ~@ in Clojure.
 ;;            We'll need to either cook the common lisp reader, or 
 ;;            build a separate clojure reader that will perform the
@@ -25,149 +25,16 @@
 ;;                use the protocols defined in the clojurescript version as much possible,
 ;;                rather than baking in a lot of the seq abstraction in the host language
 ;;                like clojure does.                
-;;more?
 
-;;loading handled by asdf now.
-;;(load "common-utils.lisp") ;useful stuff like comment, keyword creation, and more.
-;;(load "protocols.lisp")
-;;(load "pvector.lisp") ;imports reader macros for vector literals i.e. [1 2 3] 
-;(load "pmap.lisp")  ;once pmap is finished, it'll be really useful for  
-;(load "seq.lisp") ;might be nice to go ahead and clone the seq library to make this simpler.
 (defpackage :clclojure.base
   (:use :common-lisp :common-utils :clclojure.pvector :clclojure.protocols))
 (in-package clclojure.base)
 
-;;Some basic stuff to facilitate clojure forms.
+;;Lisp1 -> Lisp2 
+;;==============
 
-;;I think we want to use persistent maps for meta data, as clojure does.
-;;I want to get the stubs in place, and am using property lists with a 'meta 
-;;entry pointing at an assoc list for now.
-(defmacro meta (symb)        `(get (quote ,symb) 'meta))
-(defmacro with-meta (symb m) `(setf (get (quote ,symb) 'meta) ,m))
-
-;;pending.
-;(defprotocol IMeta ;
-;  (-get-meta (obj) "returns the meta data associated with an object")
-;  (-set-meta (obj m) "sets the meta data associated with an object to m"))
-
-;;move this later...
-(defun vector? (x) (typep x 'clclojure.pvector::pvec))
-
-;;(defun meta (obj) 
-;;  (cond (symbolp obj) (eval `(get (quote ,obj) 'meta))
-
-;;One thing about metadata, and how it differs from property lists: 
-;;You can call meta on datastructures, or objects, and get a map back.
-;;Symbols can have meta called on them with (meta #'the-symbol), which 
-;;uses sharp-quote to get the symbol, vs the symbol-name.
-
-;;Clojure is a lisp-1, so we need to ensure that everything, even 
-;;functions, gets bound into the a single namespace. 
-
-;;another way to do this is to have clojure-specific symbols be actual 
-;;clos objects, which have meta data fields automatically.  Then we 
-;;lose out on all the built in goodies from common lisp though.
-
-;;Experimental.  Not sure of how to approach this guy.
-(defmacro def (var &rest init-form)
-  `(progn (defparameter ,var ,@init-form)
-          (with-meta ,var '((symbol . t) (doc . "none")))
-	  (quote ,var)))
-
-;;if we have a quasiquotation, clojure allows the following: 
-;;var# -> (with-gensym (var) ...)
-;;~expr  -> ,expr
-;;~@expr -> ,@expr
-
-;;a clojure-style macro..
-
-;;transform ~ into , for quasiquoting   
-(defun tildes->commas (the-string)
-  (substitute  #\, #\~ the-string))
-
-;;replaces the old ` with a quasiquote symbol, and wraps the expression as a list.
-;;We can then parse the list to make 
-(defun explicit-quasiquotes (the-string)
-  (format nil "(quote (~a))" (common-utils::replace-all  the-string "`(" "quasi-quote (")))
-
-;;delayed
-;; (defun tilde-transformer
-;;   (stream subchar arg)
-;;     (let* ((sexp  (read (explicit-quasiquotes (tildes->commas stream)) t))
-;;            (fname (car sexp))
-;;            (arguments (cdr sexp)))
-;;      `(map 
-;;            (function ,fname)
-;;            ,@arguments)))
-
-;;(set-dispatch-macro-character  #\# #~  #'tilde-transformer)
-
-
-;;if there's a @, we want to turn that badboy into a deref...
-
-;;for code-walking later...
-(defun gensym-stub  (x) 
-  (let* ((the-string (str x))
-	 (bound (1- (length the-string))))
-    (when (char-equal #\# (aref the-string bound))
-      (format nil "~a" (subseq the-string 0  bound)))))
-
-
-;;given (defun (x) `(let ((x# ,x)) x#))
-;;or 
-;;(defun (x) 
-;; (quasi-quote 
-;;    (let ((x# (splice x)))
-;;      x#)))
-
-;;write a function, quasi-quote, that will traverse its args 
-;;and produce a compatible common lisp expression
-;;(quasiquote '(let ((x# (splice x))) x#)) => 
-;;'(with-gensyms (x#)
-;;   (let ((x# (splice x))) x#))
-;;we just need to find-gensyms...
-;;'(with-gensyms (scrape-gensyms expr)
-;;   expr)
-
-(defun scrape-gensyms (expr)         
-  (filter (lambda (x) (not (null x)))
-	  (mapcar #'gensym-stub (common-utils::flatten expr))))
-
-(defmacro clojure-mac (name args body)
-  (let ((xs (union (mapcar #'intern (scrape-gensyms body)) '())))
-   `(with-gensyms ,xs 
-      (defmacro ,name ,args ,body))))
-
-;;a lot of this functionality is related to quasi-quoting...
-;;within a quasi quote, 
-;;on the read-side, we need to flip tildes to commas
-;;on the evaluation side, we need to handle defmacro specially 
-
-;;(defmacro clojuremacro (name args body)
-;;  (let ((
-  
-
-
-;;deref @
-;;we need to process the deref-able symbols 
-
-
-(defun deref-symb? (x)
-  (char-equal #\@ (aref (str x) 0)))
-
-
-(defparameter mac-sample
-  `(defmacro the-macro (x)
-     (let ((many-xs (list x x)))
-       `(let ((xs# ~many-xs)))
-	  (~x ~@xs))))
-
-;;given a string...
-(defparameter mac-string
- "`(defmacro the-macro (x)
-     (let ((many-xs (list x x)))
-       `(let ((xs# ~many-xs)))
-	  (~x ~@xs)))")
+;;Unification of Function and Symbol Names (Pending)
+;;==================================================
 
 ;;My good friend Mr. Hanson pointed out that I could hijack lambda entirely.
 ;;In common lisp, symbols have a function slot and a value slot.
@@ -176,25 +43,22 @@
 ;;If we want to make a lisp1 style symbol, we just set the symbol-value 
 ;;and the symbol-function to the same thing; i.e. we point the symbol-function 
 ;;to the symbol value.  
-
-
     
 ;;(defmacro unify (symb) 
 ;;  `(when (function (symbol-function ,symb) (symbol-value ,symb))))
 
-;;maybe useless.
 (defun macro?    (symb) (when (macro-function symb) 't))
 (defun function? (symb) (fboundp symb))
 (defun unify-function! (symb)
   (if-let ((func (symbol-function symb))) 
-     (progn (setf (symbol-value x) func)
+     (progn (setf (symbol-value func) func)
 	    symb)
      symb))
 
 (defun unify-symbols (xs) (mapcar #'unify-function! xs))
 
-;;(defmacro defn (name &rest args body)
-;;  (let ((args (mapcar (lambda (x) (if-let ((func (symbol-function x))) (progn (setf (symbol-value x) func)))
+;;Lisp1 Evaluation
+;;================
 
 ;;These are for convenience.  CL has a bunch of special operators...
 ;;Note-> there's a schism over special-form-p, and special-operator-p, 
@@ -203,76 +67,121 @@
 (defparameter special-forms 
   '(quote defmacro lambda apply cl))
 
-(defparameter operators '(* / +))
-
-(defun special? (x) (or (when (special-operator-p x) x) (find x special-forms)))
-(defun resolve (expr &rest env) 
+(defun special? (x) 
+  (and (atom x) 
+       (or (when (special-operator-p x) x) (find x special-forms))))
+;;Given an environment, and a symbol (currently expr), uses common lisp to 
+;;evaluate the expression.
+(defun resolve (expr &optional env) 
   (if (null env)  (handler-case (eval expr)  
 		    (unbound-variable () (eval `(function ,expr))))
-      (let ((res (second (assoc expr  (first env)))))
+      (let ((res (second (assoc expr  env))))
 	(if (null res) (resolve expr) res))))
 
-(defun resolve2 (expr &rest env) 
-  (if (null env)  (eval (symbol-value expr))
-      (let ((res (second (assoc expr (first env)))))
-	(if (null res) (resolve2 expr) res))))
+;; (defun resolve2 (expr &rest env) 
+;;   (if (null env)  (eval (symbol-value expr))
+;;       (let ((res (second (assoc expr (first env)))))
+;; 	(if (null res) (resolve2 expr) res))))
 
-;;Change the lamba list for env from rest to optional.  Currently requires extraneous 
+;;Fancy Symbol Resolution
+;;=======================
+;;Supplemental functions to be used for code analysis and tree walking later.
+;;Todo: Change the lamba list for env from rest to optional.  Currently requires extraneous 
 ;;first calls.
-(defun resolve*     (xs &rest env) (mapcar (lambda (x) (resolve x (first env))) xs))
-(defun resolve-tree (xs &rest env) (map-tree (lambda (x) (resolve x (first env))) xs))
+(defun resolve*     (xs  env) (mapcar (lambda (x) (resolve x env)) xs))
+(defun resolve-tree (xs  env) (map-tree (lambda (x) (resolve x env)) xs))
 
-;;weird
-(defun id-args (args)
-  (reduce (lambda (acc x) (cons (list  x  x) acc)) args :initial-value '()))
+;;Determines if an expression (really a symbol) is self evaluating.
+(defun self-evaluating? (expr)  
+  (or (functionp expr) 
+      (or (numberp expr) (stringp expr) (characterp expr) (keywordp expr))
+      (special? expr)))
 
+;;retrieve the current bindings associated with a symbol.
+(defmacro current-binding (x) `(list (quote ,x) x))
+;;compose an alist of all the current bindings of each x in xs.
+(defun lex-bindings (args)
+  (reduce (lambda (acc x) (cons (current-binding x) acc)) args :initial-value '()))
+
+;;Extend the lexical environment with a set of new bindings.
 (defun push-bindings (env args)
   (reduce (lambda (x acc) (cons acc x)) args :initial-value env))
 
-(defun self-evaluating? (expr)  
-  (or (or (numberp expr) (stringp expr) (characterp expr) (keywordp expr))
-      (special? expr)))
-
-;;(def sample '(lambda (x) (+ x 1)))  
-(define-condition not-implemented (error) ())
-
+;;The base lisp1 environment contains bindings for the arithmetic operators, 
+;;and will likely include more bindings.  Might change the environment from 
+;;and a-list to a hashtable at some point.
 (defparameter base-env (list (list '+ #'+)
 			     (list '* #'*)
 			     (list '/ #'/)))
+
+(define-condition not-implemented (error) ())
+
 ;;We have a lisp1, sorta! 
 ;;I need to add in some more evaluation semantics, but this might be the 
 ;;way to go.  For now, it allows us to have clojure semantics for functions 
-;;and macros.  There's still some delegation to the common lisp evaluator - which is 
-;;not a bad thing at all!
+;;and macros.  There's still some delegation to the common lisp evaluator - 
+;;which is not a bad thing at all!
 (defun lisp1 (expr &optional (env base-env))
   (cond ((atom expr)  (if (self-evaluating? expr) expr (resolve expr env)))
-
 	((null expr) '())
 	((listp expr)
 	 (let ((f (first expr)))	   
 	   (case (special? f) 
-	     ;Special forms evaluate to themselves.  These were trickier than I first thought.
+	     ;Special forms evaluate to themselves.  
 	     (function (eval `(function ,(second expr))))
-	     (quote   (second expr))
-	     (lambda  (let* ((args (second expr))
-			     (body (third  expr))
-			     (env  (push-bindings env (id-args args))))			
-			  ;(eval
-			   `(lambda ,args ,(if (atom body) (resolve body env) 
-						    (resolve-tree body env)))))
-;)
-	     ;defmacro forms have a name, an args, and a body 
+	     (quote    (second expr))
+	     (lambda   (let* ((args (second expr))
+		    	      (body (third  expr)))
+			  (if (atom body) 
+			      (eval `(lambda ,args ,(resolve body env))) ;simple			     
+			      ;this is currently packing around the lexical environment. 
+			      ;Note: it's going to get a lot nastier if you include the cases
+			      ;that lambda lists cover and such.  Right now, i'm assuming a
+			      ;simple list of args, lex-bindings will have to process lambda
+			      ;lists and other fun corner cases...I'll probably add an analyzer
+			      ;that will compile the non-free bits of the lambda down, ala SICP.
+			      (let ((lex-env   (list 'quote env))
+				    (arg-list  (list* 'list args)))
+			      (eval `(lambda ,args  
+				       (lisp1 ,(list 'quote body) 
+					      (push-bindings  ,lex-env (lex-bindings ,arg-list)))))))))
+	     ;defmacro forms have a name, an args, and a body. 
 	     (defmacro (error 'not-implemented))
-	     ;;allows common-lisp semantics
+	     ;;allows common-lisp semantics, this is an escape hatch.
 	     (cl    (eval (first (rest expr))))
     	     ;Otherwise it's a function call.
 	     (otherwise (apply (lisp1 f env) (mapcar (lambda (x) (lisp1 x env)) (rest expr)))))))))
-;(defparameter lisp1 #'lisp1)
 
 ;;Our clojure evaluator uses the lisp1 evaluator, and tags on some extra 
 ;;evaluation rules.  More to add to this.
 (defmacro clojure-eval (exprs) `(lisp1 (quote ,exprs)))
 
+;;testing 
+;;(clojure-eval ((lambda (x) (+ 2 x)) 2))
+;;BASE> 4
+
+;;Lambda/function call analysis (PENDING)
+;;=======================================
+;;if we want to build a structure that represents a lambda, then 
+;;we can worry about evaluating that structure as a cl lambda.
+;; (LAMBDA (X) (#<Compiled-function + #x409FFC6> 2 X))
+;;we can kill 2 birds with one stone, if, during resolve, 
+;;we walk the code and swap out function calls with 
+;;funcall 
+
+;(lambda (x) (the-func obj args)) ;valid lisp1 
+;(lambda (x) (funcall the-func-obj args)) ;;desired lisp2 (cl)
+;;analyze a lambda expr.  
+(defun function-call? (expr) (functionp (first expr)))
+;;this is a cheap way to eval lambdas...
+;;we need to change it to a compilation step, but we'll do that later.
+;;for  
+  
+;;everywhere we see (some-function arg) 
+;;we want to tell cl it's (funcall some-function arg)
+
+;;Clojure Transformations (PENDING)
+;;================================
 ;;we need some basic transformations....
 ;;I guess we can write a simple clojure reader by swapping some symbols around..
 ;;maybe even use read macros...
@@ -343,7 +252,7 @@
   (list args body))
  
 ;;go from [x y z] (+ x y z) -> ( (3 (x y z))  (+ x y z))
-(defun process-function-body (args body) nil)
+;;(defun process-function-body (args body) nil)
 
 ;(defmethod make-lazy ((v pvector))
 ;  (if (<= (vector-count v) 32)
@@ -478,7 +387,159 @@
 )
 
 
+;;(defmacro defn (name &rest args body)
+;;  (let ((args (mapcar (lambda (x) (if-let ((func (symbol-function x))) (progn (setf (symbol-value x) func)))
+
+
 (defmacro doc (v) `(pprint (rest (assoc 'DOC (meta ,v)))))   
+
+
+;;Meta Data
+;;=========
+
+;;I think we want to use persistent maps for meta data, as clojure does.
+;;I want to get the stubs in place, and am using property lists with a 'meta 
+;;entry pointing at an assoc list for now.
+(defmacro meta (symb)        `(get (quote ,symb) 'meta))
+(defmacro with-meta (symb m) `(setf (get (quote ,symb) 'meta) ,m))
+
+;;pending.
+;(defprotocol IMeta ;
+;  (-get-meta (obj) "returns the meta data associated with an object")
+;  (-set-meta (obj m) "sets the meta data associated with an object to m"))
+
+;;move this later...
+(defun vector? (x) (typep x 'clclojure.pvector::pvec))
+
+;;(defun meta (obj) 
+;;  (cond (symbolp obj) (eval `(get (quote ,obj) 'meta))
+
+;;One thing about metadata, and how it differs from property lists: 
+;;You can call meta on datastructures, or objects, and get a map back.
+;;Symbols can have meta called on them with (meta #'the-symbol), which 
+;;uses sharp-quote to get the symbol, vs the symbol-name.
+
+;;Clojure is a lisp-1, so we need to ensure that everything, even 
+;;functions, gets bound into the a single namespace. 
+
+;;another way to do this is to have clojure-specific symbols be actual 
+;;clos objects, which have meta data fields automatically.  Then we 
+;;lose out on all the built in goodies from common lisp though.
+
+;;def 
+;;===
+
+;;Experimental.  Not sure of how to approach this guy.
+(defmacro def (var &rest init-form)
+  `(progn (defparameter ,var ,@init-form)
+          (with-meta ,var '((symbol . t) (doc . "none")))
+	  (quote ,var)))
+
+
+;;Macrology 
+;;=========
+
+
+;;if we have a quasiquotation, clojure allows the following: 
+;;var# -> (with-gensym (var) ...)
+;;~expr  -> ,expr
+;;~@expr -> ,@expr
+
+;;a clojure-style macro..
+
+;;transform ~ into , for quasiquoting   
+(defun tildes->commas (the-string)
+  (substitute  #\, #\~ the-string))
+
+;;replaces the old ` with a quasiquote symbol, and wraps the expression as a list.
+;;We can then parse the list to make 
+(defun explicit-quasiquotes (the-string)
+  (format nil "(quote (~a))" (common-utils::replace-all  the-string "`(" "quasi-quote (")))
+
+;;delayed
+;; (defun tilde-transformer
+;;   (stream subchar arg)
+;;     (let* ((sexp  (read (explicit-quasiquotes (tildes->commas stream)) t))
+;;            (fname (car sexp))
+;;            (arguments (cdr sexp)))
+;;      `(map 
+;;            (function ,fname)
+;;            ,@arguments)))
+
+;;(set-dispatch-macro-character  #\# #~  #'tilde-transformer)
+
+
+;;if there's a @, we want to turn that badboy into a deref...
+
+;;for code-walking later...
+(defun gensym-stub  (x) 
+  (let* ((the-string (str x))
+	 (bound (1- (length the-string))))
+    (when (char-equal #\# (aref the-string bound))
+      (format nil "~a" (subseq the-string 0  bound)))))
+
+
+;;given (defun (x) `(let ((x# ,x)) x#))
+;;or 
+;;(defun (x) 
+;; (quasi-quote 
+;;    (let ((x# (splice x)))
+;;      x#)))
+
+;;write a function, quasi-quote, that will traverse its args 
+;;and produce a compatible common lisp expression
+;;(quasiquote '(let ((x# (splice x))) x#)) => 
+;;'(with-gensyms (x#)
+;;   (let ((x# (splice x))) x#))
+;;we just need to find-gensyms...
+;;'(with-gensyms (scrape-gensyms expr)
+;;   expr)
+
+(defun scrape-gensyms (expr)         
+  (filter (lambda (x) (not (null x)))
+	  (mapcar #'gensym-stub (common-utils::flatten expr))))
+
+(defmacro clojure-mac (name args body)
+  (let ((xs (union (mapcar #'intern (scrape-gensyms body)) '())))
+   `(with-gensyms ,xs 
+      (defmacro ,name ,args ,body))))
+
+;;a lot of this functionality is related to quasi-quoting...
+;;within a quasi quote, 
+;;on the read-side, we need to flip tildes to commas
+;;on the evaluation side, we need to handle defmacro specially 
+
+;;(defmacro clojuremacro (name args body)
+;;  (let ((
+  
+
+
+;;deref @
+;;we need to process the deref-able symbols 
+
+
+(defun deref-symb? (x)
+  (char-equal #\@ (aref (str x) 0)))
+
+
+(defparameter mac-sample
+  `(defmacro the-macro (x)
+     (let ((many-xs (list x x)))
+       `(let ((xs# ~many-xs)))
+	  (~x ~@xs))))
+
+;;given a string...
+(defparameter mac-string
+ "`(defmacro the-macro (x)
+     (let ((many-xs (list x x)))
+       `(let ((xs# ~many-xs)))
+	  (~x ~@xs)))")
+
+
+;;Clojure Core (PENDING)
+;;======================
+
+
 ;; (comment 
 
 ;; (defmacro fn  (& sigs) 

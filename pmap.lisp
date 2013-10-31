@@ -1,6 +1,6 @@
 ;This is an implementation of Clojure's 
 ;persistent map for Common Lisp.
-(defpackage :clojure.pmap
+(defpackage :clclojure.pmap
   (:use :common-lisp)
   (:export :persistent-map
 	   :empty-map?
