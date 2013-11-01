@@ -66,6 +66,31 @@
        when pos do (write-string replacement out)
        while pos))) 
 
+;;Turn xs, assumably strings, into a symbol as if typed at the repl.
+(defun symb (&rest xs)
+  (eval (read-from-string (concatenate 'string xs))))
+
+
+;;Need to add with-gensyms here..
+;;From PCL.
+(defmacro with-gensyms ((&rest names) &body body)
+  `(let ,(loop for n in names collect `(,n (gensym ,(stringify n))))
+     ,@body))
+
+(defmacro if-let (binding body &rest false-body)
+  (let* ((binds (first binding))
+	 (pred (first  binds))
+	 (init (second binds)))    
+    `(let ((,pred ,init))
+       (if ,pred ,body ,@false-body))))
+
+(defmacro when-let (binding body)
+  (let* ((binds (first binding))
+	 (pred (first  binds))
+	 (init (second binds)))    
+    `(let ((,pred ,init))
+       (when ,pred ,body))))
+
 ;;Note -> CL has analogues for some of these built in.
 ;;Tree manipulators include sublis, subst, and friends.
 
@@ -116,30 +141,7 @@
 (defun reduce-tree (f initial-value tree &key (finalize #'identity))
   (funcall finalize (reduce f (flatten tree) :initial-value initial-value)))
 
-;;Turn xs, assumably strings, into a symbol as if typed at the repl.
-(defun symb (&rest xs)
-  (eval (read-from-string (concatenate 'string xs))))
 
-
-;;Need to add with-gensyms here..
-;;From PCL.
-(defmacro with-gensyms ((&rest names) &body body)
-  `(let ,(loop for n in names collect `(,n (gensym ,(stringify n))))
-     ,@body))
-
-(defmacro if-let (binding body &rest false-body)
-  (let* ((binds (first binding))
-	 (pred (first  binds))
-	 (init (second binds)))    
-    `(let ((,pred ,init))
-       (if ,pred ,body ,@false-body))))
-
-(defmacro when-let (binding body)
-  (let* ((binds (first binding))
-	 (pred (first  binds))
-	 (init (second binds)))    
-    `(let ((,pred ,init))
-       (when ,pred ,body))))
 
 ;;borrowed shamelessly from Conrad Barksi's excellent 
 ;;Land of Lisp....the definitive work on building lisp 

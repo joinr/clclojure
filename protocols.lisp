@@ -86,12 +86,9 @@
 
 ;Debating whether to keep this around, 
 ;I may not need it...
-(defparameter *protocols* 
-  (make-hash-table :test #'eq))
-
+(defparameter *protocols* (make-hash-table :test #'eq))
 ;Probably deprecated soon...
-(defun get-protocol (name)
-  (gethash name *protocols*))
+(defun get-protocol (name)  (gethash name *protocols*))
 
 ;;we can replace this using CLOS.  We just add a generic function that 
 ;;tells us if an object satisfies a protocol.  
@@ -109,7 +106,7 @@
    pname"
   (multiple-value-bind (p exists?) (get-protocol pname)
     (when exists? 
-      (push  membername (protocol-members p) ))))
+      (push  membername (protocol-members p)))))
 
 ;Probably deprecated soon...
 (defun protocol-exists? (name)
@@ -120,7 +117,8 @@
    including generic functions."
   (if (protocol-exists? name)
       (let ((p (get-protocol name)))
-	(progn	 (dolist (n (protocol-functions p))
+	(progn	 (unintern (protocol-name p))
+	         (dolist (n (protocol-functions p))
 		     (unintern n))
 		 (remhash name *protocols*)))))
 
@@ -131,12 +129,6 @@
 (defgeneric satisfies? (p x))
 (defmethod  satisfies? ((p protocol) x)
   (not (null (find (type-of x) (protocol-members p)))))
-
-;; (defun satisfies? (pname x)
-;;   "Predicate to determine if protocol pname has an
-;;    an implementation for objects of type x."
-;;   (let ((p (get-protocol pname)))
-;;     (not (null (find (type-of x) (protocol-members p))))))
 
 (define-condition protocol-exists (error) 
   ((text :initarg :text :reader text)))
@@ -157,9 +149,11 @@
 ;are actually correct.
 (defun add-protocol (p)
   (with-slots (name) p 
-    (if (null (get-protocol name))
-	(setf (gethash name *protocols*) p)
-	(error 'protocol-exists))))
+    (if (null (get-protocol name)) (setf (gethash name *protocols*) p)
+;       (error 'protocol-exists))))
+	(progn (print (format nil "Overwriting existing protocol ~A" name))
+	       (drop-protocol `(quote ,name))
+	       (setf (gethash name *protocols*) p)))))
 
 (defun build-generic (functionspec)
   (let ((docs (if (= (length functionspec) 3)
@@ -182,34 +176,9 @@
 (defmacro defprotocol (name &rest functions)
   (let ((p (gensym))
 	(spec (cons name functions)))
-    `(handler-case 
-	 (cond ((protocol-exists? (quote ,name))
-		(error 'protocol-exists))
-	       ;; ((null ,(list functions))
-	       ;;  (error 'malformed-protocol))
-	       ((boundp (quote ,name))
-		(error 'name-collision))
-	       (t
-		(let ((,p (eval (spec-to-protocol (quote ,spec)))))
-		  (progn (add-protocol ,p)
-			 (defparameter ,name ,p)))))
-       (protocol-exists () ;(progn (drop-protocol (quote ,name))
-				;  (defprotocol ,name ,functions)))
-	                  (error 'protocol-exists))
-       (name-collision () (error 'name-collision)))))
-
-;; (defmacro defprotocol (name &rest functions)
-;;   (let ((p (gensym))
-;; 	(spec (cons name functions)))
-;;     `(cond ((protocol-exists? (quote ,name))
-;; 	    (error 'protocol-exists))
-;; 	   ;; ((null ,(list functions))
-;; 	   ;;  (error 'malformed-protocol))
-;; 	   ((boundp (quote ,name))
-;; 	    (error 'name-collision))
-;; 	   (t
-;; 	    (let ((,p (eval (spec-to-protocol (quote ,spec)))))
-;; 	      (defvar ,name ,p))))))
+    `(let ((,p (eval (spec-to-protocol (quote ,spec)))))
+       (progn (add-protocol ,p)
+	      (defparameter ,name ,p)))))
 
 ;extends protocol defined by name to 
 ;each type in the typespecs, where typespecs 

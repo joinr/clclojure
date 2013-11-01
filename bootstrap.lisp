@@ -295,7 +295,6 @@
   (let ((n (length args)))
     `((,n ,(var-args args))  (lambda ,args ,body))))
 
-
 ;;(build-function (specs)
 ;;   (dolist ((args body) 
 
@@ -306,13 +305,13 @@
 (defun do-stuff (x y) (format nil "~A,~A" x y))
 
 ;;our specs for the-function.
-(def specs 
+(defparameter specs 
     '(((x)   (do-stuff x 10))
       ((x y) (do-stuff x y))
       ((x y & rest) (reduce do-stuff x (conj y rest)))))
 
 ;;this works as well.
-(def vec-specs 
+(defparameter vec-specs 
     '(([x]   (do-stuff x 10))
       ([x y] (do-stuff x y))
       ([x y & rest] (reduce do-stuff x (conj y rest)))))
@@ -377,16 +376,6 @@
 ;;hash-map -> (destructure hash-map) ;;more complex destructuring.
 
 
-
-(comment  ;testing
-  (def the-val 2)
-  (def symbol? #'symbolp)
-  (def add-two (lambda (x) (+ 2 x)))
-  (eval-clojure '(symbol? the-val)) ;=> nil
-  (eval-clojure '(add-two the-val)) ;=> 4
-)
-
-
 ;;(defmacro defn (name &rest args body)
 ;;  (let ((args (mapcar (lambda (x) (if-let ((func (symbol-function x))) (progn (setf (symbol-value x) func)))
 
@@ -400,14 +389,33 @@
 ;;I think we want to use persistent maps for meta data, as clojure does.
 ;;I want to get the stubs in place, and am using property lists with a 'meta 
 ;;entry pointing at an assoc list for now.
-(defmacro meta (symb)        `(get (quote ,symb) 'meta))
-(defmacro with-meta (symb m) `(setf (get (quote ,symb) 'meta) ,m))
 
+;;These should be pulled out into a protocol.
+(defmacro symbol-meta (symb)        `(get (quote ,symb) 'meta))
+(defmacro with-symbol-meta (symb m) `(setf (get (quote ,symb) 'meta) ,m))
+
+;(defgeneric -get-meta (obj))
+;(defgeneric -set-meta (obj m))
+
+;(defmethod -get-meta ((obj symbol))    (symbol-meta obj))
+;(defmethod -set-meta ((obj symbol) m)  (with-symbol-meta obj m))
+  
+(defun meta (obj)        (-get-meta obj))
+(defun with-meta (obj m) (-set-meta obj m))	    
+		                  
 ;;pending.
-;(defprotocol IMeta ;
-;  (-get-meta (obj) "returns the meta data associated with an object")
-;  (-set-meta (obj m) "sets the meta data associated with an object to m"))
+(defprotocol IMeta ;
+  (-get-meta (obj) "returns the meta data associated with an object")
+  (-set-meta (obj m) "sets the meta data associated with an object to m"))
 
+(extend-protocol IMeta symbol 
+  (-get-meta (obj) (symbol-meta obj))
+  (-set-meta (obj m) (with-symbol-meta obj m)))
+
+(defparameter imp '(symbol 
+		    (-get-meta (obj) (symbol-meta obj))
+		    (-set-meta (obj m) (with-symbol-meta obj m))))
+  
 ;;move this later...
 (defun vector? (x) (typep x 'clclojure.pvector::pvec))
 
@@ -432,8 +440,16 @@
 ;;Experimental.  Not sure of how to approach this guy.
 (defmacro def (var &rest init-form)
   `(progn (defparameter ,var ,@init-form)
-          (with-meta ,var '((symbol . t) (doc . "none")))
+          (with-meta (quote ,var) '((symbol . t) (doc . "none")))
 	  (quote ,var)))
+
+(comment  ;testing
+  (def the-val 2)
+  (def symbol? #'symbolp)
+  (def add-two (lambda (x) (+ 2 x)))
+  (eval-clojure '(symbol? the-val)) ;=> nil
+  (eval-clojure '(add-two the-val)) ;=> 4
+)
 
 
 ;;Macrology 
