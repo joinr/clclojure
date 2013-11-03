@@ -155,6 +155,28 @@
 	       (drop-protocol `(quote ,name))
 	       (setf (gethash name *protocols*) p)))))
 
+;;We need to add the multiple-dispatch function that's in bootstrap at the moment.
+;;A multiple-body protocol implementation could be...
+
+(defparameter proto-spec
+  '(defprotocol ITough
+      (get-toughness [x] [x y] 
+       "gets the toughness of x, or if x is compared to y, the relative toughness"))) 
+
+;;If we want to use generic functions to mirror single-dispatch implementations of 
+;;protocols, we have to allow for multiple-body functions. 
+;;So, there's probably a protocol dispatch function..
+;;Just like our fn macro...
+
+
+
+;;If we have multiple specs, [x] [x y], in this case, we need a generic function 
+;;that dispatches based on the first arg of the spec.
+;;Alternately....we can just use the fn body from before...
+;;This only ever matters if there are multiple function bodies.  If there's only one, 
+;;we're golden (that's the current situation).
+
+
 (defun build-generic (functionspec)
   (let ((docs (if (= (length functionspec) 3)
 		  (third functionspec)
@@ -165,6 +187,7 @@
 (defun quoted-names (xs)
   (mapcar (lambda (x) (list 'quote x))
 	  (function-names xs)))
+
 (defun spec-to-protocol (protocolspec)
   `(progn ,@(mapcar #'build-generic (spec-functions protocolspec))
 	     (->protocol (quote ,(spec-name protocolspec))

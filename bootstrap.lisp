@@ -88,7 +88,7 @@
 ;;Supplemental functions to be used for code analysis and tree walking later.
 ;;Todo: Change the lamba list for env from rest to optional.  Currently requires extraneous 
 ;;first calls.
-(defun resolve*     (xs  env) (mapcar (lambda (x) (resolve x env)) xs))
+(defun resolve*     (xs  env) (mapcar   (lambda (x) (resolve x env)) xs))
 (defun resolve-tree (xs  env) (map-tree (lambda (x) (resolve x env)) xs))
 
 ;;Determines if an expression (really a symbol) is self evaluating.
@@ -107,6 +107,10 @@
 (defun push-bindings (env args)
   (reduce (lambda (x acc) (cons acc x)) args :initial-value env))
 
+;;Evaluate an alist of binding pairs.  Used for forms like let and friends.
+(defun eval-binds (xs f env)
+  (mapcar (lambda (bind) (list (first bind) (funcall f (second bind) env)))  xs))
+
 ;;The base lisp1 environment contains bindings for the arithmetic operators, 
 ;;and will likely include more bindings.  Might change the environment from 
 ;;and a-list to a hashtable at some point.
@@ -116,6 +120,111 @@
 
 (define-condition not-implemented (error) ())
 
+;(defun get-funcallable (x);
+;  (if (symbolp x) 
+;      ((symbol-function x)
+
+;(defun function-form (x)
+;  (if (fboundp x) (funcall 
+
+(defgeneric destructure (bindings))
+
+;;(spec [x y & rest])
+;;(destructure spec)
+;;(lambda (args)
+;;  ((x (first args))
+;;   (y (second args))
+;;   (rest (cddr args))))
+;;(spec {:keys [x y]})
+;;(lambda (args)
+;;  ((x (get args :x))
+;;   (y (get args :y)))
+;(fn [{:keys [x y] :as m}] (+ x y))
+(lambda (m) (dbind (({:keys [x y]} args)) ,body))
+;(fn [[x y]] (+ x y))
+
+
+;;a single function definition
+(defstruct fn-def args body)
+;;a variadic function definition
+(defstruct var-fn-def  fns)
+
+;;a macro definition -- later
+(defstruct macro-def name args body)
+
+(defun quote-sym (sym) `(quote ,sym))
+(defmacro quoted-vec (v)  
+  `(persistent-vector ,@(mapcar #'quote-sym (rest v))))
+
+(defmacro quoted-hash (h)
+  `(persistent-map ,@(mapcar #'quote-sym (rest h))))
+
+(defun variadic (v) (member '& (vector-to-list v)))
+
+;;parse a clojure style function definition.
+(defmacro read-fn (arg-vec body)
+  `(make-fn-def :args   (quoted-vec ,arg-vec) 
+		:body   (quote ,body)))
+
+(defgeneric arity (fd))
+(defmethod  arity ((fd clclojure.pvector::pvec))  
+  (values (vector-count  fd) (variadic? fd)))
+(defmethod  arity ((fd fn-def)) (arity (slot-value fd 'args)))
+
+;;since clojure allows multiple bodies, with fixed arity for each body, we 
+;;compose multiple function (arg body) pairs into a list of function definitions.
+;;We should then be able to dispatch on the count of args, simply invoking 
+;;the appropriate function matched to arity.
+(defmacro fn* (&rest specs)	  
+  `(list ,@(mapcar (lambda (vb) `(read-fn ,(first vb) ,(second vb))) specs)))
+
+(defparameter test-fn `(fn ([x y]  (+ x y))
+			   ([xs]   (+ (first xs) (second xs)))))
+(defparameter test-fn-body (rest test-fn))
+
+(defstruct arg-parse lambda-list outer-let)
+
+(define-condition no-matching-function         (error) ())
+(define-condition multiple-variadic-functions  (error) ())
+
+;;this is going to be somewhat tricky, since we'll probably have a little state 
+;;machine that parses the args, possibly destructuring recursively.  Don't know all 
+;;the cases yet, but we'll need to be able to destructure vectors and maps into 
+;;corresponding lambda lists.
+(defun parse-args (args) (make-arg-parse :lambda-list (vector-to-list args)))
+;;Compile a clojure fn special form into a common lisp lambda
+(defgeneric fndef->sexp (fd))
+(defmethod  fndef->sexp ((fd fn-def))
+  (with-slots (args body) fd
+    (with-slots (lambda-list outer-let) (parse-args args)           
+      (let ((interior (if outer-let `(let* ,outer-let ,body)
+			  body)))
+	`(lambda ,lambda-list ,interior)))))  
+
+(defun dispatch (f) `(apply ,f args))
+(defun function-dispatch (fd) 
+  (reduce (lambda (acc x) (cons (list (arity x) (dispatch (eval (fndef->sexp x)))) acc))
+	  fd :initial-value (list)))
+
+;;parse a list of function definitions into an n-lambda dispatching function.
+(defmethod fndef->sexp ((fd cons))
+  (if (= (length fd) 1)  (fndef->sexp (first fd)) ;simple case
+      ;case with multiple function definitions.
+      (multiple-value-bind (arities->bodies variadic-body) (function-dispatch fd)
+	(n-lambda arities->bodies variadic-body))))
+  
+;;weak hack around lack of read-time vector creation.
+(defun vector-form? (expr) (or (vector? expr) (eq (first expr) 'persistent-vector)))
+
+;;Clojure's anonymous function special form.
+;;Todo: support destructuring in the args.
+(defmacro fn (&rest specs)
+  (if (vector-form? (first specs)) 
+      `(eval (fndef->sexp (read-fn ,(first specs) ,(second specs))))
+      `(eval (fndef->sexp (fn* ,@specs)))))
+
+;(defmacro defn (name  
+  
 ;;We have a lisp1, sorta! 
 ;;I need to add in some more evaluation semantics, but this might be the 
 ;;way to go.  For now, it allows us to have clojure semantics for functions 
@@ -130,6 +239,7 @@
 	     ;Special forms evaluate to themselves.  
 	     (function (eval `(function ,(second expr))))
 	     (quote    (second expr))
+	     ;;common-lisp's lambda form
 	     (lambda   (let* ((args (second expr))
 		    	      (body (third  expr)))
 			  (if (atom body) 
@@ -142,9 +252,14 @@
 			      ;that will compile the non-free bits of the lambda down, ala SICP.
 			      (let ((lex-env   (list 'quote env))
 				    (arg-list  (list* 'list args)))
-			      (eval `(lambda ,args  
-				       (lisp1 ,(list 'quote body) 
-					      (push-bindings  ,lex-env (lex-bindings ,arg-list)))))))))
+				(eval `(lambda ,args  
+					 (lisp1 ,(list 'quote body) 
+						(push-bindings  ,lex-env (lex-bindings ,arg-list)))))))))
+;	     ((let let*) (let* ((binds (second expr))
+;				(body  (third  expr)))
+;			   (eval `(let* ,(eval-binds binds #'lisp1 env) 
+;				    (lisp1 ,(list 'quote body)
+;					   (push-bindings ,lex-env (lex-bindings )))
 	     ;defmacro forms have a name, an args, and a body. 
 	     (defmacro (error 'not-implemented))
 	     ;;allows common-lisp semantics, this is an escape hatch.
@@ -155,6 +270,15 @@
 ;;Our clojure evaluator uses the lisp1 evaluator, and tags on some extra 
 ;;evaluation rules.  More to add to this.
 (defmacro clojure-eval (exprs) `(lisp1 (quote ,exprs)))
+
+;(let ((x (+ 2 1)))
+;  (lambda (y) (+ x y)))
+
+;{:binds '( (x (+ 2 1) )
+; :body   (lambda (y) (+ x y))}
+
+
+
 
 ;;testing 
 ;;(clojure-eval ((lambda (x) (+ 2 x)) 2))
@@ -213,51 +337,9 @@
 ;;a with-gensym for them, and go on.  Usually only happens in let bindings.
 ;;i.e. blah# -> #blah_286_whatever 
 
-;;functions (specifically lambda lists) are going to be complicated...
-;;need a way to define variadic functions...
-;;in clojure, functions dispatch on the arity of args...
-
-;; (defn the-function
-;;     ([x y & rest] (reduce the-function x (conj rest y)))      
-;;     ([x y] (do-stuff x y))
-;;     ([x]   (the-function x 10)))
-
-;;That's just dealing with arity.
-;;-> 
-;; (def the-function 
-;;   (aux fn [& args] 
-;;        (case (count args)
-;; 	 1 (aux (first args) 10)
-;; 	 2 (do-stuff (first args) (second args))
-;; 	 3 (reduce aux (first args) (conj (ffirst args) (rest args))))))
-
-;; (defun the-function     
-;;     (labels 
-;; 	((func1 (lambda (&args args) (the-function (first args) 10)))
-;; 	 (func2 (lambda (&args args) (do-stuff (first args) (second args))))
-;; 	 (func3 (lambda (&args args) (reduce the-function (first args) (conj (ffirst args) (rest args))))))
-;;       (case (count args)
-;; 	1 (func1 args)
-;; 	2 (func2 args)
-;; 	3 (func3 args))))      
-
-;;using the convention that all binding forms are vectors.
-;;we detect multiple-arity functions by seeing if the args is a list of vectors.
-
-;;(fn ([args1] body1) ([args2] body2)) 
-;;we can say..
-;;(fn & args) 
-
 (defun destructure-bind (args body)
   (list args body))
  
-;;go from [x y z] (+ x y z) -> ( (3 (x y z))  (+ x y z))
-;;(defun process-function-body (args body) nil)
-
-;(defmethod make-lazy ((v pvector))
-;  (if (<= (vector-count v) 32)
-;      (vector-to-list v)
-      
 ;;parse an args input into a compatible CL lambda list
 ;;(defun args->lambdalist (args)
 ;;  (if ((vector? args) (seq args))
@@ -270,65 +352,21 @@
 ;;  (let ((ll (args->lambdalist args)))
 ;;    `(lambda ,args
   
-
 ;;(variadic-function ...) 
 ;;(n-function ...)
-
-;;if we can get variadic functions and macros working, it'll make this a lot 
-;;easier...
-
-;;and check out what the args looks like...
-;;args could be [], [...], or ([] [...] [...])
-;;(defun args->spec (args)
-;;  (cond ((vector? args) (list (vector-count args) args)
-;;	 (listp args)  (process-function-bodies args)))) ;actually function bodies. 
-		  
 
 (defun multiple-arity? (args) (listp args))
 
 ;;we'll deal with loop/recur later...
 
-(defun var-args (args) (member '& args))
+(defun var-args  (args) (member '& args))
 (defun variadic? (args) (not (null (var-args args))))
 
 (defun spec->lambda (args body)
   (let ((n (length args)))
     `((,n ,(var-args args))  (lambda ,args ,body))))
 
-;;(build-function (specs)
-;;   (dolist ((args body) 
-
 ;;only one function can be variadic in a fn form 
-
-
-;;testing function building.
-(defun do-stuff (x y) (format nil "~A,~A" x y))
-
-;;our specs for the-function.
-(defparameter specs 
-    '(((x)   (do-stuff x 10))
-      ((x y) (do-stuff x y))
-      ((x y & rest) (reduce do-stuff x (conj y rest)))))
-
-;;this works as well.
-(defparameter vec-specs 
-    '(([x]   (do-stuff x 10))
-      ([x y] (do-stuff x y))
-      ([x y & rest] (reduce do-stuff x (conj y rest)))))
-  
-;;In reality, we could have an assload of arities to deal with, since clojure 
-;;allows it (up to some arbitrary number like 20?) 
-
-
-;;Aside from that, for each specific function spec, we need to parse the args 
-;;and introduce an appropriate function spec....
-
-;;That's where destructuring comes in. 
-;;destructuring takes a binding form of a vector 
-
-;;The following two forms really boil down to 
-;;(fn [map-arg] ...)
-;;(fn [&map-arg] ...)
 
 ;;map destructuring...
 ;;(fn [&{:keys [x y] :or {x v1 y v2} :as my-map}] ~body) ->  
@@ -536,7 +574,6 @@
 
 (defun deref-symb? (x)
   (char-equal #\@ (aref (str x) 0)))
-
 
 (defparameter mac-sample
   `(defmacro the-macro (x)
