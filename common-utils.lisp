@@ -13,19 +13,9 @@
    :map-tree
    :filter-tree 
    :reduce-tree
+   :filter
    :if-let
    :when-let
-   :take!
-   :drop!
-   :ndrop!
-   :take-while!
-   :drop-while!
-   :ndrop-while!
-   :filter!
-   :fold 
-   :partition!
-   :partition-offset!
-   :interleave!
    :zip 
    :->>
    :->
@@ -36,6 +26,8 @@
    :lambda*))
 (in-package :common-utils)
 
+
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
 
 ;;I'm going to rewrite these around a little lazy cons cell data 
 ;;structure, probably...
@@ -69,8 +61,25 @@
   (values (intern (string-upcase thing) :keyword)))
 
 ;;Turn x into a string.  
-(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  (defun stringify (x) (format nil "~a" x)))
+
+(defun stringify (x) (format nil "~a" x))
+(defun filter (pred xs) (remove-if-not pred xs))
+;;some hack functions to help us validate bodies.
+(defun group-by (key-func xs)
+  (reduce (lambda (acc x) 
+	    (let* ((k (funcall key-func x))
+		   (vals (gethash k acc (list))))
+	      (progn (push x vals)
+		     (setf (gethash k acc) vals)
+		     acc)))
+	  xs :initial-value (make-hash-table)))  
+;;this is a hack, will be replaced later.   Thanks common lisp cookbook!
+;;I hate loop!
+(defun hash-table->entries (tbl)
+  (nreverse 
+   (loop for key being the hash-keys of tbl
+      using (hash-value value)
+      collect (list key value))))
 (defun str (x) (format nil "~A" x))
 
 ;;Courtesy of the Common Lisp Cookbook, thank you kind souls.
@@ -96,10 +105,10 @@
 
 ;;Need to add with-gensyms here..
 ;;From PCL.
-(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  (defmacro with-gensyms ((&rest names) &body body)
-    `(let ,(loop for n in names collect `(,n (gensym ,(stringify n))))
-       ,@body)))
+
+(defmacro with-gensyms ((&rest names) &body body)
+  `(let ,(loop for n in names collect `(,n (gensym ,(stringify n))))
+     ,@body))
 
 (defmacro if-let (binding body &rest false-body)
   (let* ((binds (first binding))
@@ -119,6 +128,17 @@
 ;;Tree manipulators include sublis, subst, and friends.
 
 ;;hack.  I think Graham has a better one around somewhere.
+(defun flatten (expr)
+  (labels ((aux (acc xs)
+	     (if (atom xs) xs
+		 (progn (dolist (x xs)
+			  (if (atom x) (push x acc)
+			      (let ((res (nreverse (aux (list) x))))
+				(mapcar (lambda (x) (push x acc)) res))))
+			acc))))
+    (nreverse (aux (list) expr))))
+
+
 
 ;;maps f to a list of lists, applying f to every leaf in the tree.
 (defun map-tree (f tree)
@@ -232,7 +252,7 @@
        (case (funcall ,dispatch-func ,args)
 	 ,@dispatch-bindings))))
 
-(define-condition no-matching-args (error) ((text :initarg :text :reader text))))
+(define-condition no-matching-args (error) ((text :initarg :text :reader text)))
 ;;We can choose an execution body based on a bound set of args.  This will pay off 
 ;;for our multiple-function body implementation for both fns and generic functions.
 (defmacro case-arg-count (args count-cases &optional variadic-case)
@@ -262,31 +282,15 @@
 		  (body (second xs)))
 	      (multiple-value-bind (n is-var) (args-type args)
 		(list (or (when is-var :variadic) n) (list args body)))))
-	    arg-bodies))
+	  arg-bodies))
 (defun spec->arity (spec) (first spec))
 (defun spec->body (spec) (second (second spec)))
 (defun spec->args (spec) (first (second spec)))
 (defun spec->variadic? (spec) (third (second spec)))
 
-;;some hack functions to help us validate bodies.
-(defun group-by (key-func xs)
-  (reduce (lambda (acc x) 
-	    (let* ((k (funcall key-func x))
-		   (vals (gethash k acc (list))))
-	      (progn (push x vals)
-		     (setf (gethash k acc) vals)
-		     acc)))
-	  xs :initial-value (make-hash-table)))
 
-(define-condition duplicate-arities (error) ((text :initarg :text :reader text))
 
-;;this is a hack, will be replaced later.   Thanks common lisp cookbook!
-;;I hate loop!
-(defun hash-table->entries (tbl)
-  (nreverse 
-   (loop for key being the hash-keys of tbl
-      using (hash-value value)
-      collect (list key value))))
+(define-condition duplicate-arities (error) ((text :initarg :text :reader text)))
 
 (defun get-arities (groups)
   (-> (mapcar (lambda (kv) (if (= (length (second kv)) 1)
@@ -306,13 +310,14 @@
 ;;given a set of dispatch specifications, ensure that no dupes exist in the keys. 
 ;;Also ensure that only one variadic implementation exists.  Returns a list of 
 ;;(case-bindings variadic-binding).
+
 (defun parse-dispatch-specs (specs)
   (let* ((cases-variadic  (->> (arg-bodies->dispatch-specs specs)
 			       (group-by (lambda (x) (or (when (spec->variadic?  x) :variadic) (first x))))
 			       (hash-table->entries)
 			       (get-arities)
 			       (pull-out-variadic))))
-    cases-variadic))
+      cases-variadic))
 
 ;;creates a lambda that dispatches based on args across multiple bodies, 
 ;;basically a composite lambda function.
@@ -332,7 +337,6 @@
 	      (case-arg-count args ,cases ,var))))))
 
 ;;testing 
-
 (defparameter the-func
     (lambda* 
      (() 2)
@@ -360,6 +364,126 @@
   ;;   (lambda (&rest args)
   ;;     (apply ,name args)))
     
+
+
+;;for instance, fn forms allow a name to be associated with a function, like 
+;;(fn the-func [x] (if (< x 2) x (the-func (- x 2)))) 
+;;If no name is provided, I assume clojure jins one up...
+;;The consequence here, is that 
+;;(let [f (fn the-func [x] 
+;;           (if (< x 2) x (the-func (- x 2))))]
+;;  (f 20))  
+
+;;works fine, the-func, in its body, has a name bound to (lambda (x) (- x 2))
+;;so, (fn test-fn [x] (if (< x 2) x (test-fn (- x 2))))
+;;in common lisp is 
+;;    (labels ((test-fn (x) (if (< x 2) x (test-fn (- x 2)))))
+;;     test-fn)
+
+;; (defparameter test-fn
+;;   (labels ((test-fn (x) (if (< x 2) x 
+;; 			     (progn (print `(:calling ,x))
+;; 				    (test-fn (- x 2))))))
+;;     (lambda (x) (test-fn x))))
+
+;;a simple macro here is then 
+(defmacro named-fn (name args body)
+  (multiple-value-bind (arity variadic) (args-type args)
+    (declare (ignore arity))
+    (if (not variadic) 
+	`(labels ((,name ,args ,body)
+		  (recur ,args (,name ,@args)))
+	   (lambda ,args (,name ,@args))))))
+	;; `(labels ((,name ,args ,body)
+	;; 	  (recur (&rest xs) (apply ,name xs)))
+	;;    (lambda (&rest xs) (apply ,name xs))))))
+       
+;;base case works....
+(defparameter test-fn2
+  (named-fn test-fn (x) 
+	    (if (< x 2) x 
+		(progn (print `(:calling ,x))
+		       (test-fn (- x 2))))))
+;;recur works just fine....
+(defparameter test-fn3
+  (named-fn test-fn (x) 
+	    (if (< x 2) x 
+		(progn (print `(:calling ,x))
+		       (recur (- x 2))))))
+;;If we want to compose a named function from a set of cooperating 
+;;named functions, then we can build a dispatching name, which is 
+;;shared amongst the different implementations.
+;(defmacro named-fn* (name specs)
+
+;;say we have something like...
+;; (fn test-fn ([x]    (+ x 1))
+;;             ([x y]  (+ x y))
+;; 	    ([& xs] (reduce #'+ xs)))
+;;that's valid clojure.
+;;we could say.
+;; (named-fn test-fn (&rest args)
+;;    (let ((test-fn1 (named-fn test-fn1 (x)   (+ x 1)))
+;; 	 (test-fn2 (named-fn test-fn2 (x y) (+ x y)))
+;; 	 (test-fn-var (named-fn test-fn3 (&rest xs) (reduce #'+ xs))))
+;;      (case (count args)
+;;        (1 (apply test-fn1 args))
+;;        (2 (apply test-fn2 args))
+;;        (otherwise (apply test-fn-var args)))))
+
+(defun func-name (name arity)    (read-from-string (format nil "~A-~A" name arity)))
+(defmacro named-fn* (name &rest args-bodies)
+  (if (= (length args-bodies) 1)
+       (let ((args-body (first args-bodies)))
+ 	`(named-fn ,name ,(first args-body) ,(second args-body))) ;regular named-fn, no dispatch.
+       (destructuring-bind (cases var) (parse-dispatch-specs args-bodies)
+	 (let* ((args (gensym "args"))
+		(funcspecs (mapcar (lambda (xs)
+				    (destructuring-bind (n (args body)) xs
+				      (let* ((fname (func-name name n))
+					     (fbody  `(named-fn ,fname ,args ,body)))
+					(if (= n 0)					    
+					    `(,n ,fname  ,fbody)
+					    `(,n ,fname  ,fbody))))) cases))
+		(varspec   (when var 
+			     (let* ((fname (func-name name :variadic))
+				    (fbody  `(named-fn ,fname ,(first var) ,(second var))))
+			       `(:variadic ,fname ,fbody))))
+		(specs     (if var (append funcspecs (list varspec)) funcspecs)))
+	   `(named-fn ,name (,'&rest ,args) 
+		      (let ,(mapcar (lambda (xs) `(,(second xs) ,(third xs))) specs)
+			(case (length ,args)
+			  ,@(mapcar (lambda (xs)  (let ((n (first xs))
+							(name (second xs)))
+						    (if (= n 0) 
+							`(,n (funcall ,name))
+							`(,n (apply ,name ,args))))) funcspecs)
+			  (otherwise ,(if var  `(apply ,(second varspec) ,args)
+					        `(error 'no-matching-args))))))))))
+
+;;testing
+;; (named-fn* test-fn 
+;; 	   ((x)    (+ x 1))
+;; 	   ((x y)  (+ x y)))
+;	   ((& xs) (reduce #'+ xs)))
+
+  
+
+;;we can modify our named fns...
+;;the recur name is used
+
+
+
+
+;;this is the expression that matters for fn.
+;;(fn name? [params* ] condition-map? exprs*)
+;;(fn name? ([params* ] condition-map? exprs*)+)
+
+;;what we'll do is implement a lower-level fn* that works on lists.
+;;fn's job will be to enforce that clojure vectors are properly list-ified 
+
+;;so a named function...
+
+;;we want to do the same thing with macros...
   
 	 
 
@@ -371,3 +495,7 @@
 ;; (defun random-list (n)
 ;;   (loop for i from 1 to n
 ;;        collect i))
+
+
+
+);End eval-when
