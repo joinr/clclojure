@@ -47,13 +47,13 @@
 ;;(defmacro unify (symb) 
 ;;  `(when (function (symbol-function ,symb) (symbol-value ,symb))))
 
-(defun macro?    (symb) (when (macro-function symb) 't))
-(defun function? (symb) (fboundp symb))
-(defun unify-function! (symb)
-  (if-let ((func (symbol-function symb))) 
-     (progn (setf (symbol-value func) func)
-	    symb)
-     symb))
+(defun macro?    (s) (when (macro-function s) 't))
+(defun function? (s) (fboundp s))
+(defun unify-function! (s)
+  (if-let ((func (sol-function s))) 
+     (progn (setf (sol-value func) func)
+	    s)
+     s))
 
 (defun unify-symbols (xs) (mapcar #'unify-function! xs))
 
@@ -140,9 +140,10 @@
 ;;  ((x (get args :x))
 ;;   (y (get args :y)))
 ;(fn [{:keys [x y] :as m}] (+ x y))
-(lambda (m) (dbind (({:keys [x y]} args)) ,body))
-;(fn [[x y]] (+ x y))
 
+;;(lambda (m) (dbind (({:keys [x y]} args)) ,body))
+
+;;(fn [[x y]] (+ x y))
 
 ;;a single function definition
 (defstruct fn-def args body)
@@ -152,15 +153,19 @@
 ;;a macro definition -- later
 (defstruct macro-def name args body)
 
-(defun quote-sym (sym) `(quote ,sym))
-(defmacro quoted-vec (v)  
-  `(persistent-vector ,@(mapcar #'quote-sym (rest v))))
+;;At compile-time, [x y] -> (persistent-vector x y).
+;;This is upsetting us...
+(defmacro quoted-vec (v)
+  (if (vector? v)
+      `(quote ,v);;`(persistent-vector ,@(mapcar #'quote-sym  (vector-to-list v))) 
+      `(persistent-vector ,@(mapcar #'quote-sym  (rest v)))))
 
 (defmacro quoted-hash (h)
   `(persistent-map ,@(mapcar #'quote-sym (rest h))))
 
 (defun variadic (v) (member '& (vector-to-list v)))
 
+;;Todo: move this out to CLOS?
 ;;parse a clojure style function definition.
 (defmacro read-fn (arg-vec body)
   `(make-fn-def :args   (quoted-vec ,arg-vec) 
@@ -206,6 +211,9 @@
   (reduce (lambda (acc x) (cons (list (arity x) (dispatch (eval (fndef->sexp x)))) acc))
 	  fd :initial-value (list)))
 
+(defun n-lambda (arities->bodies variadic-body)
+  (error 'not-implemented))
+
 ;;parse a list of function definitions into an n-lambda dispatching function.
 (defmethod fndef->sexp ((fd cons))
   (if (= (length fd) 1)  (fndef->sexp (first fd)) ;simple case
@@ -223,8 +231,17 @@
       `(eval (fndef->sexp (read-fn ,(first specs) ,(second specs))))
       `(eval (fndef->sexp (fn* ,@specs)))))
 
-;(defmacro defn (name  
-  
+;;A CHEAP implementation of defn, replace this...
+(defmacro defn (name args &rest body)
+  `(def ,name (fn ,args ,@body)) 
+  ) 
+
+;;NOTE: This is not necessary going forward....
+;;We can already mimic a lisp1 without a custom evaluator.
+;;There "may" be a need for analyze/eval for some of the more
+;;crafty stuff, particularly where clojure macros expose the
+;;environment to the macro form...
+
 ;;We have a lisp1, sorta! 
 ;;I need to add in some more evaluation semantics, but this might be the 
 ;;way to go.  For now, it allows us to have clojure semantics for functions 
@@ -479,12 +496,13 @@
 (defmacro def (var &rest init-form)
   `(progn (defparameter ,var ,@init-form)
           (with-meta (quote ,var) '((symbol . t) (doc . "none")))
-	  (quote ,var)))
+          (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var)))
+	  (quote ,var)
+          ))
 
 (comment  ;testing
   (def the-val 2)
   (def symbol? #'symbolp)
-  (def add-two (lambda (x) (+ 2 x)))
   (eval-clojure '(symbol? the-val)) ;=> nil
   (eval-clojure '(add-two the-val)) ;=> 4
 )
@@ -838,3 +856,48 @@
 
 ;; (defprotocol IChunkedNext
 ;;   (-chunked-next [coll]))
+
+
+;;Experimentation with function objects...
+;;These may be more desireable than the symbol + lambda
+;;approach I've been taking, since we can pack info
+;;onto the slots...
+
+(comment  ;;a function object...
+         (defclass  fob ()
+           ((name   :initarg :name   :accessor fob-name)
+            (args   :initarg :args   :accessor fob-args)
+            (body   :initarg :body   :accessor fob-body)
+            (func   :accessor fob-func)
+            (meta   :initarg :meta   :accessor fob-meta))
+           (:metaclass sb-mop::funcallable-standard-class))
+
+         (defparameter spec nil)
+         (defmethod initialize-instance :after ((f fob) &key)
+           (with-slots (name args body func) f
+             (let ((argvec args ;(apply #'persistent-vector args)
+                           ))
+               (setf spec (list argvec body))
+               (setf func
+                     (eval `(fn ,argvec 
+                                ,body)))
+               (sb-mop::set-funcallable-instance-function
+                f func))))
+
+         (setq f1 (make-instance 'fob :name "plus"
+                                      :meta  []
+                                      :args '[x y]
+                                      :body '(+ x y)
+                                 )))
+
+(comment 
+
+ 
+ (defclass constructor ()
+   ((name   :initarg :name   :accessor constructor-name)
+    (fields :initarg :fields :accessor constructor-fields))
+   (:metaclass sb-mop::funcallable-standard-class))
+
+
+ (setq c1 (make-instance 'constructor
+                         :name 'position :fields '(x y))))

@@ -54,7 +54,7 @@
 ;;  empty root nodes, n levels deep, with the tail as the last root node. 
 
 (defpackage :clclojure.pvector
-  (:use :common-lisp)
+  (:use :common-lisp :common-utils :clclojure.reader)
   (:export :persistent-vector
 	   :empty-vec
 	   :empty-vec?
@@ -82,22 +82,46 @@
     inline, just like Clojure."
     (declare (ignore char))
     `(persistent-vector ,@(read-delimited-list #\] stream t)))
-  (set-macro-character #\[ #'|bracket-reader|)
-  (set-syntax-from-char #\] #\)))
+  (clclojure.reader::push-reader! 'persistent-vector  #\[ #\] #'|bracket-reader|)
+  
+  (comment  (set-macro-character #\[ #'|bracket-reader|)
+            (set-syntax-from-char #\] #\))
+
+            ;;This should be consolidated...
+            (set-macro-character #\'
+                                 #'(lambda (stream char)
+                                     (let ((res (read stream t nil t)))
+                                       (if (atom res) `(quote ,res)
+                                           (case (first res)
+                                             (persistent-vector `(quoted-children ,res)))
+                                           )))))
+  )
+  
+  ;; (set-macro-character #\'
+  ;;     #'(lambda (stream char)
+  ;;         (let ((res (read stream t nil t)))
+  ;;           (if (atom res) (quote res)
+  ;;               (case (first res)
+  ;;                 (persistent-vector (eval `(quoted-children ,res)))
+  ;;                 )))))
+
+
 
 ;utility functions
+
+
 
 ;Persistent vectors require a lot of array copying, and 
 ;according to the clojure implementation, bit-twiddling.
 
 ;porting from Spiewak's excellent blog post, 
 ;which is a port from Clojure's implementation. 
-(defconstant +branches+ 32) ;use a 32-way trie....
+(defconstant! +branches+ 32) ;use a 32-way trie....
 ;a bytespec is like a window..
 ;it's a user-defined set of continugous bits in an integer
 ;use (byte width position) to define the window...
-(defconstant +bit-width+ 5)
-(defconstant +mask+ (byte +bit-width+ 0)) ;denotes [00000] with "weights" [2^4 2^3 2^2 2^1 2^0]
+(defconstant! +bit-width+ 5)
+(defconstant! +mask+ (byte +bit-width+ 0)) ;denotes [00000] with "weights" [2^4 2^3 2^2 2^1 2^0]
 
 (defun >>> (i n)
   "Shift integer i by n bits to the right."  
@@ -195,8 +219,8 @@
    to share structure where possible."
   (make-pvec :root root :tail tail :shift shift :counter counter))
 
-(defconstant +empty-pvec+ (make-pvec))
-(defun empty-vec () +empty-pvec+)
+(defconstant! +empty-pvec+ (make-pvec))
+(defun empty-vec  () +empty-pvec+)
 (defun empty-vec? (v) (eq v +empty-pvec+))
 
 (defgeneric vector-count (v)

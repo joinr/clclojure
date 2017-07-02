@@ -23,12 +23,21 @@
    :force
    :promise?
    :realized?
-   :lambda*))
+   :lambda*
+   :defconstant!
+   :quote-sym))
 (in-package :common-utils)
 
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
 
+(defun quote-sym (sym) `(quote ,sym))
+  
+(defmacro defconstant! (symbol value)
+  `(defconstant ,symbol 
+     (or (and (boundp ',symbol) 
+              (symbol-value ',symbol))
+         ,value)))
 ;;I'm going to rewrite these around a little lazy cons cell data 
 ;;structure, probably...
 
@@ -336,13 +345,14 @@
 	   `(lambda (&rest args) 		    
 	      (case-arg-count args ,cases ,var))))))
 
-;;testing 
-(defparameter the-func
-    (lambda* 
-     (() 2)
-     ((x) (+ x 1))
-     ((x y) (+ x y))
-     ((&rest xs) (reduce #'+ xs))))
+;;testing
+(comment 
+ (defparameter the-func
+   (lambda* 
+    (() 2)
+    ((x) (+ x 1))
+    ((x y) (+ x y))
+    ((&rest xs) (reduce #'+ xs)))))
 
 ;; COMMON-UTILS> (funcall the-func 2)
 ;; 3
