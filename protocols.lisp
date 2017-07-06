@@ -269,8 +269,8 @@
   (let ((data '(:tom)))
     (when (satisfies? INamed data)
       (pprint (get-name data)))
-      (say-name data)))
-)
+    (say-name data))
+  )
 
 ;;Deftype implementation.
 ;;Once we have protocols, deftype is pretty easy.
@@ -297,7 +297,7 @@
 ;;     (function2 (args) body2)))
 
 (defun emit-class-field (s)
- `(,s :init-arg ,(make-keyword s)))
+  `(,s :init-arg ,(make-keyword s))))
 
 (defun emit-protocol-extension (proto-name type-name imps)
   `(extend-protocol ,proto-name ,type-name ,@imps)) 

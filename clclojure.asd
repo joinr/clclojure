@@ -1,7 +1,9 @@
 (asdf:defsystem :clclojure
-;  :depends-on (#:cl-ppcre) ;copied from example.
+  :depends-on (:named-readtables) ;copied from example.
   :components ((:file "common-utils")
-               (:file "reader")
+               (:file "reader"
+                ;:depends-on (:named-readtables)
+                )
 	       (:file "pvector"
                 :depends-on ("reader"))
 	       (:file "protocols"

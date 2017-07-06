@@ -496,7 +496,8 @@
 (defmacro def (var &rest init-form)
   `(progn (defparameter ,var ,@init-form)
           (with-meta (quote ,var) '((symbol . t) (doc . "none")))
-          (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var)))
+          (when (functionp (symbol-value (quote  ,var)))
+            (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
 	  (quote ,var)
           ))
 
@@ -671,6 +672,35 @@
 ;;and my defprotocol uses lists.  Need to bridge the gap...Still, getting them 
 ;;implemented will be hugely good, as it's the backbone of just about everything 
 ;;else.
+
+;;key eval
+;;basic xform to get keywords-as-function compilation pass.
+;;we can define an eval that kinda works...
+;;if we analyze the form, we should end up with something we
+;;can coerce into a CL compatible form....
+(comment 
+ (defmacro keval (expr)
+   (if (atom expr)
+       `(cl:eval ,expr)
+       (if (keywordp (first expr))
+           `(gethash ,(first expr) ,@(rest expr))
+           `(cl:eval ,expr))))
+ ;;it may be nice to define functional xforms...
+ ;;allow keywords to be functions....
+ ;;if the thing in fn position is an IFn,
+ ;;rewrite to an invoke call on the IFn...
+   ;;i.e., prepend -invoke
+)
+
+(defmacro myquote (expr)
+  (if (atom expr)
+      (progn
+        (print :atom)
+        `(quote ,expr))
+      (case (first expr)
+        (persistent-vector `(clclojure.reader:quoted-children ,expr))
+        (t  (progn (print  :list)
+                   `(quote ,expr))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;; core protocols ;;;;;;;;;;;;;
 
@@ -868,7 +898,7 @@
            ((name   :initarg :name   :accessor fob-name)
             (args   :initarg :args   :accessor fob-args)
             (body   :initarg :body   :accessor fob-body)
-            (func   :accessor fob-func)
+            (func   :accessor                  fob-func)
             (meta   :initarg :meta   :accessor fob-meta))
            (:metaclass sb-mop::funcallable-standard-class))
 
