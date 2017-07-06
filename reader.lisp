@@ -54,14 +54,22 @@
     (if (literal? expr)
         `(quoted-children ,expr)
         (quote-sym expr)))
-
-  ;; (set-macro-character #\\
-  ;;    #'(lambda (stream char)
-  ;;        (let ((res (read stream t nil t)))
-  ;;          (if (characterp res) res
-               
-  ;;              )))
-  ;;    )
+  
+  (defun as-char (x)
+    (cond ((characterp x) x)
+          ((and (stringp x)
+                (= 1 (length x))) (char x 0))
+          ((symbolp x) (as-char (str x)))
+          (t (error (str (list "invalid-char!" x) ))))
+    )
+  
+  ;;Gives us clj->cl reader for chars...
+  (set-macro-character #\\
+     #'(lambda (stream char)
+         (declare (ignore char))
+         (let ((res (read stream t nil t)))
+           (as-char res)))
+     )
                        
   ;;This should be consolidated...
   (set-macro-character #\'
