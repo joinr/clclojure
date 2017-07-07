@@ -6,7 +6,7 @@
 ;;advantage of the bulk of the excellent bootstrapped clojure 
 ;;defined in the clojurescript compiler.  
 (defpackage :clclojure.protocols  
-  (:use :common-lisp :common-utils)
+  (:use :common-lisp :common-utils :clclojure.reader :clclojure.pvector)
   (:export :defprotocol
 	   :extend-protocol
 	   :satisfies?
@@ -15,6 +15,9 @@
 
 (in-package :clclojure.protocols)
 
+;;aux 
+(defun drop-literals (xs) (nreverse  (filter (lambda (x) (not (literal? x))) xs)))
+(defun vector? (x) (typep x 'clclojure.pvector::pvec))
 
 ;;Note-> we need to add support for variadic functions, 
 ;;and variadic protocols members.
@@ -57,19 +60,18 @@
 	  (null (set-difference names (function-names newspec)))))))
 
 ;a sample implementation for ISeqs...
-(defparameter sampleimp 
-  '(ISeq 
-    (next (coll) (car coll))
-    (more (coll) (cdr coll))))
-
-;A protocol is a name, a set of generic functions, and a set of
-;types that implement the protocol.
-(EVAL-WHEN (:compile-toplevel :load-toplevel :execute) 
-  (defstruct protocol name functions satisfier (members (list))))
+(comment
+ (defparameter sampleimp 
+   '(ISeq 
+     (next (coll) (car coll))
+     (more (coll) (cdr coll)))))
 
 ;;From stack overflow.  It looks like the compiler needs a hint if we're 
 ;;defining struct/class literals and using them as constants.
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  ;;A protocol is a name, a set of generic functions, and a set of
+  ;;types that implement the protocol.
+  (defstruct protocol name functions satisfier (members (list)))
   (defmethod make-load-form ((v protocol) &optional env)
     (declare (ignore env))
     (make-load-form-saving-slots v)))
@@ -176,13 +178,19 @@
 ;;This only ever matters if there are multiple function bodies.  If there's only one, 
 ;;we're golden (that's the current situation).
 
-
+;;note: dealing with reader-literals and how macros parse stuff, like pvectors,
+;;so we're just filtering them out of arglists.
 (defun build-generic (functionspec)
-  (let ((docs (if (= (length functionspec) 3)
+  (let* ((args (drop-literals (second functionspec)))
+         (name (first functionspec))
+        (docs (if (= (length functionspec) 3)
 		  (third functionspec)
-		  "Not Documented")))	
-    `(defgeneric ,(first functionspec) ,(second functionspec)
-       (:documentation ,docs))))
+		  "Not Documented")))
+    `(progn (defgeneric ,name  ,args (:documentation ,docs))
+            ;;lets us use protocol fns as values...
+            (defparameter ,name  (function ,name))
+            (setf (symbol-function (quote ,name)) (symbol-value (quote ,name)))
+            ,name)))
 
 (defun quoted-names (xs)
   (mapcar (lambda (x) (list 'quote x))
@@ -211,7 +219,8 @@
 ; typename2 (func1 (x) (body))
 ;           (func2 (x) (body))) 
 ;bascially converts the implementations into a
-;defmethod..
+                                        ;defmethod..
+;;takes a list of
 (defun parse-implementations (x)
   (labels ((get-spec (acc specs)
 	     (if (null specs)
@@ -231,23 +240,26 @@
 ;;     cons
 ;;     (next (coll) (first coll))
 ;;     (more (coll) (rest  coll))))
-		 
+
 (defun implement-function (typename spec)
-  (let* ((args (second spec))
+  (let* ((args    (if (vector? (second  spec))
+                      (vector-to-list (second spec))
+                      (drop-literals (second spec))))
 	 (newargs (cons (list (first args) typename) (rest args)))
 	 (body (third spec)))
+    ;(print spec)
     `(defmethod ,(first spec) ,newargs  ,body)))
 
 (defmacro extend-protocol (name &rest typespecs)
-  (let ((imps (parse-implementations typespecs))
-	 (satisfies? (gensym)))
+  (let ((imps       (parse-implementations typespecs))
+        (satisfies? (gensym)))
     `(let ((,satisfies? (protocol-satisfier (get-protocol (quote ,name)))))
-       (dolist (imp (quote ,imps))
+       (dolist (imp  (quote ,imps))
 	 (if (funcall ,satisfies? imp)
 	     (let ((typename (first imp)))
 	       (progn (add-protocol-member (quote ,name)  typename)
 		      (dolist (spec (rest imp))
-			(eval (implement-function typename spec)))))
+                        (eval (implement-function typename spec)))))
 	     (error 'missing-implementation))))))	      
 
 
@@ -270,6 +282,11 @@
     (when (satisfies? INamed data)
       (pprint (get-name data)))
     (say-name data))
+
+  (defmacro cljmacro (name argvec & body)
+    (let ((args (if (vector? argvec argvec)
+                    (eval `(clclojure.reader/quoted-children ,argvec)))))
+      `(,@body)))
   )
 
 ;;Deftype implementation.
@@ -296,39 +313,71 @@
 ;;  (extend-protocol Protool2 name-of-type
 ;;     (function2 (args) body2)))
 
-(defun emit-class-field (s)
-  `(,s :init-arg ,(make-keyword s))))
+)
+
+(defun symbolize (x) (read-from-string x))
+
+(defun emit-class-field (nm s)
+  `(,s :initarg ,(make-keyword s)
+       :accessor ,(symbolize (str nm "-" s))))
 
 (defun emit-protocol-extension (proto-name type-name imps)
   `(extend-protocol ,proto-name ,type-name ,@imps)) 
+
+;;impl has protocol (pfn ...) (pfn ...)
+(defmacro extend-type (typename  &rest impls)
+  (let ((imps       (parse-implementations impls))
+        (name       (gensym))
+        (the-imp    (gensym)))
+    `(progn ,@(mapcar (lambda (the-imp)
+                  (let ((expr `(emit-protocol-extension (quote ,(first the-imp))
+                                                        (quote ,typename)
+                                                        (quote ,(rest the-imp)))))
+                    (eval  expr)))
+                
+                imps))
+      
+         ;; (if (funcall ,satisfies? imp)             
+         ;;     (progn (add-protocol-member (quote ,name)  typename)
+         ;;            (dolist (spec (rest imp))
+         ;;              (eval (implement-function ,typename spec))))
+         ;;     (error 'missing-implementation))
+             ))
+
+(defmacro clojure-deftype (name fields &rest implementations)
+  `(progn 
+     (defclass ,name ()
+       ,(mapcar (lambda (f) (emit-class-field name f) ) fields))
+     (extend-type ,name ,@implementations)
+     (defun ,(symbolize (str "->" name)) ,fields
+       (make-instance ,`(quote  ,name) ,@(flatten  (mapcar (lambda (f) `(,(make-keyword f) ,f)) fields ))))
+     ))
 
 ;(defun emit-type-constructor (type-name fields)
 ;  `(defun (concatenate 'string "->"
 
 ;;Deftype exists in common lisp.  
-(defmacro clojure-deftype (name fields &rest implementations)
-  `(progn 
-     (defclass ,name () ,fields 
-       ,@(mapcar #'emit-class-field fields))
-     ()))
+(comment 
+ 
 
-;;An experimental class-bassed approach; putting this on ice for now.
+ ;;An experimental class-bassed approach; putting this on ice for now.
 
-;;This is our interface, which is a base class all protocols will 
-;;derive from.
-;; (defclass IProtocol () 
-;;   (name 
-;;    functions 
-;;    satisfier 
-;;    (members 
-;;     :initform (list))))
+ ;;This is our interface, which is a base class all protocols will 
+ ;;derive from.
+ ;; (defclass IProtocol () 
+ ;;   (name 
+ ;;    functions 
+ ;;    satisfier 
+ ;;    (members 
+ ;;     :initform (list))))
 
-;;Defining a protocol is just a matter of defining a new class that inherits 
-;;from IProtocol.
+ ;;Defining a protocol is just a matter of defining a new class that inherits 
+ ;;from IProtocol.
 
-;; (defmacro defprotocol-1 (name functions &optional satisifer)
-;;  `(defclass ,name (IProtocol)
-;;     ((name :initform ,name)
-;;      (functions :initform functions)
-;;      (
-;;   )
+ ;; (defmacro defprotocol-1 (name functions &optional satisifer)
+ ;;  `(defclass ,name (IProtocol)
+ ;;     ((name :initform ,name)
+ ;;      (functions :initform functions)
+ ;;      (
+ ;;   )
+ )

@@ -7,7 +7,7 @@
 	       (:file "pvector"
                 :depends-on ("reader"))
 	       (:file "protocols"
-                :depends-on ("common-utils"))
+                :depends-on ("common-utils" "reader" "pvector"))
 	       (:file "bootstrap"
                 :depends-on ("common-utils"
                              "protocols"

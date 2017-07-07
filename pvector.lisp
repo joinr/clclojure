@@ -83,6 +83,7 @@
     (declare (ignore char))
     `(persistent-vector ,@(read-delimited-list #\] stream t)))
   (clclojure.reader::push-reader! 'persistent-vector  #\[ #\] #'|bracket-reader|)
+  (clclojure.reader::push-reader! 'clclojure.pvector:persistent-vector  #\[ #\] #'|bracket-reader|)
   
   (comment  (set-macro-character #\[ #'|bracket-reader|)
             (set-syntax-from-char #\] #\))

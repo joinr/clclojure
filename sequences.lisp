@@ -1,5 +1,5 @@
 (defpackage :sequences
-  (:use :common-lisp :common-utils)
+  (:use :common-lisp :common-utils :clclojure.protocols)
   (:shadow :rest :map :filter)
   (:export  
    :flatten
@@ -242,7 +242,7 @@
   "Returns a list composed of interwoven values drawn from
    input lists xs and ys.  Stops the interleaving process 
    when either list is exhausted."
-  (do ((left xs (rest left))
+  (do ((left xs  (rest left))
        (right ys (rest right))
        (acc nil))
       ((or (null left) (null right)) (nreverse acc))

@@ -94,9 +94,12 @@
 (defun hash-table->entries (tbl)
   (nreverse 
    (loop for key being the hash-keys of tbl
-      using (hash-value value)
-      collect (list key value))))
-(defun str (x) (format nil "~A" x))
+         using (hash-value value)
+         collect (list key value))))
+
+(defun str (x &rest xs)
+  (format nil "~{~a~}" (cons x xs))
+      )
 
 ;;Courtesy of the Common Lisp Cookbook, thank you kind souls.
 (defun replace-all (string part replacement &key (test #'char=))
@@ -566,35 +569,35 @@
 ;;        (2 (apply test-fn2 args))
 ;;        (otherwise (apply test-fn-var args)))))
 
-(defun func-name (name arity)    (read-from-string (format nil "~A-~A" name arity)))
+(defun func-name (name arity)    (read-from-string (format nil "~A-~A" name arity))))
 (defmacro named-fn* (name &rest args-bodies)
   (if (= (length args-bodies) 1)
-       (let ((args-body (first args-bodies)))
+      (let ((args-body (first args-bodies)))
  	`(named-fn ,name ,(first args-body) ,(second args-body))) ;regular named-fn, no dispatch.
-       (destructuring-bind (cases var) (parse-dispatch-specs args-bodies)
-	 (let* ((args (gensym "args"))
-		(funcspecs (mapcar (lambda (xs)
+      (destructuring-bind (cases var) (parse-dispatch-specs args-bodies)
+        (let* ((args (gensym "args"))
+               (funcspecs (mapcar (lambda (xs)
 				    (destructuring-bind (n (args body)) xs
 				      (let* ((fname (func-name name n))
 					     (fbody  `(named-fn ,fname ,args ,body)))
 					(if (= n 0)					    
 					    `(,n ,fname  ,fbody)
 					    `(,n ,fname  ,fbody))))) cases))
-		(varspec   (when var 
-			     (let* ((fname (func-name name :variadic))
-				    (fbody  `(named-fn ,fname ,(first var) ,(second var))))
-			       `(:variadic ,fname ,fbody))))
-		(specs     (if var (append funcspecs (list varspec)) funcspecs)))
-	   `(named-fn ,name (,'&rest ,args) 
-		      (let ,(mapcar (lambda (xs) `(,(second xs) ,(third xs))) specs)
-			(case (length ,args)
-			  ,@(mapcar (lambda (xs)  (let ((n (first xs))
-							(name (second xs)))
-						    (if (= n 0) 
-							`(,n (funcall ,name))
-							`(,n (apply ,name ,args))))) funcspecs)
-			  (otherwise ,(if var  `(apply ,(second varspec) ,args)
-					        `(error 'no-matching-args))))))))))
+               (varspec   (when var 
+                            (let* ((fname (func-name name :variadic))
+                                   (fbody  `(named-fn ,fname ,(first var) ,(second var))))
+                              `(:variadic ,fname ,fbody))))
+               (specs     (if var (append funcspecs (list varspec)) funcspecs)))
+          `(named-fn ,name (,'&rest ,args) 
+                     (let ,(mapcar (lambda (xs) `(,(second xs) ,(third xs))) specs)
+                       (case (length ,args)
+                         ,@(mapcar (lambda (xs)  (let ((n (first xs))
+                                                       (name (second xs)))
+                                                   (if (= n 0) 
+                                                       `(,n (funcall ,name))
+                                                       `(,n (apply ,name ,args))))) funcspecs)
+                         (otherwise ,(if var  `(apply ,(second varspec) ,args)
+                                         `(error 'no-matching-args))))))))))
 
 ;;testing
 ;; (named-fn* test-fn 
@@ -634,4 +637,4 @@
 
 
 
-);End eval-when
+;End eval-when

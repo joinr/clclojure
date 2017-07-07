@@ -31,44 +31,41 @@
   (:shadow :let))
 (in-package clclojure.base)
 
-;;We'll redefine this later with an implementation...
-(defmacro clj-let (bindings &body body)
-  (error '(:clj-let 'not-implemented)))
-
-;;Let's hack let to allow us to infer vector-binds
+;;move this later...
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defun vector? (x) (typep x 'clclojure.pvector::pvec))
+  
+  ;;We'll redefine this later with an implementation...
+  (defmacro clj-let (bindings &body body)
+    (declare (ignore bindings body))
+    (error '(:clj-let 'not-implemented)))
+  
+  ;;Let's hack let to allow us to infer vector-binds
 ;;as a clojure let definition...
-(defmacro let (bindings &body body)
-  (if (vector? bindings)
-      `(clj-let ,bindings ,@body)
-      `(cl:let  ,bindings ,@body)))
+  (defmacro let (bindings &body body)
+    (if (vector? bindings)
+        `(clj-let ,bindings ,@body)
+        `(cl:let  ,bindings ,@body)))
 
-;;Lisp1 -> Lisp2 
-;;==============
+  ;;Lisp1 -> Lisp2 
+  ;;==============
 
-;;Unification of Function and Symbol Names (Pending)
-;;==================================================
+  ;;Unification of Function and Symbol Names (Pending)
+  ;;==================================================
 
-;;My good friend Mr. Hanson pointed out that I could hijack lambda entirely.
-;;In common lisp, symbols have a function slot and a value slot.
-;;So if we want to have a lisp1, we want to eliminate the partitioning between 
-;;function and var namespaces. 
-;;If we want to make a lisp1 style symbol, we just set the symbol-value 
-;;and the symbol-function to the same thing; i.e. we point the symbol-function 
-;;to the symbol value.  
-    
-;;(defmacro unify (symb) 
-;;  `(when (function (symbol-function ,symb) (symbol-value ,symb))))
+  ;;My good friend Mr. Hanson pointed out that I could hijack lambda entirely.
+  ;;In common lisp, symbols have a function slot and a value slot.
+  ;;So if we want to have a lisp1, we want to eliminate the partitioning between 
+  ;;function and var namespaces. 
+  ;;If we want to make a lisp1 style symbol, we just set the symbol-value 
+  ;;and the symbol-function to the same thing; i.e. we point the symbol-function 
+  ;;to the symbol value.  
+  
+  ;;(defmacro unify (symb) 
+  ;;  `(when (function (symbol-function ,symb) (symbol-value ,symb))))
 
-(defun macro?    (s) (when (macro-function s) 't))
+  (defun macro?    (s) (when (macro-function s) 't)))
 (defun function? (s) (fboundp s))
-(defun unify-function! (s)
-  (if-let ((func (sol-function s))) 
-     (progn (setf (sol-value func) func)
-	    s)
-     s))
-
-(defun unify-symbols (xs) (mapcar #'unify-function! xs))
-
 ;;Lisp1 Evaluation
 ;;================
 
@@ -483,8 +480,7 @@
 		    (-get-meta (obj) (symbol-meta obj))
 		    (-set-meta (obj m) (with-symbol-meta obj m))))
   
-;;move this later...
-(defun vector? (x) (typep x 'clclojure.pvector::pvec))
+
 
 ;;(defun meta (obj) 
 ;;  (cond (symbolp obj) (eval `(get (quote ,obj) 'meta))
@@ -602,8 +598,6 @@
 ;;(defmacro clojuremacro (name args body)
 ;;  (let ((
   
-
-
 ;;deref @
 ;;we need to process the deref-able symbols 
 
@@ -770,6 +764,10 @@
 ;; (defprotocol ISeq
 ;;   (-first [coll])
 ;;   (-rest [coll]))
+
+(comment  (defprotocol ISeq
+              (-first [coll])
+            (-rest [coll])))
 
 ;; (defprotocol INext
 ;;   (-next [coll]))

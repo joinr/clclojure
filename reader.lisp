@@ -4,7 +4,7 @@
 ;;Pending..................
 (defpackage :clclojure.reader
   (:use :common-lisp :common-utils :named-readtables)
-  (:export :nth-vec :*literals* :quoted-children :quote-sym))
+  (:export :nth-vec :*literals* :quoted-children :quote-sym :literal?))
 (in-package :clclojure.reader)
 
 (comment 
@@ -30,8 +30,8 @@
   ;;Maybe move this into a clojure-readers.lisp or something.
 
   ;;alist of literals...
-  (defparameter *literals*  '())
-  ;;default quote...
+  (defparameter *literals*  '(list cons))
+  ;;default quote...o
   ;; (comment 
   ;;  (set-macro-character #\'
   ;;                       #'(lambda (stream char)
@@ -41,19 +41,24 @@
   ;; (defmacro quoted-children (c)  
   ;;   `(,(first c)  ,@(mapcar #'quote-sym  (rest c))))
 
-  (defun literal? (s) (and (listp s) (member (first s) *literals*)))
+  (defun literal? (s) (or  (and (listp s)   (find (first s) *literals*))
+                           (and (symbolp s) (find s *literals*))))
   (defmacro quoted-children (c)
     `(,(first c)
       ,@(mapcar (lambda (s)
-                  (if  (literal? s) ;;we need to recursively call quoted-children..
-                       `(quoted-children ,s)
-                       (funcall #'quote-sym s)))  (rest c))))
+                  (cond ((literal? s) ;;we need to recursively call quoted-children..
+                         `(quoted-children ,s))
+                        ((listp s)
+                         `(quoted-children ,(cons  (quote list) s)))
+                        (t (funcall #'quote-sym s))))  (rest c))))
   
   ;;Enforces quoting semantics for literal data structures..
   (defmacro clj-quote (expr)
-    (if (literal? expr)
-        `(quoted-children ,expr)
-        (quote-sym expr)))
+    (cond ((literal? expr)  `(quoted-children ,expr))
+          ((listp expr)
+           `(quoted-children ,(cons  (quote list) expr)))
+          (t
+           (quote-sym expr))))
   
   (defun as-char (x)
     (cond ((characterp x) x)
@@ -70,7 +75,20 @@
          (let ((res (read stream t nil t)))
            (as-char res)))
      )
-                       
+
+  ;;Doesn't work currently, since we can't redefine
+  ;;print-method for chars...
+  (defun print-clj-char (c &optional (stream t))
+    "Generic char printer for clojure-style syntax."
+    (format stream "\~c" c))
+
+  (defun print-cl-char (c &optional (stream t))
+    "Generic char printer for common lisp syntax."
+    (format stream "#\~c" c))
+
+  (comment  (defmethod print-object ((obj standard-char) stream)
+              (print-clj-char obj stream)))
+  
   ;;This should be consolidated...
   (set-macro-character #\'
      #'(lambda (stream char)
@@ -102,10 +120,11 @@
   ;;                                          (case (first res)
   ;;                                            ('persistent-vector 'persistent- ))
   ;;                                          (list 'quote )))))
-    )  
+  
 
 
-;;https://gist.github.com/chaitanyagupta/9324402
-;;https://common-lisp.net/project/named-readtables/
+  ;;https://gist.github.com/chaitanyagupta/9324402
+  ;;https://common-lisp.net/project/named-readtables/
 
 
+  )
