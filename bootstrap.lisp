@@ -27,8 +27,20 @@
 ;;                like clojure does.                
 
 (defpackage :clclojure.base
-  (:use :common-lisp :common-utils :clclojure.pvector :clclojure.protocols))
+  (:use :common-lisp :common-utils :clclojure.pvector :clclojure.protocols)
+  (:shadow :let))
 (in-package clclojure.base)
+
+;;We'll redefine this later with an implementation...
+(defmacro clj-let (bindings &body body)
+  (error '(:clj-let 'not-implemented)))
+
+;;Let's hack let to allow us to infer vector-binds
+;;as a clojure let definition...
+(defmacro let (bindings &body body)
+  (if (vector? bindings)
+      `(clj-let ,bindings ,@body)
+      `(cl:let  ,bindings ,@body)))
 
 ;;Lisp1 -> Lisp2 
 ;;==============
@@ -489,6 +501,11 @@
 ;;clos objects, which have meta data fields automatically.  Then we 
 ;;lose out on all the built in goodies from common lisp though.
 
+(defmacro unify-values (var)
+  `(when (functionp (symbol-value (quote  ,var)))
+     (setf (symbol-function (quote ,var))
+           (symbol-value (quote  ,var)))))
+
 ;;def 
 ;;===
 
@@ -931,3 +948,26 @@
 
  (setq c1 (make-instance 'constructor
                          :name 'position :fields '(x y))))
+
+
+(comment
+ ;;clojure-like let...
+ (eval  `(let* ((,'f ,(fn [k] (+ k 1)))
+                (,'n 2))
+           (declare (special ,'f))
+           (unify-values ,'f)
+           (,'f ,'n)))
+
+ ;;we have to declare vars special to use them in
+ ;;a let context ala clojure, so that we can unify
+ ;;the symbols.
+
+ (defun specials (vars)
+   `(,@(mapcar (lambda (v)
+                 `(declare (special ,v))) vars)))
+
+;;Our let macro will just defer to this.... 
+ (defmacro clj-let (binds &rest body)
+   (let ((bs (vector-to-list binds))
+         (vars (mapcar )))))
+ )

@@ -25,6 +25,11 @@
 (set-syntax-from-char #\} #\))
 
 
+;;Currently deferred...
+;;For now, we'll just use a COW map implementation
+;;i.e. wrap a hashtable and copy its contents...
+
+
 (define-condition not-implemented (error) 
   ((text :initarg :text :reader text)))
 
