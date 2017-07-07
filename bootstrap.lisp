@@ -742,17 +742,17 @@
 
 
 ;;These work 
-;; (defprotocol ICounted
-;;   (-count [coll] "constant time count"))
+(defprotocol ICounted
+  (-count [coll] "constant time count"))
 
-;; (defprotocol IEmptyableCollection
-;;   (-empty [coll]))
+(defprotocol IEmptyableCollection
+  (-empty [coll]))
 
-;; (defprotocol ICollection
-;;   (-conj [coll o]))
+(defprotocol ICollection
+  (-conj [coll o]))
 
-;; (defprotocol IOrdinal
-;;     (-index [coll]))
+(defprotocol IOrdinal
+    (-index [coll]))
 
 ;;this will break.  current implementation of defprotocol doesn't allow for 
 ;;multiple arity functions like this.  Need to handle variadic functions...
@@ -761,45 +761,41 @@
 
 ;; (defprotocol ASeq)
 
-;; (defprotocol ISeq
-;;   (-first [coll])
-;;   (-rest [coll]))
+(defprotocol ISeq
+    (-first [coll])
+    (-rest [coll]))
 
-(comment  (defprotocol ISeq
-              (-first [coll])
-            (-rest [coll])))
-
-;; (defprotocol INext
-;;   (-next [coll]))
+(defprotocol INext
+  (-next [coll]))
 
 ;; (defprotocol ILookup
 ;;   (-lookup [o k] [o k not-found]))
 
-;; (defprotocol IAssociative
-;;   (-contains-key? [coll k])
-;;   (-entry-at [coll k])
-;;   (-assoc [coll k v]))
+(defprotocol IAssociative
+  (-contains-key? [coll k])
+  (-entry-at [coll k])
+  (-assoc [coll k v]))
 
-;; (defprotocol IMap
-;;   (-assoc-ex [coll k v])
-;;   (-dissoc [coll k]))
+(defprotocol IMap
+  (-assoc-ex [coll k v])
+  (-dissoc [coll k]))
 
-;; (defprotocol IMapEntry
-;;   (-key [coll])
-;;   (-val [coll]))
+(defprotocol IMapEntry
+  (-key [coll])
+  (-val [coll]))
 
-;; (defprotocol ISet
-;;   (-disjoin [coll v]))
+(defprotocol ISet
+  (-disjoin [coll v]))
 
-;; (defprotocol IStack
-;;   (-peek [coll])
-;;   (-pop [coll]))
+(defprotocol IStack
+  (-peek [coll])
+  (-pop [coll]))
 
-;; (defprotocol IVector
-;;   (-assoc-n [coll n val]))
+(defprotocol IVector
+  (-assoc-n [coll n val]))
 
-;; (defprotocol IDeref
-;;  (-deref [o]))
+(defprotocol IDeref
+ (-deref [o]))
 
 ;; (defprotocol IDerefWithTimeout
 ;;   (-deref-with-timeout [o msec timeout-val]))
@@ -813,17 +809,19 @@
 ;; (defprotocol IReduce
 ;;   (-reduce [coll f] [coll f start]))
 
-;; (defprotocol IKVReduce
-;;   (-kv-reduce [coll f init]))
 
-;; (defprotocol IEquiv
-;;   (-equiv [o other]))
 
-;; (defprotocol IHash
-;;   (-hash [o]))
+(defprotocol IKVReduce
+  (-kv-reduce [coll f init]))
 
-;; (defprotocol ISeqable
-;;   (-seq [o]))
+(defprotocol IEquiv
+  (-equiv [o other]))
+
+(defprotocol IHash
+  (-hash [o]))
+
+(defprotocol ISeqable
+  (-seq [o]))
 
 ;; (defprotocol ISequential
 ;;   "Marker interface indicating a persistent collection of sequential items")
@@ -834,14 +832,14 @@
 ;; (defprotocol IRecord
 ;;   "Marker interface indicating a record object")
 
-;; (defprotocol IReversible
-;;   (-rseq [coll]))
+(defprotocol IReversible
+  (-rseq [coll]))
 
-;; (defprotocol ISorted
-;;   (-sorted-seq [coll ascending?])
-;;   (-sorted-seq-from [coll k ascending?])
-;;   (-entry-key [coll entry])
-;;   (-comparator [coll]))
+(defprotocol ISorted
+  (-sorted-seq [coll ascending?])
+  (-sorted-seq-from [coll k ascending?])
+  (-entry-key [coll entry])
+  (-comparator [coll]))
 
 ;; (defprotocol ^:deprecated IPrintable
 ;;   "Do not use this.  It is kept for backwards compatibility with existing
@@ -849,17 +847,17 @@
 ;;    User code that depends on this should be changed to use -pr-writer instead."
 ;;   (-pr-seq [o opts]))
 
-;; (defprotocol IWriter
-;;   (-write [writer s])
-;;   (-flush [writer]))
+(defprotocol IWriter
+  (-write [writer s])
+  (-flush [writer]))
 
-;; (defprotocol IPrintWithWriter
-;;   "The old IPrintable protocol's implementation consisted of building a giant
-;;    list of strings to concatenate.  This involved lots of concat calls,
-;;    intermediate vectors, and lazy-seqs, and was very slow in some older JS
-;;    engines.  IPrintWithWriter implements printing via the IWriter protocol, so it
-;;    be implemented efficiently in terms of e.g. a StringBuffer append."
-;;   (-pr-writer [o writer opts]))
+(defprotocol IPrintWithWriter
+  "The old IPrintable protocol's implementation consisted of building a giant
+   list of strings to concatenate.  This involved lots of concat calls,
+   intermediate vectors, and lazy-seqs, and was very slow in some older JS
+   engines.  IPrintWithWriter implements printing via the IWriter protocol, so it
+   be implemented efficiently in terms of e.g. a StringBuffer append."
+  (-pr-writer [o writer opts]))
 
 ;; (defprotocol IPending
 ;;   (-realized? [d]))
@@ -871,6 +869,7 @@
 
 ;; (defprotocol IEditableCollection
 ;;   (-as-transient [coll]))
+
 
 ;; (defprotocol ITransientCollection
 ;;   (-conj! [tcoll val])
@@ -892,16 +891,87 @@
 ;; (defprotocol IComparable
 ;;   (-compare [x y]))
 
-;; (defprotocol IChunk
-;;   (-drop-first [coll]))
+(defprotocol IChunk
+  (-drop-first [coll]))
 
-;; (defprotocol IChunkedSeq
-;;   (-chunked-first [coll])
-;;   (-chunked-rest [coll]))
+(defprotocol IChunkedSeq
+  (-chunked-first [coll])
+  (-chunked-rest [coll]))
 
-;; (defprotocol IChunkedNext
-;;   (-chunked-next [coll]))
+(defprotocol IChunkedNext
+  (-chunked-next [coll]))
 
+;;Vector implementations...not currenty working!
+;;although...extend-protocol works!
+
+(extend-type
+ clclojure.pvector::pvec
+
+ ICounted
+ (-count [c] (vector-count c))
+ IEmptyableCollection
+ (-empty [c] [])
+ ICollection
+ (-conj [coll itm] (vector-conj coll itm))
+ IVector
+ (-assoc-n [coll n val] (vector-assoc coll n val))
+ IStack
+ (-peek [coll]
+        (when (not (zerop (-count coll) )) (nth-vec coll 0)))
+ (-pop  [coll]  (subvec coll 1))
+ ISeqable
+ (-seq [coll] (error 'not-implemented))
+ IHash
+ (-hash [o]   (error 'not-implemented))
+ IEquiv
+ (-equiv [o other] (error 'not-implemented))
+ IKVReduce
+ (-kv-reduce [coll f init] (error 'not-implemented))
+ IReversible
+ (-rseq [coll] (error 'not-implemented))
+ IChunk
+ (-drop-first [coll] (error 'not-implemented))
+ IChunkedSeq
+ (-chunked-first [coll] (error 'not-implemented))
+ (-chunked-rest [coll] (error 'not-implemented))
+ IChunkedNext
+ (-chunked-next [coll] (error 'not-implemented))
+ )
+
+;;subvector impls...
+(extend-type
+ clclojure.pvector::subvector
+
+ ICounted
+ (-count [c] (vector-count c))
+ IEmptyableCollection
+ (-empty [c] [])
+ ICollection
+ (-conj [coll itm] (vector-conj coll itm))
+ IVector
+ (-assoc-n [coll n val] (vector-assoc coll n val))
+ IStack
+ (-peek [coll]
+        (when (not (zerop (-count coll) )) (nth-vec coll 0)))
+ (-pop  [coll]  (subvec coll 1))
+ ISeqable
+ (-seq [coll] (error 'not-implemented))
+ IHash
+ (-hash [o]   (error 'not-implemented))
+ IEquiv
+ (-equiv [o other] (error 'not-implemented))
+ IKVReduce
+ (-kv-reduce [coll f init] (error 'not-implemented))
+ IReversible
+ (-rseq [coll] (error 'not-implemented))
+ IChunk
+ (-drop-first [coll] (error 'not-implemented))
+ IChunkedSeq
+ (-chunked-first [coll] (error 'not-implemented))
+ (-chunked-rest [coll] (error 'not-implemented))
+ IChunkedNext
+ (-chunked-next [coll] (error 'not-implemented))
+ )
 
 ;;Experimentation with function objects...
 ;;These may be more desireable than the symbol + lambda

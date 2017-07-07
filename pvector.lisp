@@ -69,7 +69,8 @@
 	   :vector-element-type
 	   :vector-assoc
 	   :vector-conj
-	   :nth-vec))
+	   :nth-vec
+           ))
 (in-package :clclojure.pvector) 
 
 ;Original from Stack Overflow, with some slight modifications.

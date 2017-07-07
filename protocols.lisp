@@ -8,7 +8,8 @@
 (defpackage :clclojure.protocols  
   (:use :common-lisp :common-utils :clclojure.reader :clclojure.pvector)
   (:export :defprotocol
-	   :extend-protocol
+           :extend-protocol
+           :extend-type
 	   :satisfies?
 	   :protocol-exists?
 	   :list-protocols))
