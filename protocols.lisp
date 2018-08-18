@@ -16,9 +16,21 @@
 
 (in-package :clclojure.protocols)
 
-;;aux 
-(defun drop-literals (xs) (nreverse  (filter (lambda (x) (not (literal? x))) xs)))
+;;aux
+;;bootstrapping hack!
 (defun vector? (x) (typep x 'clclojure.pvector::pvec))
+;;this keeps args in order....we nreverse all over the place.
+;;Since we prototyped using lists, and now the vector
+;;reader is working well, we're in the middle of migrating
+;;to vectors.  For now, we allow backwards compat with both
+;;(perhaps allowing CL to define protocols in their native
+;;tongue, I dunno).  In the future, we'll enforce
+;;vectors....
+(defun as-list (xs)
+  (if (vector? xs) (nreverse  (vector-to-list xs))
+      xs))
+(defun drop-literals (xs)
+  (nreverse (filter (lambda (x) (not (literal? x))) (as-list  xs))))
 
 ;;Note-> we need to add support for variadic functions, 
 ;;and variadic protocols members.
@@ -38,12 +50,19 @@
 ;;     (more (coll) 
 ;;      "Gets the rest of the sequence.")))
 
+
+
 (defun spec-name (protocolspec)
   (car protocolspec))
 
 (defun spec-functions (protocolspec)
-  (remove-if-not #'listp protocolspec))
+  (remove-if-not   #'listp  (as-list  protocolspec)))
 
+;;bombing out since we can't extend SEQUENCE to
+;;our own types (thanks hyperspec!)
+;;We can, however, enforce that one must use persistent
+;;vectors....or....we can coerce the vectors to lists, which
+;;are acceptable sequences....
 (defun function-names (protocolspec)
   (mapcar #'first (spec-functions protocolspec)))
 	  
@@ -129,6 +148,7 @@
   "Lists all known protocols."
   (loop for k being the hash-keys in *protocols* collect k))
 
+;;we should cache this....
 (defgeneric satisfies? (p x))
 (defmethod  satisfies? ((p protocol) x)
   (not (null (find (type-of x) (protocol-members p)))))
@@ -345,13 +365,20 @@
          ;;     (error 'missing-implementation))
              ))
 
+;;we need to mod this.  If the implementations refer to a field (and
+;;the field is NOT shadowed as an argument to their method impl), we
+;;need a call to with-slots to pull the referenced fields out to
+;;mirror clojure's behavior.
 (defmacro clojure-deftype (name fields &rest implementations)
   `(progn 
      (defclass ,name ()
-       ,(mapcar (lambda (f) (emit-class-field name f) ) fields))
+       ,(mapcar (lambda (f) (emit-class-field name f) ) (if (vector? fields) 
+                                                            (vector-to-list fields) fields)))
      (extend-type ,name ,@implementations)
-     (defun ,(symbolize (str "->" name)) ,fields
-       (make-instance ,`(quote  ,name) ,@(flatten  (mapcar (lambda (f) `(,(make-keyword f) ,f)) fields ))))
+     ;;debugging 
+     ;; (defun ,(symbolize (str "->" name)) ,fields
+     ;;   (make-instance ,`(quote  ,name) ,@(flatten  (mapcar (lambda (f) `(,(make-keyword f) ,f)) fields ))))
+     
      ))
 
 ;(defun emit-type-constructor (type-name fields)

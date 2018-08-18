@@ -1,0 +1,187 @@
+# -*- mode: org; -*-
+
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="http://www.pirilampo.org/styles/readtheorg/css/htmlize.css"/>
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="http://www.pirilampo.org/styles/readtheorg/css/readtheorg.css"/>
+
+#+HTML_HEAD: <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+#+HTML_HEAD: <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/js/bootstrap.min.js"></script>
+#+HTML_HEAD: <script type="text/javascript" src="http://www.pirilampo.org/styles/lib/js/jquery.stickytableheaders.js"></script>
+#+HTML_HEAD: <script type="text/javascript" src="http://www.pirilampo.org/styles/readtheorg/js/readtheorg.js"></script>
+
+# This is a template for pushing out org files that are compatible 
+# with both HTML and latex export.  Specifically, these files 
+# Support code highlighting - for clojure code - and typeset 
+# the code to look different from the main sections.  The 
+# design is meant for providing a quick template to inject 
+# clojure source into org docs, and provide an interactive, 
+# REPL-friendly presentation.
+#+TITLE: CLClojure: An Experiment Port of Clojure to Common Lisp
+#+AUTHOR: joinr
+#+DATE: 18 Aug 2018
+
+* Background
+Porting Clojure seems to be the thing to do these days.  After the clojurescript
+compiler came out, people had a really good blueprint for hosting clojure in other
+languages.  The fact that the clojurescript compiler is defined, largely, in terms 
+of protocols, makes it a bit closer to the "clojure in clojure" goal.  As a result, 
+you should be able to bootstrap the language (as they did with JavaScript) with 
+a minimum of primitives.  Most of the language is defined in Clojure, so voila. 
+
+We currently have Clojure ports targetting Scheme, C, C-via-Scheme, Python, etc.
+I've found Common Lisp to be a particularly slick environment with some cool tools 
+and a fairly active community.  I think it would be interesting to port the 
+ideas from Clojure to Common Lisp, ultimately implementing a compliant Clojure in
+Common Lisp.  
+
+* Goals
+** Bridge the gap between the cool stuff in clojure and Common Lisp.
+
+** Implement really useful bits of clojure in portable common lisp, and provide them as stand-alone libraries.
+
+This includes lazy sequences, the generic sequence abstraction, 
+and the fundamental persistent hash-array-mapped-trie data structures in clojure:
+- persistent vectors 
+- persistent maps
+- persistent sets.
+
+** Extend the generic sequence abstraction and other idioms to Common Lisp's built-in mutable structures.  
+Common Lisp already has a sequence library, but I think Clojure's is more general and can be trivially extended to new types.  
+Common Lisp's irrational locking down of SEQUENCE is a hurdle here.  The HYPERSPEC will never be updated in my lifetime :)
+So generic functions are the current way to bridge this stuff.
+
+- Protocols are really nice, as are Clojure's arbitrary dispatch multimethods. 
+- Data literals are also highly useful.  I think Clojure nailed the choice of literals, so providing reader macros for these guys would be very nice.
+
+** Possibly wrap a Common Lisp STM implementation, or cheat and use something like lparallel or just delegate to clojure.core.async (like clojurescript).
+
+** Bootstrap a fully functional Clojure onto Common Lisp.
+
+** Learn.
+So far, this project continues to be a great way to learn about both CL and Clojure, to include 
+implementation hurdles, support for PLT stuff, long-standing warts from decisions made ~25 years or more ago, 
+and work-arounds.  Nothing is insurmountable so far, which is pretty cool.
+
+* Status
+** Began work porting Clojure's persistent data structures from Java about years ago, while 
+   simultaneously learning Common Lisp (and by necessity Java :/ ).
+
+- Got a working persistent vector implementation, with compatible clojure literals about a year ago.  
+- Started working on persistent hash maps around November 2012.
+
+- Built a temporary implementation of clojure-style protocols in Common Lisp ~ Dec 2012.
+- Pulled the bits into an actual ASDF system and pushed everything to the Github August 2013.
+
+- Implemented a baby clojure evaluator that __should__ bridge the lisp1/lisp2 gap between clojure and the Common Lisp host.  Unsure if this is going to work out in the long term, but eh.
+- It's real trivial at the moment.  
+
+- Working on library code in my spare time, still need to port the persistent map.
+
+** Revisited 2017 
+- implemented some rudimentary stuff
+- vector reader macros not fleshed out; work fine at the REPL, 
+  but failed to return a vector (instead returning a form to create the vector).
+  Trivial but important oversight.
+- Still hijacking the global read-table.  Pulled in named-readtables to help, 
+  but haven't integrated.
+- Working on variadic functions, explored funcallable classes, refined protocols, deftype.
+- cleaned up the build process (more work to be done here)
+
+** Revisiting 2018
+- got reader macros matured (vector literals produced properly now),
+- got protocol definitions and implementations respecting vectors, 
+  albeit in a hacky way.  We still allow lists for args....
+- working on deftype, then getting the bootstrap from CLJS (core protocols and
+  functions) to compile.
+
+- Working on leveraging named-readtables for better delineation of clojure source,
+  to include file-level (somewhat racket like).  
+- Also intend to leverage named-readtable
+  to get case-senstive reader (via :modern), and to enable CL interop trivially
+   with a macro allows CL reader inside body (vice versa, for inline clojure if 
+  it makes sense).
+- refining the approach after reading a lot, looking at some other sources of 
+  inspiration (including early proto-clojure->java compiler from Hickey in CL)
+
+* Hurdles
+A couple of big hurdles:
+ 
+**  Lisp1 vs Lisp2.  
+- rely on macros (like def) to unify symbol and function namespaces,
+  leveraging CL's environment.
+
+- The longer route would be writing a custom eval, compiler, etc.  
+  Doesn't look necessary at the moment.
+
+**  Persistent structures.
+   - If we get defprotocol, deftype, etc. up and running, 
+     these are already defined in CLJS core.
+   - For bootstrapping, using original port of Persistent Vector
+     from JVM clojure, also creating a dumb wrapper on top.
+**  Protocols.  Already implemented as generic functions. 
+   - Explore alternative implementations if generic functions aren't
+     speedy enough (doubtful, but haven't profiled anything).
+**  Multimethds.
+   - Initial ideas for multiple dispatch following clojure's implementation.
+** Metadata
+   - Symbols and collections (anything that supports IMeta) can have 
+     a persistent map of metadata in clojure.
+   - Used to communicate a lot of information, including type hinting, 
+     source code, documentation, etc.
+   - Current expectation is to leverage property lists for symbols, 
+     and unify with generic functions behind  a protocol.
+** Namespaces 
+   - CL has packages.  Initial hack would be to leverage packages
+     as an anlogue to ns.
+   - Longer term solution is implement own ns system via objects.
+     - Rather leverage CL where possible.
+**  Reader.  
+*** CL macros use , and ,@ in place of ~ and ~@ in Clojure.
+   We'll need to either cook the common lisp reader, or  build a separate clojure
+   reader that will perform the appropriate replacements. 
+   - Looks like a simple tweak to the ` reader macro will suffice, 
+     we'll just flip the symbols as appropriate.
+ 
+*** @ is a literal for #'deref in clojure, is whitespace in clojure.
+  - Similar, we'll flip the read-table.
+*** [] denote vectors
+  - already have a reader macro in pvector.lisp  
+*** {} denote maps 
+  - already have a reader macro in pmap.lisp  
+*** \#{} denote sets
+  - Easy enough to add a dispatch in reader.lisp
+*** ^ denotes metadata for the reader
+  - Trivial to implement as a reader macro, BUT, we need to get 
+    metadata working generally.
+
+**  Destructuring.  
+This may be a bit tricky, although there are a limited number of clojure forms.  
+**  Seq library.  
+This shouldn't be too hard.  I already have a lazy list lib prototype as well as
+generic functions for the basic ops.  I think I'll try to use the protocols
+defined in the clojurescript version as much possible, rather than baking in a
+lot of the seq abstraction in the host language like clojure does.
+  - For simple bootstrapping, this if fine, but we already get all of this
+    with the CLJS core implementation.  So, get the minimums there and
+    gain everything else....
+
+
+* Usage
+Currently just clone the repository.  Assuming you have ASDF setup properly, 
+you should be able to evaluate (require 'clclojure) at your Lisp REPL and it'll 
+compile (if you're in the project dir in lisp).  
+
+Alternately, you can compile and load the .asd file, then use quicklisp 
+to load it from the repl.  (ql:quickload :clclojure)
+
+You currently get persistent vectors, literals, defprotocol, extend-protocol.
+
+You can mess with the currently limited clojure evaluator in the 
+:clclojure.base package, although I'm moving in a different direction now
+that I think I can explot CL better.
+
+I'm a bit new to building Common Lisp projects, so the packaging will likely 
+change as I learn.  At some point, if anything useful comes out of this
+experiment, I may see if it can get pushed to quicklisp.
+
+* License
+Eclipse Public License, just like Clojure.

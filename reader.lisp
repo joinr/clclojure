@@ -3,9 +3,11 @@
 
 ;;Pending..................
 (defpackage :clclojure.reader
-  (:use :common-lisp :common-utils :named-readtables)
-  (:export :nth-vec :*literals* :quoted-children :quote-sym :literal?))
+  (:use :common-lisp :common-utils :named-readtables :clclojure.pvector)
+  (:export :*literals* :quoted-children :quote-sym :literal?))
 (in-package :clclojure.reader)
+
+
 
 (comment 
  (defconstant +left-bracket+ #\[)
@@ -101,6 +103,46 @@
     (progn (setf  *literals* (union  (list literal) *literals*))
            (set-macro-character ldelim rdr)
            (set-syntax-from-char rdelim #\))))
+
+
+  ;;This now returns the actual pvector of items read from
+  ;;the stream, versus a quoted form.  Should work nicely
+  ;;with our protocol definitions now!
+
+  ;;Original from Stack Overflow, with some slight modifications.
+  ;;Have to make this available to the compiler at compile time!
+  ;;Maybe move this into a clojure-readers.lisp or something.
+  (defun |bracket-reader| (stream char)
+    "A reader macro that allows us to define persistent vectors
+    inline, just like Clojure."
+    (declare (ignore char))
+    (apply #'persistent-vector (read-delimited-list #\] stream t)))
+
+  ;;TODO move to named-readtable
+  (push-reader! 'persistent-vector  #\[ #\] #'|bracket-reader|)
+  ;;TODO move to named-readtable
+  (push-reader! 'clclojure.pvector:persistent-vector  #\[ #\] #'|bracket-reader|)
+    
+  (comment  (set-macro-character #\[ #'|bracket-reader|)
+            (set-syntax-from-char #\] #\))
+
+            ;;This should be consolidated...
+            (set-macro-character #\'
+                                 #'(lambda (stream char)
+                                     (let ((res (read stream t nil t)))
+                                       (if (atom res) `(quote ,res)
+                                           (case (first res)
+                                             (persistent-vector `(quoted-children ,res)))
+                                           )))))
+    
+
+  (comment
+   ;;WIP, moving to more elegant solution from named-readtables....
+   ;; (defreadtable clojure:syntax
+   ;;   (:merge :standard)
+   ;;   (:macro-char #\[ #'|bracket-reader| t)
+   ;;   (:case :preserve))
+   )
   
   ;; (comment (defun |brace-reader| (stream char)
   ;;            "A reader macro that allows us to define persistent vectors

@@ -54,7 +54,7 @@
 ;;  empty root nodes, n levels deep, with the tail as the last root node. 
 
 (defpackage :clclojure.pvector
-  (:use :common-lisp :common-utils :clclojure.reader)
+  (:use :common-lisp :common-utils)
   (:export :persistent-vector
 	   :empty-vec
 	   :empty-vec?
@@ -72,46 +72,8 @@
 	   :nth-vec
            ))
 (in-package :clclojure.pvector) 
-
-;Original from Stack Overflow, with some slight modifications.
-
-;;Have to make this available to the compiler at compile time!
-;;Maybe move this into a clojure-readers.lisp or something.
-(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  (defun |bracket-reader| (stream char)
-    "A reader macro that allows us to define persistent vectors
-    inline, just like Clojure."
-    (declare (ignore char))
-    `(persistent-vector ,@(read-delimited-list #\] stream t)))
-  (clclojure.reader::push-reader! 'persistent-vector  #\[ #\] #'|bracket-reader|)
-  (clclojure.reader::push-reader! 'clclojure.pvector:persistent-vector  #\[ #\] #'|bracket-reader|)
   
-  (comment  (set-macro-character #\[ #'|bracket-reader|)
-            (set-syntax-from-char #\] #\))
-
-            ;;This should be consolidated...
-            (set-macro-character #\'
-                                 #'(lambda (stream char)
-                                     (let ((res (read stream t nil t)))
-                                       (if (atom res) `(quote ,res)
-                                           (case (first res)
-                                             (persistent-vector `(quoted-children ,res)))
-                                           )))))
-  )
-  
-  ;; (set-macro-character #\'
-  ;;     #'(lambda (stream char)
-  ;;         (let ((res (read stream t nil t)))
-  ;;           (if (atom res) (quote res)
-  ;;               (case (first res)
-  ;;                 (persistent-vector (eval `(quoted-children ,res)))
-  ;;                 )))))
-
-
-
 ;utility functions
-
-
 
 ;Persistent vectors require a lot of array copying, and 
 ;according to the clojure implementation, bit-twiddling.
@@ -672,4 +634,4 @@
     [left-half right-half ninety]))    
 
 ;;I believe this error was resolved.  old message.
-;note, there's an error showing up between 1056 and 1057
+;;note, there's an error showing up between 1056 and 1057
