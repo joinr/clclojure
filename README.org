@@ -120,7 +120,7 @@ A couple of big hurdles:
 **  Protocols.  Already implemented as generic functions. 
    - Explore alternative implementations if generic functions aren't
      speedy enough (doubtful, but haven't profiled anything).
-**  Multimethds.
+**  Multimethods.
    - Initial ideas for multiple dispatch following clojure's implementation.
 ** Metadata
    - Symbols and collections (anything that supports IMeta) can have 
