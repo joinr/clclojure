@@ -28,20 +28,26 @@
 
 (defpackage :clclojure.base
   (:use :common-lisp :common-utils :clclojure.pvector :clclojure.protocols)
-  (:shadow :let))
+  (:shadow :let)
+  (:export :def :defn))
 (in-package clclojure.base)
 
 ;;move this later...
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   (defun vector? (x) (typep x 'clclojure.pvector::pvec))
+
+  (defmacro vec->bindings (v &rest body)
+    (assert (and (vector? v)
+                 (evenp (-count v)) ) (v)
+                 "Expected vector arg with even number of elements")
+    `(let* (,@ (partition! 2 (vector-to-list v))) ,@body))
   
   ;;We'll redefine this later with an implementation...
-  (defmacro clj-let (bindings &body body)
-    (declare (ignore bindings body))
-    (error '(:clj-let 'not-implemented)))
+  (defmacro clj-let (bindings &rest body)
+   `(vec->bindings  ,bindings ,@body))
   
   ;;Let's hack let to allow us to infer vector-binds
-;;as a clojure let definition...
+  ;;as a clojure let definition...
   (defmacro let (bindings &body body)
     (if (vector? bindings)
         `(clj-let ,bindings ,@body)
@@ -128,6 +134,7 @@
 			     (list '/ #'/)))
 
 (define-condition not-implemented (error) ())
+(define-condition uneven-arguments (error) ())
 
 ;(defun get-funcallable (x);
 ;  (if (symbolp x) 
@@ -506,11 +513,14 @@
 ;;===
 
 ;;Experimental.  Not sure of how to approach this guy.
+;;for now, default to everything being public / exported.
+;;that should be toggled via metadata in real implementation.
 (defmacro def (var &rest init-form)
   `(progn (defparameter ,var ,@init-form)
-          (with-meta (quote ,var) '((symbol . t) (doc . "none")))
+          (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
           (when (functionp (symbol-value (quote  ,var)))
             (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
+          (export ',var)
 	  (quote ,var)
           ))
 

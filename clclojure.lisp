@@ -1,3 +1,9 @@
+;;DEPRECATED
+;;=========
+
+;;see boostrap.lisp for current effort!
+;;Retained for possible pedagogical/historical value....
+
 ;;this is a simple set of utils I'd like to have around
 ;;to further my knowledge, I'll stick it in a package
 ;;using common lisp parlance.

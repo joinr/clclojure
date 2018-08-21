@@ -12,7 +12,8 @@
            :extend-type
 	   :satisfies?
 	   :protocol-exists?
-	   :list-protocols))
+           :list-protocols
+           :clojure-deftype))
 
 (in-package :clclojure.protocols)
 
@@ -343,7 +344,7 @@
        :accessor ,(symbolize (str nm "-" s))))
 
 (defun emit-protocol-extension (proto-name type-name imps)
-  `(extend-protocol ,proto-name ,type-name ,@imps)) 
+  `(extend-protocol ,proto-name ,type-name ,@imps))
 
 ;;impl has protocol (pfn ...) (pfn ...)
 (defmacro extend-type (typename  &rest impls)
@@ -365,24 +366,62 @@
          ;;     (error 'missing-implementation))
              ))
 
+;;the goal here is to define "instance-local" operations
+;;at the method level, where fields refer to slots on the object.
+;;so, we may have a object like {:a 2 :b 3}
+;;fields [a b],
+;;our implementations could be
+;;(blah [obj] a) ;;undefined!
+;;(blee [a] a) ;;defined, shadowing, poor form, but meh.
+
+;;we need to extend the lexcial environment to include
+;;field access...
+;;(blah [obj] a) =>
+;;(blah [obj]
+;;  (with-slots ((a obj))
+;     a))
+
+;;we can be more efficient if we walk the implementations
+;;to detect field usage.  For NOW, we'll just
+;;bind all the fields in the lexical environment
+;;of body, less the field names that are shadowed
+;;by protocol args.
+
+;;TODO: walk the body and collect fields to determine
+;;the final set of fields to use (tailored).
+(defun with-fields (fields method args &rest body)
+  (let* ((arglist (as-list args))
+         (var  (first arglist))
+         (flds (set-difference (as-list fields) arglist)))
+    ;;naive implementation is just bind all the slots....
+    (if flds
+        `(,method ,args
+                  (with-slots ,flds ,var
+                    ,@body))
+        `(,method ,args ,@body))))
+
 ;;we need to mod this.  If the implementations refer to a field (and
 ;;the field is NOT shadowed as an argument to their method impl), we
 ;;need a call to with-slots to pull the referenced fields out to
 ;;mirror clojure's behavior.
 (defmacro clojure-deftype (name fields &rest implementations)
-  `(progn 
-     (defclass ,name ()
-       ,(mapcar (lambda (f) (emit-class-field name f) ) (if (vector? fields) 
-                                                            (vector-to-list fields) fields)))
-     (extend-type ,name ,@implementations)
-     ;;debugging 
-     ;; (defun ,(symbolize (str "->" name)) ,fields
-     ;;   (make-instance ,`(quote  ,name) ,@(flatten  (mapcar (lambda (f) `(,(make-keyword f) ,f)) fields ))))
-     
-     ))
+  (let ((flds (if (vector? fields) 
+                  (vector-to-list fields) fields)))
+    `(progn 
+       (defclass ,name ()
+         ,(mapcar (lambda (f) (emit-class-field name f) ) flds))
+       ;;we need to parse the implementations to provide
+       ;;instance-level fields...
+       (extend-type ,name
+                    ,@(mapcar (lambda (impl)
+                                (if (atom impl) impl
+                                    (apply #'with-fields (cons flds impl)))) implementations))
+       ;;debugging 
+       (defun ,(symbolize (str "->" name)) ,flds
+         (make-instance ,`(quote  ,name) ,@(flatten  (mapcar (lambda (f) `(,(make-keyword f) ,f)) flds ))))
+       
+       )))
 
-;(defun emit-type-constructor (type-name fields)
-;  `(defun (concatenate 'string "->"
 
 ;;Deftype exists in common lisp.  
 (comment 

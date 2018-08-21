@@ -43,20 +43,29 @@
   ;; (defmacro quoted-children (c)  
   ;;   `(,(first c)  ,@(mapcar #'quote-sym  (rest c))))
 
+  (defun dotted-pair? (xs)
+    (and (listp xs)
+         (not  (listp (cdr xs)))))
+  
   (defun literal? (s) (or  (and (listp s)   (find (first s) *literals*))
                            (and (symbolp s) (find s *literals*))))
+  
   (defmacro quoted-children (c)
     `(,(first c)
       ,@(mapcar (lambda (s)
                   (cond ((literal? s) ;;we need to recursively call quoted-children..
                          `(quoted-children ,s))
+                        ((dotted-pair? s)
+                         `(quote ,s))
                         ((listp s)
                          `(quoted-children ,(cons  (quote list) s)))
                         (t (funcall #'quote-sym s))))  (rest c))))
   
   ;;Enforces quoting semantics for literal data structures..
   (defmacro clj-quote (expr)
-    (cond ((literal? expr)  `(quoted-children ,expr))
+    
+    (cond ((literal? expr)     `(quoted-children ,expr))
+          ((dotted-pair? expr) `(quote  ,expr))
           ((listp expr)
            `(quoted-children ,(cons  (quote list) expr)))
           (t

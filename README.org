@@ -101,6 +101,8 @@ and work-arounds.  Nothing is insurmountable so far, which is pretty cool.
   it makes sense).
 - refining the approach after reading a lot, looking at some other sources of 
   inspiration (including early proto-clojure->java compiler from Hickey in CL)
+- Basic def, fn works.  Protocols work.  Metadata works mostly.  Deftype 
+- got let, albeit without destructuring.  Still useful for bootstrapping!
 
 * Hurdles
 A couple of big hurdles:
@@ -117,9 +119,19 @@ A couple of big hurdles:
      these are already defined in CLJS core.
    - For bootstrapping, using original port of Persistent Vector
      from JVM clojure, also creating a dumb wrapper on top.
-**  Protocols.  Already implemented as generic functions. 
+**  Protocols.  
+   - Already implemented as generic functions. 
    - Explore alternative implementations if generic functions aren't
      speedy enough (doubtful, but haven't profiled anything).
+   - protocol definitions need to be namespace/package qualified.
+**  Deftype.
+    - shadows CL deftype.
+    - current implementation follows defprotcol, appears to work for
+      non-varidiac protocol impls.
+    - Look at walking method impl bodies to eliminated unnecesary 
+      slot bindings (currently we generally bind all non-shadowed
+      slots).
+
 **  Multimethods.
    - Initial ideas for multiple dispatch following clojure's implementation.
 ** Metadata
@@ -134,6 +146,16 @@ A couple of big hurdles:
      as an anlogue to ns.
    - Longer term solution is implement own ns system via objects.
      - Rather leverage CL where possible.
+   - Currently implementation of def exports by default.
+     - Looking at introspection possibilites for more 
+       easily tagging meta, arglists.  custom function
+       objects (experimental) are looking good for this.
+     - Should we maintain a parallel collection of 
+       namespaces?  
+       - Based on def and derived forms, we ought to
+         be able to hook in and register stuff.
+       - Allows the reflection and introspection
+         we care about / use in clojure.
 **  Reader.  
 *** CL macros use , and ,@ in place of ~ and ~@ in Clojure.
    We'll need to either cook the common lisp reader, or  build a separate clojure
@@ -144,7 +166,15 @@ A couple of big hurdles:
 *** @ is a literal for #'deref in clojure, is whitespace in clojure.
   - Similar, we'll flip the read-table.
 *** [] denote vectors
-  - already have a reader macro in pvector.lisp  
+  - already have a reader macro in reader.lisp  
+  - There's an incorrect read going on, [x 2] will
+    currently read when it should throw since x
+    is not defined.  
+    - TODO: revisite quoted-children for vectors and 
+      the reader fn bracket-reader.  
+    - If we're not reading a quoted
+      vec, we need to eval args to persistent-vector ctor.
+ 
 *** {} denote maps 
   - already have a reader macro in pmap.lisp  
 *** \#{} denote sets
@@ -152,6 +182,17 @@ A couple of big hurdles:
 *** ^ denotes metadata for the reader
   - Trivial to implement as a reader macro, BUT, we need to get 
     metadata working generally.
+*** \c vs. #\c for chars
+  - Added initial support for clj->cl, need to define
+    printable representation for chars as well.
+  - Current holdup is defining a print-method for 
+    STANDARD-CHAR, which claims the class doesn't exist.
+    - Looking at *print-escape* and friends to see if
+      we can hack this.  We may need our own printer,
+      outside of the provided REPL.
+*** reading/printing booleans
+  - Similar issues as characters.  PAIP has a good 
+    chapter on this for similar issues with Scheme.
 
 **  Destructuring.  
 This may be a bit tricky, although there are a limited number of clojure forms.  
