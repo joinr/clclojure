@@ -119,6 +119,8 @@ A couple of big hurdles:
      these are already defined in CLJS core.
    - For bootstrapping, using original port of Persistent Vector
      from JVM clojure, also creating a dumb wrapper on top.
+     - Need to add meta field to struct, also atomic locks at
+       some point (unless cljs provides this....)
 **  Protocols.  
    - Already implemented as generic functions. 
    - Explore alternative implementations if generic functions aren't
@@ -193,7 +195,23 @@ A couple of big hurdles:
 *** reading/printing booleans
   - Similar issues as characters.  PAIP has a good 
     chapter on this for similar issues with Scheme.
-
+*** .- field access
+  - wrap to calls for CLOS slot
+*** ns.name/fn 
+  - detect / in symbol name, coerce to 
+    qualified internal symbol ns.name::fn 
+*** (.someMethod object) 
+  - .hello is a valid function name in CL...
+  - Reader macro for .?
+    - need to incorporate . form ala: (. obj someMethod)
+*** ::qualified-key 
+   - :: is used as a delimiter for package symbols in CL.
+   - need to parse the symbol name and dispatch....
+   - ::blah -> :BLAH for now...CL reader eliminates
+     redundant colon.
+   - Should be simple to modify the reader macro for :
+*** (aget obj field) from cljs...
+  - keep? This doesn't work the same in clj jvm...
 **  Destructuring.  
 This may be a bit tricky, although there are a limited number of clojure forms.  
 **  Seq library.  
@@ -219,6 +237,11 @@ You currently get persistent vectors, literals, defprotocol, extend-protocol.
 You can mess with the currently limited clojure evaluator in the 
 :clclojure.base package, although I'm moving in a different direction now
 that I think I can explot CL better.
+
+You can see rudimentary examples and usage in the :clclojure.example 
+package (example.lisp).  TODO: shift to named-readtables to keep 
+clclojure from hijacking your session.  Right now, we take over the 
+REPL.....user beware!
 
 I'm a bit new to building Common Lisp projects, so the packaging will likely 
 change as I learn.  At some point, if anything useful comes out of this

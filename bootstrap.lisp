@@ -29,7 +29,7 @@
 (defpackage :clclojure.base
   (:use :common-lisp :common-utils :clclojure.pvector :clclojure.protocols)
   (:shadow :let)
-  (:export :def :defn))
+  (:export :def :defn :fn :meta :with-meta))
 (in-package clclojure.base)
 
 ;;move this later...
