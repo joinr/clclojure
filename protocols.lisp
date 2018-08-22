@@ -111,8 +111,9 @@
 ;I may not need it...
 (defparameter *protocols* (make-hash-table :test #'eq))
 ;Probably deprecated soon...
-(defun get-protocol (name)  (gethash name *protocols*))
-
+(defun get-protocol (name)
+  (gethash name *protocols*))
+  
 ;;we can replace this using CLOS.  We just add a generic function that 
 ;;tells us if an object satisfies a protocol.  
 ;;like (satisfies-protocol? (protocol obj)) 
@@ -272,18 +273,34 @@
     ;(print spec)
     `(defmethod ,(first spec) ,newargs  ,body)))
 
+;; (defmacro implement-function (typename spec)
+;;   (let* ((args    (if (vector? (second  spec))
+;;                       (vector-to-list (second spec))
+;;                       (drop-literals (second spec))))
+;; 	 (newargs (cons (list (first args) typename) (rest args)))
+;; 	 (body (third spec)))
+;;                                         ;(print spec)
+;;     `(defmethod ,(first spec) ,newargs  ,body)))
+
+(defmacro emit-method (name typename imp)
+  `(progn (add-protocol-member (quote ,name)  (quote ,typename))
+            ,@(mapcar (lambda (spec)                   
+                        (implement-function typename spec))
+                      (rest imp))))
+
+(defun emit-implementation (name satvar imp)
+  (let ((quoted-imp (gensym "quotedimp")))
+    `(let ((,quoted-imp (quote ,imp)))
+       (if (funcall ,satvar ,quoted-imp)
+           (emit-method ,name ,(first imp) ,imp)
+           (error 'missing-implementation)))))
+  
 (defmacro extend-protocol (name &rest typespecs)
   (let ((imps       (parse-implementations typespecs))
         (satisfies? (gensym)))
     `(let ((,satisfies? (protocol-satisfier (get-protocol (quote ,name)))))
-       (dolist (imp  (quote ,imps))
-	 (if (funcall ,satisfies? imp)
-	     (let ((typename (first imp)))
-	       (progn (add-protocol-member (quote ,name)  typename)
-		      (dolist (spec (rest imp))
-                        (eval (implement-function typename spec)))))
-	     (error 'missing-implementation))))))	      
-
+       ,@(mapcar  (lambda (imp) (emit-implementation name satisfies? imp))
+                  imps))))
 
 ;Extend-type is also particularly useful.
 ;;Pending -> implement deftype.

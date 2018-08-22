@@ -5,7 +5,7 @@
   (:export  
    :comment 
    :make-keyword 
-   :stringify 
+   :to-string
    :str   
    :symb  
    :with-gensyms
@@ -76,9 +76,17 @@
 (defun make-keyword (thing) 
   (values (intern (string-upcase thing) :keyword)))
 
-;;Turn x into a string.  
 
-(defun stringify (x) (format nil "~a" x))
+;;Turn x into a string.
+;;Designed to support clojure's general behavior:
+;; keyword string representation includes :
+(defgeneric to-string (obj))
+(defmethod to-string (obj)
+  (prin1-to-string obj))
+(defmethod to-string ((obj string))
+  obj)
+
+
 (defun filter (pred xs) (remove-if-not pred xs))
 ;;some hack functions to help us validate bodies.
 (defun group-by (key-func xs)
@@ -98,8 +106,7 @@
          collect (list key value))))
 
 (defun str (x &rest xs)
-  (format nil "~{~a~}" (cons x xs))
-      )
+  (format nil "~{~a~}" (mapcar #'to-string (cons x xs))))
 
 ;;Courtesy of the Common Lisp Cookbook, thank you kind souls.
 (defun replace-all (string part replacement &key (test #'char=))
@@ -107,26 +114,25 @@
    is replaced with replacement."
   (with-output-to-string (out)
     (loop with part-length = (length part)
-       for old-pos = 0 then (+ pos part-length)
-       for pos = (search part string
-			 :start2 old-pos
-			 :test test)
-       do (write-string string out
-			:start old-pos
-			:end (or pos (length string)))
-       when pos do (write-string replacement out)
-       while pos))) 
+          for old-pos = 0 then (+ pos part-length)
+          for pos = (search part string
+                            :start2 old-pos
+                            :test test)
+          do (write-string string out
+                           :start old-pos
+                           :end (or pos (length string)))
+          when pos do (write-string replacement out)
+          while pos))) 
 
 ;;Turn xs, assumably strings, into a symbol as if typed at the repl.
 (defun symb (&rest xs)
-  (eval (read-from-string (concatenate 'string xs))))
-
+  (read-from-string (apply #'str xs)))
 
 ;;Need to add with-gensyms here..
 ;;From PCL.
 
 (defmacro with-gensyms ((&rest names) &body body)
-  `(let ,(loop for n in names collect `(,n (gensym ,(stringify n))))
+  `(let ,(loop for n in names collect `(,n (gensym ,(to-string n))))
      ,@body))
 
 (defmacro if-let (binding body &rest false-body)
@@ -568,8 +574,9 @@
 ;;        (1 (apply test-fn1 args))
 ;;        (2 (apply test-fn2 args))
 ;;        (otherwise (apply test-fn-var args)))))
+)
 
-(defun func-name (name arity)    (read-from-string (format nil "~A-~A" name arity))))
+(defun func-name (name arity)    (read-from-string (format nil "~A-~A" name arity)))
 (defmacro named-fn* (name &rest args-bodies)
   (if (= (length args-bodies) 1)
       (let ((args-body (first args-bodies)))

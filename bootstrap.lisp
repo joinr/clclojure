@@ -28,8 +28,8 @@
 
 (defpackage :clclojure.base
   (:use :common-lisp :common-utils :clclojure.pvector :clclojure.protocols)
-  (:shadow :let)
-  (:export :def :defn :fn :meta :with-meta))
+  (:shadow :let :deftype)
+  (:export :def :defn :fn :meta :with-meta :str :deftype :defprotocol :reify :extend-type :extend-protocol))
 (in-package clclojure.base)
 
 ;;move this later...
@@ -38,7 +38,7 @@
 
   (defmacro vec->bindings (v &rest body)
     (assert (and (vector? v)
-                 (evenp (-count v)) ) (v)
+                 (evenp (vector-count v)) ) (v)
                  "Expected vector arg with even number of elements")
     `(let* (,@ (partition! 2 (vector-to-list v))) ,@body))
   
@@ -53,7 +53,7 @@
         `(clj-let ,bindings ,@body)
         `(cl:let  ,bindings ,@body)))
 
-  ;;Lisp1 -> Lisp2 
+  ;;Lisp1 -> Lisp2   (Somewhat outdated....)
   ;;==============
 
   ;;Unification of Function and Symbol Names (Pending)
@@ -70,8 +70,9 @@
   ;;(defmacro unify (symb) 
   ;;  `(when (function (symbol-function ,symb) (symbol-value ,symb))))
 
-  (defun macro?    (s) (when (macro-function s) 't)))
-(defun function? (s) (fboundp s))
+  (defun macro?    (s) (when (macro-function s) 't))
+  (defun function? (s) (fboundp s)))
+
 ;;Lisp1 Evaluation
 ;;================
 
@@ -595,6 +596,7 @@
   (filter (lambda (x) (not (null x)))
 	  (mapcar #'gensym-stub (common-utils::flatten expr))))
 
+;;not used
 (defmacro clojure-mac (name args body)
   (let ((xs (union (mapcar #'intern (scrape-gensyms body)) '())))
    `(with-gensyms ,xs 
@@ -723,6 +725,27 @@
         (t  (progn (print  :list)
                    `(quote ,expr))))))
 
+
+;;hacky way to accomodate both forms...
+;;we know we're in clojure if the args are vector
+(defmacro deftype (&rest args)
+   (if (vector? (nth 1 args))
+       `(clojure-deftype ,@args)
+       `(common-lisp::deftype ,@args)))
+
+;;reify is interesting.
+;;we generate an instance of an anonymous class,
+;;ala deftype, with protocol implementations.
+;;TODO: look at the consequences of having bunches of
+;;anonymous classes laying around, say evaluating
+;;reify several times...Should we garbage collect this?
+;;Or does that cut into dynamicity?
+(defmacro reify (&rest implementations)
+  (let [classname (gentemp "REIFY")
+        ctor (gensym "CONSTRUCTOR") ]
+    `(let ((,ctor (clojure-deftype ,classname [] ,@implementations)))
+       (funcall ,ctor))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;; core protocols ;;;;;;;;;;;;;
 
 ;;Need to get back to this guy...multiple arity is not yet implemented...
@@ -751,9 +774,9 @@
 ;;     [this a b c d e f g h i j k l m n o p q s t rest]))
 
 
-;;These work 
+;;These work
 (defprotocol ICounted
-  (-count [coll] "constant time count"))
+    (-count [coll] "constant time count"))
 
 (defprotocol IEmptyableCollection
   (-empty [coll]))

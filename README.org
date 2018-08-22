@@ -103,6 +103,8 @@ and work-arounds.  Nothing is insurmountable so far, which is pretty cool.
   inspiration (including early proto-clojure->java compiler from Hickey in CL)
 - Basic def, fn works.  Protocols work.  Metadata works mostly.  Deftype 
 - got let, albeit without destructuring.  Still useful for bootstrapping!
+- Initial implementation of reify working, wrapped deftype in a version 
+  compatible with cl:deftype
 
 * Hurdles
 A couple of big hurdles:
@@ -126,6 +128,9 @@ A couple of big hurdles:
    - Explore alternative implementations if generic functions aren't
      speedy enough (doubtful, but haven't profiled anything).
    - protocol definitions need to be namespace/package qualified.
+     - Looks like they are already, at the package level.
+   - Need better error messaging on missing protocols
+     - TODO: get-protocol should signal.
 **  Deftype.
     - shadows CL deftype.
     - current implementation follows defprotcol, appears to work for
@@ -134,7 +139,7 @@ A couple of big hurdles:
       slot bindings (currently we generally bind all non-shadowed
       slots).
 
-**  Multimethods.
+** Multimethods.
    - Initial ideas for multiple dispatch following clojure's implementation.
 ** Metadata
    - Symbols and collections (anything that supports IMeta) can have 
@@ -158,12 +163,17 @@ A couple of big hurdles:
          be able to hook in and register stuff.
        - Allows the reflection and introspection
          we care about / use in clojure.
+   - Need to translate between require, refer, import (clojure)
+     and import (cl). 
 **  Reader.  
 *** CL macros use , and ,@ in place of ~ and ~@ in Clojure.
    We'll need to either cook the common lisp reader, or  build a separate clojure
    reader that will perform the appropriate replacements. 
    - Looks like a simple tweak to the ` reader macro will suffice, 
      we'll just flip the symbols as appropriate.
+   - TODO: quasitquoting in clojure (let []) inside of macros is 
+     not splicing, need to revisit quoted-children.
+     - ex `[,'a] => [,'A] (incorrect)
  
 *** @ is a literal for #'deref in clojure, is whitespace in clojure.
   - Similar, we'll flip the read-table.
@@ -223,6 +233,27 @@ lot of the seq abstraction in the host language like clojure does.
     with the CLJS core implementation.  So, get the minimums there and
     gain everything else....
 
+** Strings
+CL strings are mutable (character arrays), clj/cljs are not...
+- Can we inherit from string to create an immutable type that
+  outlaws setf?
+- I think most string operations (ala the sequence-based ones) 
+  return copies (which are mutable).
+  - We can prevent setf in clojure mode, providing a pure API
+    for string manipulation...
+    - As well as impure....hmm
+
+** Regexes
+Leverage CL-PPRCE
+  - check for reader macro collisions....
+
+** Compilation / Analysis
+Currently, we project everything to (portable) CL, and let
+the host do the dirty work for compilation/analysis.
+- Future, port clojure.tools.analyzer
+  - Maybe use that for some of our efforts...
+- If we have enough ported, look at using 
+  clojure.tools.reader to help as well.
 
 * Usage
 Currently just clone the repository.  Assuming you have ASDF setup properly, 
