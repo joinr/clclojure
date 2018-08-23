@@ -95,3 +95,18 @@ IBlah
 
 ;;loop/recur (maybe not necessary since we can compile
 ;;on most implementations and get TCO)
+
+
+;;Working on variadic protocol implementations,
+;;will be addressed in clclojure.variadic
+(defprotocol IMany
+    (many [obj] [obj msg]))
+
+(deftype manytest []
+  IMany
+  (many [this] :one!)
+  (many [this item] item) )
+
+
+
+

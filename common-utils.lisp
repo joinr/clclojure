@@ -574,9 +574,9 @@
 ;;        (1 (apply test-fn1 args))
 ;;        (2 (apply test-fn2 args))
 ;;        (otherwise (apply test-fn-var args)))))
-)
 
-(defun func-name (name arity)    (read-from-string (format nil "~A-~A" name arity)))
+
+(defun func-name (name arity)    (read-from-string (format nil "~A-~A" name arity))))
 (defmacro named-fn* (name &rest args-bodies)
   (if (= (length args-bodies) 1)
       (let ((args-body (first args-bodies)))
