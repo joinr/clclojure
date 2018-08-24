@@ -103,33 +103,85 @@
 (defun get-meta! (name)
   (gethash  (qualified-name name)  *metabase*))
 
-(defun compare-arity (l r)
-  (let ((lv (find '& l))
-        (rv (find '& r))))
-  (if (not (and lv rv))
-      (< (length l) (length r))
-      (case )
-      ))
+(defun variadic? (arglist)
+  (find '&rest arglist)  )
 
-(defun validate-arglists (arglists)
-  
-  )
-(defmacro generic-fn* (name &rest args)
-  (let ((gf (gensym "genfun")))
-    `(let ((,gf (defgeneric ,name   (,'obj &rest ,'args))))
-       )))
-   
-  
+(defun compare-arity (l r)
+  (let ((lv (variadic? l))
+        (rv (variadic? r)))
+    (if (not (and lv rv))
+        (< (length l) (length r))
+        (if lv
+            t
+            nil))))
+
+(define-condition arglist-error (error)
+  ((text :initarg :text :reader text)
+   (data :initarg :data :reader data))
+  (:report (lambda (condition stream)
+             (format stream "bad arglists: ~a reason: ~a"
+                     (data condition) (text condition)))))
+
+;;invariants:
+;;only one variadic arg....
+;;unique arities for each other arity...
+;;variadic arg must have more concrete args than the largest arglist.
+(defun validated-arglists (arglists)
+  (labels ((aux (acc remaining)
+             (if (null remaining)
+                 acc
+                 (let* ((xs (first remaining))
+                        (l  (first xs))
+                        (r  (second xs)))
+                   (cond ((and (second l) ;;vararg lesser arity than nonvar
+                               (second r))
+                          (error 'arglist-error :text "only one variadic arity allowed!"
+                                                :data `(,(first (last  l))
+                                                        ,(first  (last r)))))
+                         ((= (first l) (first r)) ;;identical nonvar arity              
+                          (error 'arglist-error :text (if (second r)                                                              
+                                                          "identical arities!"
+                                                          "variadic arglist must have most concrete args")
+                                                :data `(,(first (last  l))
+                                                         ,(first  (last r)))))
+                         ((and (second l) ;;vararg lesser arity than nonvar
+                               (not  (second r)))
+                          (error 'arglist-error :text "multiple arglists with same arity!"
+                                                :data `(,(first (last  l))
+                                                         ,(first  (last r)))))
+                         (t (aux acc (rest remaining))))))))
+    (let ((sorted (sort arglists #'compare-arity)))
+      (common-utils::->> sorted
+                         (mapcar (lambda (args)
+                                   (let ((var (variadic? args)))
+                                     (list (- (length args) (if var 1 0)) var args))))
+                         ((lambda (xs) (common-utils::partition! 2 xs :offset 1)))  
+                         (aux sorted)))))
+
+;;we want to store the arglists for the generic function as meta data
+;;{:arities {0 () 1 (x) 2 (x y) :variadic (x y &rest zs)}
+
+;;for now, we'll do an assoc list.
+(defun arglist-meta (arglists)
+  (mapcar (lambda (args)
+            (list (if (variadic? args) :variadic (length args)) args)) arglists))
 
 ;;constraints:
 ;;only one variadic body
 ;;discrete args must be > non-variadic definitions...
 
-
+(defmacro generic-fn* (name &rest args)
+  (let ((gf (gensym "genfun"))
+        (arglists (gensym "arglists")))
+    `(let ((,arglists (validated-arglists (quote ,args)))
+           (,gf (defgeneric ,name   (,'obj &rest ,arglists))))
+       (progn (push-meta! (quote ,name ) (arglist-meta ,arglists))
+              ,gf)
+       )))
+   
 ;;a, generic function with n bodies.
 ;;we need to track that information?
 ;;internal implementation detail....
-
 (generic-methods*
  many            ;gen-fn name 
  some-type
@@ -138,9 +190,16 @@
  ((this that else &rest args) else))
 
 
+;;we need to lookup the meta for the name.
+;;then match the methods to the arities...
+
+(defun methods->arities (ms)
+  )
+
 (defmacro generic-methods* (name specializer &rest methods)
   (let ((obj (gensym "obj"))
         (args (gensym "args"))
+        (bodies (get-meta! name))
         )
     `(let ((many-1 (lambda (this)      :single))
            (many-2 (lambda (this that) that )))

@@ -222,6 +222,35 @@ A couple of big hurdles:
    - Should be simple to modify the reader macro for :
 *** (aget obj field) from cljs...
   - keep? This doesn't work the same in clj jvm...
+** Keyword access
+Keywords are applicable in Clojure.  That means they show
+up in the function position in forms.  This won't
+jive in CL directly.
+   - Possible option: reader macro for lists, detect
+     presence of keyword in function call positition,
+     if not quoted.
+   - Replace keyword with a funcallable thing that
+     has a print-method looking like a keyword?
+   - Or try to hack eval (dubious).
+   - custom read / eval / print....
+Looks like we can just leverage he function namespace
+to get around this....keywords are "just"
+symbols....
+   - (defun :a (m) (gethash :a m))
+   - (defun (setf :A) (new-value m)
+            (setf (gethash  :A m)
+                  new-value))
+   - (defparameter ht (make-hash-table))
+   - (setf (:A  ht) 3)
+So the workaround is:
+   - Need a reader macro lists.
+   - If we see a keyword in the function position,
+     - we define a function for the keyword via defun.
+     - define a setf expander that provides hashmap
+       access (alternately, something that's not mutating).
+
+Looks like that may work inside the existing ecosystem....
+
 **  Destructuring.  
 This may be a bit tricky, although there are a limited number of clojure forms.  
 **  Seq library.  
