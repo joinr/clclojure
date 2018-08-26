@@ -27,7 +27,9 @@
 ;;                like clojure does.                
 
 (defpackage :clclojure.base
-  (:use :common-lisp :common-utils :clclojure.pvector :clclojure.protocols)
+  (:use :common-lisp :common-utils
+        :clclojure.keywordfunc :clclojure.lexical
+        :clclojure.pvector :clclojure.protocols)
   (:shadow :let :deftype)
   (:export :def :defn :fn :meta :with-meta :str :deftype :defprotocol :reify :extend-type :extend-protocol))
 (in-package clclojure.base)
@@ -40,7 +42,7 @@
     (assert (and (vector? v)
                  (evenp (vector-count v)) ) (v)
                  "Expected vector arg with even number of elements")
-    `(let* (,@ (partition! 2 (vector-to-list v))) ,@body))
+    `(unified-let* (,@ (partition! 2 (vector-to-list v))) ,@body))
   
   ;;We'll redefine this later with an implementation...
   (defmacro clj-let (bindings &rest body)
@@ -164,9 +166,6 @@
 
 ;;a single function definition
 (defstruct fn-def args body)
-;;a variadic function definition
-(defstruct var-fn-def  fns)
-
 ;;a macro definition -- later
 (defstruct macro-def name args body)
 
@@ -190,7 +189,7 @@
 
 (defgeneric arity (fd))
 (defmethod  arity ((fd clclojure.pvector::pvec))  
-  (values (vector-count  fd) (variadic? fd)))
+  (values (vector-count  fd) (variadic fd)))
 (defmethod  arity ((fd fn-def)) (arity (slot-value fd 'args)))
 
 ;;since clojure allows multiple bodies, with fixed arity for each body, we 
@@ -200,9 +199,10 @@
 (defmacro fn* (&rest specs)	  
   `(list ,@(mapcar (lambda (vb) `(read-fn ,(first vb) ,(second vb))) specs)))
 
-(defparameter test-fn `(fn ([x y]  (+ x y))
-			   ([xs]   (+ (first xs) (second xs)))))
-(defparameter test-fn-body (rest test-fn))
+(defparameter test-fn
+  '(fn* ([x] x)
+        ([x y]        (+ x y))
+        ([x y & xs]   (common-lisp:reduce #'+ xs :initial-value (+ x y)))))
 
 (defstruct arg-parse lambda-list outer-let)
 
@@ -213,7 +213,8 @@
 ;;machine that parses the args, possibly destructuring recursively.  Don't know all 
 ;;the cases yet, but we'll need to be able to destructure vectors and maps into 
 ;;corresponding lambda lists.
-(defun parse-args (args) (make-arg-parse :lambda-list (vector-to-list args)))
+(defun parse-args (args)
+  (make-arg-parse :lambda-list (substitute '&rest '&  (vector-to-list args))))
 ;;Compile a clojure fn special form into a common lisp lambda
 (defgeneric fndef->sexp (fd))
 (defmethod  fndef->sexp ((fd fn-def))
@@ -221,22 +222,19 @@
     (with-slots (lambda-list outer-let) (parse-args args)           
       (let ((interior (if outer-let `(let* ,outer-let ,body)
 			  body)))
-	`(lambda ,lambda-list ,interior)))))  
+	`(lambda ,lambda-list ,interior)))))
 
-(defun dispatch (f) `(apply ,f args))
-(defun function-dispatch (fd) 
-  (reduce (lambda (acc x) (cons (list (arity x) (dispatch (eval (fndef->sexp x)))) acc))
-	  fd :initial-value (list)))
-
-(defun n-lambda (arities->bodies variadic-body)
-  (error 'not-implemented))
+;; (defun dispatch (f) `(apply ,f args))
+;; (defun function-dispatch (fd) 
+;;   (reduce (lambda (acc x) (cons (list (arity x) (dispatch (eval (fndef->sexp x)))) acc))
+;;           fd :initial-value (list)))
 
 ;;parse a list of function definitions into an n-lambda dispatching function.
 (defmethod fndef->sexp ((fd cons))
   (if (= (length fd) 1)  (fndef->sexp (first fd)) ;simple case
-      ;case with multiple function definitions.
-      (multiple-value-bind (arities->bodies variadic-body) (function-dispatch fd)
-	(n-lambda arities->bodies variadic-body))))
+      ;;case with multiple function definitions.
+      `(common-utils:lambda* ,@(mapcar (lambda (body)
+                                         (rest (fndef->sexp body))) fd))))
   
 ;;weak hack around lack of read-time vector creation.
 (defun vector-form? (expr) (or (vector? expr) (eq (first expr) 'persistent-vector)))
@@ -245,13 +243,15 @@
 ;;Todo: support destructuring in the args.
 (defmacro fn (&rest specs)
   (if (vector-form? (first specs)) 
-      `(eval (fndef->sexp (read-fn ,(first specs) ,(second specs))))
-      `(eval (fndef->sexp (fn* ,@specs)))))
+      ;; (progn (pprint :single)
+      ;;        (fndef->sexp (read-fn (first specs) (second specs))))
+      (eval `(fndef->sexp (fn* (,@specs))))
+      ;;TODO get rid of this eval....
+      (eval `(fndef->sexp (fn* ,@specs)))))
 
 ;;A CHEAP implementation of defn, replace this...
 (defmacro defn (name args &rest body)
-  `(def ,name (fn ,args ,@body)) 
-  ) 
+  `(def ,name (fn ,args ,@body))) 
 
 ;;NOTE: This is not necessary going forward....
 ;;We can already mimic a lisp1 without a custom evaluator.

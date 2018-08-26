@@ -9,12 +9,16 @@
   :components ((:file "common-utils")
                (:file "reader"
                 :depends-on ("pvector"))
-                                                
+               (:file "keywordfunc")
                (:file "pvector")
+               (:file "lexical"
+                      :depends-on ("keywordfunc"))
                (:file "protocols"
                 :depends-on ("common-utils" "reader" "pvector"))
 	       (:file "bootstrap"
                 :depends-on ("common-utils"
+                             "lexical"
+                             "keywordfunc"
                              "protocols"
                              "pvector")))
   )

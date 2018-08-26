@@ -116,6 +116,32 @@ A couple of big hurdles:
 - The longer route would be writing a custom eval, compiler, etc.  
   Doesn't look necessary at the moment.
 
+*** Lexical Scope vs. Top Level
+So, Common Lisp as a lisp-2 has multiple namespaces,
+foremost of which are function and symbol.  We already have
+the top-level (that is, null lexical environment) symbol 
+and function namespaces unified by using setf for symbol-function
+to make it identical to symbol value....but.....
+- Lexical environments don't work that way!
+  - symbol-function and symbol-value only work on non-lexical symbols.
+  - Initial hack was to unify the namespaces by traversing 
+    the vars in the let bindings and unifying prior to continued binding.
+    - Had a false-positive success since the symbol modifications were
+      actually pointing to non-lexical scoped symbols (stuff from prior
+      REPL interactions).
+- The fix for this is to use a combination of let* and labels, which CAN
+  unify the symbol-value and symbol-function namespaces for lexical vars..
+  - Defined a macro, unified-let*, that does this for us:
+    - We parse the bindings, detecting if any symbol points to a literal
+      keyword.
+    - We ensure keyaccess objects are compiled during macroexpansion, 
+      which creates the plumbing for keyword access if it didn't 
+      already exist
+      - and we create function definitions for the vars that point to 
+        keywords, where the function bindings invoke the funcallable
+        keyword accessor directly.
+   - We need to apply this as an implicit body for fn forms as well..
+
 **  Persistent structures.
    - If we get defprotocol, deftype, etc. up and running, 
      these are already defined in CLJS core.
@@ -250,6 +276,11 @@ So the workaround is:
        access (alternately, something that's not mutating).
 
 Looks like that may work inside the existing ecosystem....
+Significant progress / experimentation in 
+clclojure.keyworfuncs.  However, it's looking like,
+to get "full" access (even with some tricky pseudo-keyword
+class, macros, and the above suff), we're probably better
+off hacking eval / compile.
 
 **  Destructuring.  
 This may be a bit tricky, although there are a limited number of clojure forms.  

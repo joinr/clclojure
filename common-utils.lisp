@@ -392,7 +392,7 @@
 (defmacro case-args (args dispatch-func dispatch-bindings)
   (with-gensyms (xs)
     `(let* ((,xs  ,args)
-	    (*args* ,xs  ))
+	    (args* ,xs  ))
        (case (funcall ,dispatch-func ,args)
 	 ,@dispatch-bindings))))
 
@@ -475,8 +475,8 @@
 				(destructuring-bind (n (args body)) xs
 				  (if (= n 0)
 				      `(,n (funcall (lambda  nil ,body))) 
-				      `(,n (apply (lambda  ,args ,body) *args*))))) cases))
-	       (var  (when var `(apply (lambda ,(first var) ,(second var)) *args*))))
+				      `(,n (apply (lambda  ,args ,body) args*))))) cases))
+	       (var  (when var `(apply (lambda ,(first var) ,(second var)) args*))))
 	   `(lambda (&rest args) 		    
 	      (case-arg-count args ,cases ,var))))))
 

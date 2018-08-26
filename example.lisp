@@ -108,5 +108,24 @@ IBlah
   (many [this item] item) )
 
 
+;;error in vector, vector args aren't being evaluated.
+(defn test-my-scope []
+  (let
+      [hello :hello
+       world :world
+       k 2
+       inc (fn [x] (+ x 1))
+       add (fn [x y] (+ x y))
+       tbl (let [tbl (make-hash-table)]
+              (setf  (gethash :hello tbl) "World")
+              (setf  (gethash :world tbl) "Hello")
+              (setf  (gethash :k  tbl)    k)
+             tbl)]
+    (list  (hello tbl)
+           (world tbl)
+           (add (inc 39) k)
+           (gethash :k tbl);;(:k tbl);;WIP
+           )))
 
-
+;;EXAMPLE> (test-my-scope)
+;;("World" "Hello" 42 2)
