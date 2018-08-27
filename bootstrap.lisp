@@ -36,18 +36,38 @@
 
 ;;move this later...
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defun eval-vector (v)
+    (clclojure.pvector:vector-map  (lambda (x) (eval x)) v))
+  
   (defun vector? (x) (typep x 'clclojure.pvector::pvec))
 
+  ;;this is a top-down evaluator...once we go CL, we can't
+  ;;go back.  Unless we define clj wrappers for all the special forms,
+  ;;and lift the CL eval into clj-eval....
+  (defmacro clj-eval (expr)
+    (cond ((clclojure.base::vector? expr) (eval-vector expr))
+          (t  (cl:eval expr))))
+
+  ;;we probably want clj-defmacro, which uses clj-eval instead of
+  ;;cl:eval.
+
+  ;;Then we can define our language forms in terms of clj-defmacro...
+
+  ;;We need to handle evaluation of special forms like vectors and maps
+  ;;that occur on the rhs of the binding forms....
+  ;;lhs doesn't get eval'd (destructuring may expand the form),
+  ;;but RHS has clojure-style evaluation semantics, i.e. we need
+  ;;to eval any vector/map/set literals and splice them in.
   (defmacro vec->bindings (v &rest body)
     (assert (and (vector? v)
                  (evenp (vector-count v)) ) (v)
                  "Expected vector arg with even number of elements")
-    `(unified-let* (,@ (partition! 2 (vector-to-list v))) ,@body))
-  
+    `(unified-let* (,@ (partition! 2 (vector-to-list v))) ,@body))  
+
   ;;We'll redefine this later with an implementation...
   (defmacro clj-let (bindings &rest body)
    `(vec->bindings  ,bindings ,@body))
-  
+ 
   ;;Let's hack let to allow us to infer vector-binds
   ;;as a clojure let definition...
   (defmacro let (bindings &body body)
@@ -303,7 +323,15 @@
 
 ;;Our clojure evaluator uses the lisp1 evaluator, and tags on some extra 
 ;;evaluation rules.  More to add to this.
-(defmacro clojure-eval (exprs) `(lisp1 (quote ,exprs)))
+(defmacro clojure-eval (exprs)
+  `(lisp1 (quote ,exprs)))
+
+;;this is a top-down evaluator...once we go CL, we can't
+;;go back.  Unless we define clj wrappers for all the special forms,
+;;and lift the CL eval into clj-eval....
+(defmacro clj-eval (expr)
+  (cond ((clclojure.base::vector? expr) (eval-vector expr))
+        (t  (cl:eval expr))))
 
 ;(let ((x (+ 2 1)))
 ;  (lambda (y) (+ x y)))
