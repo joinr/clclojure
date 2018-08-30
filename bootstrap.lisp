@@ -58,21 +58,27 @@
   ;;lhs doesn't get eval'd (destructuring may expand the form),
   ;;but RHS has clojure-style evaluation semantics, i.e. we need
   ;;to eval any vector/map/set literals and splice them in.
-  (defmacro vec->bindings (v &rest body)
-    (assert (and (vector? v)
-                 (evenp (vector-count v)) ) (v)
-                 "Expected vector arg with even number of elements")
-    `(unified-let* (,@ (partition! 2 (vector-to-list v))) ,@body))  
+  ;; (defmacro vec->bindings (v &rest body)
+  ;;   (assert (and (vector? v)
+  ;;                (evenp (vector-count v)) ) (v)
+  ;;                "Expected vector arg with even number of elements")
+  ;;   `(unified-let* (,@ (partition! 2 (vector-to-list v))) ,@body))
+
+  ;;works with our vector expression...
+  ;; (defmacro vec->bindings (vexpr &rest body)
+  ;;   (progn (pprint vexpr)
+  ;;          (let ((binds (rest  vexpr)))
+  ;;            `(unified-let* (,@ (partition! 2 binds)) ,@body))))
 
   ;;We'll redefine this later with an implementation...
-  (defmacro clj-let (bindings &rest body)
-   `(vec->bindings  ,bindings ,@body))
+  ;; (defmacro clj-let (bindings &rest body)
+  ;;  `(vec->bindings  ,bindings ,@body))
  
   ;;Let's hack let to allow us to infer vector-binds
   ;;as a clojure let definition...
   (defmacro let (bindings &body body)
-    (if (vector? bindings)
-        `(clj-let ,bindings ,@body)
+    (if  (eq (first bindings) 'persistent-vector)
+        `(unified-let* (,@ (partition! 2 (rest  bindings))) ,@body)
         `(cl:let  ,bindings ,@body)))
 
   ;;Lisp1 -> Lisp2   (Somewhat outdated....)
@@ -774,6 +780,10 @@
     `(let ((,ctor (clojure-deftype ,classname [] ,@implementations)))
        (funcall ,ctor))))
 
+
+(defmacro symbolic-bindings (binding-form &rest body)
+  (let ((xs (eval `(quote ,binding-form))))
+    `(clj-let ,xs ,@body)))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;; core protocols ;;;;;;;;;;;;;
 
 ;;Need to get back to this guy...multiple arity is not yet implemented...

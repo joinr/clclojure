@@ -4,7 +4,7 @@
 ;;Pending..................
 (defpackage :clclojure.reader
   (:use :common-lisp :common-utils :named-readtables :clclojure.pvector)
-  (:export :*literals* :quoted-children :quote-sym :literal?))
+  (:export :*literals* :*reader-context* :quoted-children :quote-sym :literal?))
 (in-package :clclojure.reader)
 
 
@@ -32,7 +32,9 @@
   ;;Maybe move this into a clojure-readers.lisp or something.
 
   ;;alist of literals...
-  (defparameter *literals*  '(list cons))
+  (defparameter *literals* '(list)          ; '(list cons)
+    )
+  (defparameter *reader-context* :read)
   ;;default quote...o
   ;; (comment 
   ;;  (set-macro-character #\'
@@ -129,7 +131,7 @@
     "A reader macro that allows us to define persistent vectors
     inline, just like Clojure."
     (declare (ignore char))
-    (apply #'persistent-vector (read-delimited-list #\] stream t)))
+    `(persistent-vector ,@(read-delimited-list #\] stream t)))
 
   ;;this is for not just reading, but evaluating as well...
   ;;in theory, the default reader function will suffice for

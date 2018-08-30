@@ -70,6 +70,8 @@
 	   :vector-assoc
 	   :vector-conj
 	   :nth-vec
+           :pvec
+           :subvector 
            ))
 (in-package :clclojure.pvector) 
   

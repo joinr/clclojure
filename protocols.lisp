@@ -30,6 +30,8 @@
 (defun as-list (xs)
   (if (vector? xs) (nreverse  (vector-to-list xs))
       xs))
+
+;;changed this since we have lists now...
 (defun drop-literals (xs)
   (nreverse (filter (lambda (x) (not (literal? x))) (as-list  xs))))
 
@@ -423,7 +425,8 @@
 ;;mirror clojure's behavior.
 (defmacro clojure-deftype (name fields &rest implementations)
   (let ((flds (if (vector? fields) 
-                  (vector-to-list fields) fields)))
+                  (vector-to-list fields)
+                  fields)))
     `(progn 
        (defclass ,name ()
          ,(mapcar (lambda (f) (emit-class-field name f) ) flds))
