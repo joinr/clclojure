@@ -71,7 +71,7 @@
           ((listp expr)
            `(quoted-children ,(cons  (quote list) expr)))
           (t
-           (quote-sym expr))))
+           (quote-sym expr))))  
   
   (defun as-char (x)
     (cond ((characterp x) x)
@@ -112,6 +112,53 @@
   (set-macro-character #\'
      #'quoted-read)
 
+
+  ;;need to define quasiquote extensions...
+  ;;quasiquoting has different behavior for literal datastructures..
+  ;;in the case of clojure, we provide fully-qualified symbols vs.
+  ;;standard CL-symbols.  We have reader support for them,
+  ;;that is, blah/x vs x.
+
+  ;;so, clojure resolves the symbol in the current ns, at read-time.
+
+  (defun resolved-symbol (s)
+    (let* ((this-package (package-name *package*)))
+      (multiple-value-bind (x  y)
+          (find-symbol (symbol-name s))
+        (if x
+            ;;symbol exists
+            `(,(package-name (symbol-package x)) ,(symbol-name x))
+            `(,this-package ,(symbol-name s))
+            ))))
+
+  (defun qualify (s)
+    (apply #'common-utils::symb
+           (let ((res (resolved-symbol s)))
+             (list (first res) "::" (second res)))))
+  
+  (defun quasi-quoted-read (stream char)
+    (declare (ignore char))
+    (let ((res (read stream t nil t)))
+      (cond ((symbolp res)
+             (let ((resolved )))
+             `(quote ,res))
+            (t              `(clj-quote ,res)))))
+  
+  ;;Additionally, for dataliterals, quasiquote serves as a template
+  ;;for building said datastructure, as if by recursively quasiquoting
+  ;;elements in the expression.
+
+  ;;Additionally, clojure 
+
+  ;;we can get package-qualified symbols via:
+  ;;`(common-lisp-user::x)
+  ;;but they print as 'x
+  
+  ;;s.t. `[x y]
+  ;;namespace-qualified symbols are kind of out of bounds at the
+  ;;moment...
+    
+  
   (defun push-reader! (literal ldelim rdelim rdr)
     (progn (setf  *literals* (union  (list literal) *literals*))
            (set-macro-character ldelim rdr)
