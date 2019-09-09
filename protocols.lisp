@@ -20,6 +20,9 @@
 ;;aux
 ;;bootstrapping hack!
 (defun vector? (x) (typep x 'clclojure.pvector::pvec))
+(defun vector-expr (x)
+  (and (listp x) (eq (first x) 'persistent-vector)))
+
 ;;this keeps args in order....we nreverse all over the place.
 ;;Since we prototyped using lists, and now the vector
 ;;reader is working well, we're in the middle of migrating
@@ -29,7 +32,8 @@
 ;;vectors....
 (defun as-list (xs)
   (if (vector? xs) (nreverse  (vector-to-list xs))
-      xs))
+      (if (vector-expr xs) (rest xs)
+          xs)))
 
 ;;changed this since we have lists now...
 (defun drop-literals (xs)
@@ -205,17 +209,38 @@
 
 ;;note: dealing with reader-literals and how macros parse stuff, like pvectors,
 ;;so we're just filtering them out of arglists.
+
+;; (defun build-generic (functionspec)
+;;   (let* ((args (drop-literals (second functionspec)))
+;;          (name (first functionspec))
+;;         (docs (if (= (length functionspec) 3)
+;; 		  (third functionspec)
+;; 		  "Not Documented")))
+;;     `(progn (defgeneric ,name  ,args (:documentation ,docs))
+;;             ;;lets us use protocol fns as values...
+;;             (defparameter ,name  (function ,name))
+;;             (setf (symbol-function (quote ,name)) (symbol-value (quote ,name)))
+;;             ,name)))
+
 (defun build-generic (functionspec)
-  (let* ((args (drop-literals (second functionspec)))
+  (let* ((args (drop-literals (rest functionspec)))
          (name (first functionspec))
-        (docs (if (= (length functionspec) 3)
-		  (third functionspec)
-		  "Not Documented")))
-    `(progn (defgeneric ,name  ,args (:documentation ,docs))
-            ;;lets us use protocol fns as values...
-            (defparameter ,name  (function ,name))
-            (setf (symbol-function (quote ,name)) (symbol-value (quote ,name)))
-            ,name)))
+         (docs (if (= (length functionspec) 3)
+                   (third functionspec)
+                   "Not Documented")))
+    (case (length args)
+      (1 (let ((args (drop-literals  (first args))))
+           `(progn (defgeneric ,name  ,args (:documentation ,docs))
+                   ;;lets us use protocol fns as values...
+                   (defparameter ,name  (function ,name))
+                   (setf (symbol-function (quote ,name)) (symbol-value (quote ,name)))
+                   ,name)))
+      (otherwise `(progn (defgeneric ,name (,'this ,'&rest ,'args) (:documentation ,docs))
+                         ;;lets us use protocol fns as values...
+                         (defparameter ,name  (function ,name))
+                         (setf (symbol-function (quote ,name)) (symbol-value (quote ,name)))
+                         ,name))
+      )))
 
 (defun quoted-names (xs)
   (mapcar (lambda (x) (list 'quote x))
@@ -267,12 +292,15 @@
 ;;     (more (coll) (rest  coll))))
 
 (defun implement-function (typename spec)
-  (let* ((args    (if (vector? (second  spec))
-                      (vector-to-list (second spec))
-                      (drop-literals (second spec))))
+  (let* ((args    (cond ((vector? (second  spec))
+                         (vector-to-list (second spec)))
+                        ;this is a crappy hack.
+                        ((vector-expr (second spec))
+                         (rest (second spec)))
+                        (t
+                         (drop-literals (second spec)))))
 	 (newargs (cons (list (first args) typename) (rest args)))
 	 (body (third spec)))
-    ;(print spec)
     `(defmethod ,(first spec) ,newargs  ,body)))
 
 ;; (defmacro implement-function (typename spec)
@@ -368,8 +396,9 @@
 ;;impl has protocol (pfn ...) (pfn ...)
 (defmacro extend-type (typename  &rest impls)
   (let ((imps       (parse-implementations impls))
-        (name       (gensym))
-        (the-imp    (gensym)))
+        ;(name       (gensym))
+        ;(the-imp    (gensym))
+        )
     `(progn ,@(mapcar (lambda (the-imp)
                   (let ((expr `(emit-protocol-extension (quote ,(first the-imp))
                                                         (quote ,typename)
@@ -424,18 +453,21 @@
 ;;need a call to with-slots to pull the referenced fields out to
 ;;mirror clojure's behavior.
 (defmacro clojure-deftype (name fields &rest implementations)
-  (let ((flds (if (vector? fields) 
-                  (vector-to-list fields)
-                  fields)))
+  (let* ((flds (cond ((vector? fields) 
+                     (vector-to-list fields))
+                    ((vector-expr fields)
+                     (rest fields))
+                    (t 
+                     fields)))
+         (impls (mapcar (lambda (impl)                               
+                          (if (atom impl) impl
+                              (apply #'with-fields (cons flds impl)))) implementations)))
     `(progn 
        (defclass ,name ()
          ,(mapcar (lambda (f) (emit-class-field name f) ) flds))
        ;;we need to parse the implementations to provide
        ;;instance-level fields...
-       (extend-type ,name
-                    ,@(mapcar (lambda (impl)
-                                (if (atom impl) impl
-                                    (apply #'with-fields (cons flds impl)))) implementations))
+       (extend-type ,name ,@impls)
        ;;debugging 
        (defun ,(symbolize (str "->" name)) ,flds
          (make-instance ,`(quote  ,name) ,@(flatten  (mapcar (lambda (f) `(,(make-keyword f) ,f)) flds ))))

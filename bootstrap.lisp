@@ -31,7 +31,7 @@
         :clclojure.keywordfunc :clclojure.lexical
         :clclojure.pvector :clclojure.protocols)
   (:shadow :let :deftype)
-  (:export :def :defn :fn :meta :with-meta :str :deftype :defprotocol :reify :extend-type :extend-protocol))
+  (:export :def :defn :fn :meta :with-meta :str :deftype :defprotocol :reify :extend-type :extend-protocol :let))
 (in-package clclojure.base)
 
 ;;move this later...
@@ -77,9 +77,10 @@
   ;;Let's hack let to allow us to infer vector-binds
   ;;as a clojure let definition...
   (defmacro let (bindings &body body)
-    (if  (eq (first bindings) 'persistent-vector)
-        `(unified-let* (,@ (partition! 2 (rest  bindings))) ,@body)
-        `(cl:let  ,bindings ,@body)))
+    (if   ;(eq (first bindings) 'persistent-vector)
+         (vector? bindings)
+         `(unified-let* (,@(partition! 2 (vector-to-list  bindings))) ,@body)
+         `(cl:let  ,bindings ,@body)))
 
   ;;Lisp1 -> Lisp2   (Somewhat outdated....)
   ;;==============
@@ -880,8 +881,6 @@
 ;; (defprotocol IReduce
 ;;   (-reduce [coll f] [coll f start]))
 
-
-
 (defprotocol IKVReduce
   (-kv-reduce [coll f init]))
 
@@ -1012,7 +1011,7 @@
 ;;subvector impls...
 (extend-type
  clclojure.pvector::subvector
-
+ 
  ICounted
  (-count [c] (vector-count c))
  IEmptyableCollection
@@ -1042,4 +1041,24 @@
  (-chunked-rest [coll] (error 'not-implemented))
  IChunkedNext
  (-chunked-next [coll] (error 'not-implemented))
+ )
+
+;;list operations.
+(extend-type
+ cons
+ ICounted
+ (-count [c] (length c))
+ IEmptyableCollection
+ (-empty [c] '())
+ ICollection
+ (-conj [coll itm] (cons itm coll))
+ IStack
+ (-peek [coll]  (first coll))
+ (-pop  [coll]  (rest coll))
+ ISeqable
+ (-seq [coll] (error 'not-implemented))
+ IHash
+ (-hash [o]   (sxhash o))
+ IEquiv
+ (-equiv [o other] (error 'not-implemented))
  )

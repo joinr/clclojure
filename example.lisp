@@ -124,7 +124,7 @@ IBlah
     (list  (hello tbl)
            (world tbl)
            (add (inc 39) k)
-           (gethash :k tbl);;(:k tbl);;WIP
+           (gethash :k tbl) ;;(:k tbl);;WIP
            )))
 
 ;;EXAMPLE> (test-my-scope)

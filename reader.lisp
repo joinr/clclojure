@@ -174,12 +174,20 @@
   ;;Maybe move this into a clojure-readers.lisp or something.
   ;;We need to modify this.  It implicity acts like quote for
   ;;symbols, since we're using read-delimited-list.
+  ;; (defun |bracket-reader| (stream char)
+  ;;   "A reader macro that allows us to define persistent vectors
+  ;;   inline, just like Clojure."
+  ;;   (declare (ignore char))
+  ;;   `(persistent-vector ,@(read-delimited-list #\] stream t))
+  ;;   )
+
   (defun |bracket-reader| (stream char)
     "A reader macro that allows us to define persistent vectors
     inline, just like Clojure."
     (declare (ignore char))
-    `(persistent-vector ,@(read-delimited-list #\] stream t)))
-
+    (eval  `(apply #'persistent-vector ',(read-delimited-list #\] stream t)))
+    )
+  
   ;;this is for not just reading, but evaluating as well...
   ;;in theory, the default reader function will suffice for
   ;;quoted or unevaluated forms.  We will need to evaluate
