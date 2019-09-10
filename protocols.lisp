@@ -37,7 +37,7 @@
 
 ;;changed this since we have lists now...
 (defun drop-literals (xs)
-  (nreverse (filter (lambda (x) (not (literal? x))) (as-list  xs))))
+  (nreverse (filter (lambda (x) (not  (or (literal? x) (stringp x)))) (as-list  xs))))
 
 ;;Note-> we need to add support for variadic functions, 
 ;;and variadic protocols members.
@@ -161,6 +161,9 @@
 (defmethod  satisfies? ((p protocol) x)
   (not (null (find (type-of x) (protocol-members p)))))
 
+(defmethod  satisfies? ((p protocol) x)
+  (not (null (find (type-of x) (protocol-members p)))))
+
 (define-condition protocol-exists (error) 
   ((text :initarg :text :reader text)))
 
@@ -225,8 +228,8 @@
 (defun build-generic (functionspec)
   (let* ((args (drop-literals (rest functionspec)))
          (name (first functionspec))
-         (docs (if (= (length functionspec) 3)
-                   (third functionspec)
+         (docs (if (stringp (last functionspec))
+                   (last functionspec)
                    "Not Documented")))
     (case (length args)
       (1 (let ((args (drop-literals  (first args))))
@@ -323,7 +326,7 @@
     `(let ((,quoted-imp (quote ,imp)))
        (if (funcall ,satvar ,quoted-imp)
            (emit-method ,name ,(first imp) ,imp)
-           (error 'missing-implementation)))))
+           (error 'missing-implementations (str `(,,name ,,quoted-imp)))))))
   
 (defmacro extend-protocol (name &rest typespecs)
   (let ((imps       (parse-implementations typespecs))

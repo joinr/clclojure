@@ -3,7 +3,7 @@
 
 ;;Pending..................
 (defpackage :clclojure.reader
-  (:use :common-lisp :common-utils :named-readtables :clclojure.pvector)
+  (:use :common-lisp :common-utils :named-readtables :clclojure.pvector :clclojure.cowmap)
   (:export :*literals* :*reader-context* :quoted-children :quote-sym :literal?))
 (in-package :clclojure.reader)
 
@@ -187,6 +187,16 @@
     (declare (ignore char))
     (eval  `(apply #'persistent-vector ',(read-delimited-list #\] stream t)))
     )
+
+  ;;Original from Stack Overflow, with some slight modifications.
+  (defun |brace-reader| (stream char)
+    "A reader macro that allows us to define persistent maps
+   inline, just like Clojure."
+    (declare (ignore char))
+    (eval `(apply #'persistent-map ',(read-delimited-list #\} stream t))))
+  
+  (set-macro-character #\{ #'|brace-reader|)
+  (set-syntax-from-char #\} #\))
   
   ;;this is for not just reading, but evaluating as well...
   ;;in theory, the default reader function will suffice for
@@ -215,7 +225,6 @@
                                              (persistent-vector `(quoted-children ,res)))
                                            ))))))
     
-  
 (comment
  ;;WIP, moving to more elegant solution from named-readtables....
  ;; (defreadtable clojure:syntax

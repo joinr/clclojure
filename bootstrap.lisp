@@ -29,7 +29,7 @@
 (defpackage :clclojure.base
   (:use :common-lisp :common-utils
         :clclojure.keywordfunc :clclojure.lexical
-        :clclojure.pvector :clclojure.protocols)
+        :clclojure.pvector :clclojure.cowmap :clclojure.protocols)
   (:shadow :let :deftype)
   (:export :def :defn :fn :meta :with-meta :str :deftype :defprotocol :reify :extend-type :extend-protocol :let))
 (in-package clclojure.base)
@@ -506,18 +506,9 @@
 
 ;(defmethod -get-meta ((obj symbol))    (symbol-meta obj))
 ;(defmethod -set-meta ((obj symbol) m)  (with-symbol-meta obj m))
-  
-(defun meta (obj)        (-get-meta obj))
-(defun with-meta (obj m) (-set-meta obj m))	    
-		                  
-;;pending.
-(defprotocol IMeta ;
-  (-get-meta (obj) "returns the meta data associated with an object")
-  (-set-meta (obj m) "sets the meta data associated with an object to m"))
 
-(extend-protocol IMeta symbol 
-  (-get-meta (obj) (symbol-meta obj))
-  (-set-meta (obj m) (with-symbol-meta obj m)))
+(defun meta (obj)        (-get-meta obj))
+(defun with-meta (obj m) (-with-meta obj m))	    		                  
 
 (defparameter imp '(symbol 
 		    (-get-meta (obj) (symbol-meta obj))
@@ -781,7 +772,6 @@
     `(let ((,ctor (clojure-deftype ,classname [] ,@implementations)))
        (funcall ,ctor))))
 
-
 (defmacro symbolic-bindings (binding-form &rest body)
   (let ((xs (eval `(quote ,binding-form))))
     `(clj-let ,xs ,@body)))
@@ -869,14 +859,14 @@
 (defprotocol IDeref
  (-deref [o]))
 
-;; (defprotocol IDerefWithTimeout
-;;   (-deref-with-timeout [o msec timeout-val]))
+(defprotocol IDerefWithTimeout
+  (-deref-with-timeout [o msec timeout-val]))
 
-;; (defprotocol IMeta
-;;   (-meta [o]))
+(defprotocol IMeta
+  (-meta [o]))
 
-;; (defprotocol IWithMeta
-;;   (-with-meta [o meta]))
+(defprotocol IWithMeta
+  (-with-meta [o meta]))
 
 ;; (defprotocol IReduce
 ;;   (-reduce [coll f] [coll f start]))
@@ -893,14 +883,14 @@
 (defprotocol ISeqable
   (-seq [o]))
 
-;; (defprotocol ISequential
-;;   "Marker interface indicating a persistent collection of sequential items")
+(defprotocol ISequential
+  "Marker interface indicating a persistent collection of sequential items")
 
-;; (defprotocol IList
-;;   "Marker interface indicating a persistent list")
+(defprotocol IList
+  "Marker interface indicating a persistent list")
 
-;; (defprotocol IRecord
-;;   "Marker interface indicating a record object")
+(defprotocol IRecord
+  "Marker interface indicating a record object")
 
 (defprotocol IReversible
   (-rseq [coll]))
@@ -976,9 +966,10 @@
 
 (extend-type
  clclojure.pvector::pvec
-
+ 
  ICounted
  (-count [c] (vector-count c))
+
  IEmptyableCollection
  (-empty [c] [])
  ICollection
@@ -995,8 +986,10 @@
  (-hash [o]   (error 'not-implemented))
  IEquiv
  (-equiv [o other] (error 'not-implemented))
+
  IKVReduce
  (-kv-reduce [coll f init] (error 'not-implemented))
+ 
  IReversible
  (-rseq [coll] (error 'not-implemented))
  IChunk
@@ -1008,12 +1001,20 @@
  (-chunked-next [coll] (error 'not-implemented))
  )
 
+
+(extend-type  symbol 
+    IMeta
+    (-meta (obj) (symbol-meta obj))
+    IWithMeta
+    (-with-meta (obj m) (with-symbol-meta obj m)))
+
 ;;subvector impls...
 (extend-type
  clclojure.pvector::subvector
  
  ICounted
  (-count [c] (vector-count c))
+
  IEmptyableCollection
  (-empty [c] [])
  ICollection
@@ -1032,6 +1033,7 @@
  (-equiv [o other] (error 'not-implemented))
  IKVReduce
  (-kv-reduce [coll f init] (error 'not-implemented))
+
  IReversible
  (-rseq [coll] (error 'not-implemented))
  IChunk
@@ -1048,6 +1050,7 @@
  cons
  ICounted
  (-count [c] (length c))
+
  IEmptyableCollection
  (-empty [c] '())
  ICollection
@@ -1061,4 +1064,53 @@
  (-hash [o]   (sxhash o))
  IEquiv
  (-equiv [o other] (error 'not-implemented))
+ IMapEntry
+ (-key [coll] (first coll))
+ (-val [coll] (second coll))
  )
+
+(extend-type
+ clclojure.cowmap::cowmap
+
+ ICounted
+ (-count [c] (map-count c))
+
+ IEmptyableCollection
+ (-empty [c] {})
+
+ ICollection
+ (-conj [coll itm] (map-assoc coll (first itm) (second itm)))
+
+ ISeqable
+ (-seq [coll] (map-seq coll))
+ 
+ IAssociative
+ (-contains-key? [coll k] (map-contains? coll k))
+ (-entry-at [coll k]      (map-entry-at coll k))
+ (-assoc [coll k v]       (map-assoc coll k v))
+
+ IMap
+ (-assoc-ex [coll k v]  (error 'not-implemented)) ;;apparently vestigial
+ (-dissoc   [coll k]    (map-dissoc coll k))
+ 
+ IHash
+ (-hash [o]   (error 'not-implemented))
+ IEquiv
+ (-equiv [o other] (error 'not-implemented))
+ IKVReduce
+ (-kv-reduce [coll f init] (error 'not-implemented)))
+ ;; IChunk
+ ;; (-drop-first [coll] (error 'not-implemented))
+ ;; IChunkedSeq
+ ;; (-chunked-first [coll] (error 'not-implemented))
+ ;; (-chunked-rest [coll] (error 'not-implemented))
+ ;; IChunkedNext
+ ;; (-chunked-next [coll] (error 'not-implemented))
+ 
+;;friendly map printing
+(defmethod print-object ((obj hash-table) stream)
+  (common-utils::print-map  obj stream))
+
+;;map printing compatibility
+(defmethod print-object ((obj clclojure.cowmap::cowmap) stream)
+  (common-utils::print-map (cowmap-table obj) stream))

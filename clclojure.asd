@@ -8,17 +8,19 @@
   :depends-on (:named-readtables) ;copied from example.
   :components ((:file "common-utils")
                (:file "reader"
-                :depends-on ("pvector"))
+                :depends-on ("pvector" "cowmap"))
                (:file "keywordfunc")
                (:file "pvector")
+               (:file "cowmap")
                (:file "lexical"
                       :depends-on ("keywordfunc"))
                (:file "protocols"
-                :depends-on ("common-utils" "reader" "pvector"))
+                :depends-on ("common-utils" "reader" "pvector" "cowmap"))
 	       (:file "bootstrap"
                 :depends-on ("common-utils"
                              "lexical"
                              "keywordfunc"
                              "protocols"
-                             "pvector")))
+                             "pvector"
+                             "cowmap")))
   )

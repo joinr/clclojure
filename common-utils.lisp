@@ -70,7 +70,8 @@
     `(make-promise :thunk (lambda () ,body)))  
 
 ;;same as clojure's comment macro.
-(defmacro comment (&rest xs))
+(defmacro comment (&rest xs)
+  (declare (ignore xs)))
 
 ;;Converts thing to a keyword representation.  Used in building library funcs.
 (defun make-keyword (thing) 
@@ -104,6 +105,20 @@
    (loop for key being the hash-keys of tbl
          using (hash-value value)
          collect (list key value))))
+
+;;https://stackoverflow.com/questions/26045442/copy-hash-table-in-lisp
+;;josh taylor's answer
+
+(defun copy-hash-table (hash-table)
+  (let ((ht (make-hash-table 
+             :test (hash-table-test hash-table)
+             :rehash-size (hash-table-rehash-size hash-table)
+             :rehash-threshold (hash-table-rehash-threshold hash-table)
+             :size (hash-table-size hash-table))))
+    (loop for key being each hash-key of hash-table
+          using (hash-value value)
+          do (setf (gethash key ht) value)
+          finally (return ht))))
 
 (defun str (x &rest xs)
   (format nil "~{~a~}" (mapcar #'to-string (cons x xs))))
@@ -612,7 +627,12 @@
 ;; 	   ((x y)  (+ x y)))
 ;	   ((& xs) (reduce #'+ xs)))
 
-  
+
+;;printers
+(defun print-map (m &optional (stream t))
+  "Generic map printer."
+  (format stream "{~{~s~^ ~}}" (flatten (hash-table->entries m))))
+
 
 ;;we can modify our named fns...
 ;;the recur name is used
