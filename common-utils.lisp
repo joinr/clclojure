@@ -627,7 +627,10 @@
 ;; 	   ((x y)  (+ x y)))
 ;	   ((& xs) (reduce #'+ xs)))
 
-
+(defun flatten-1 (coll)
+  (reduce (lambda (acc xs)
+                 (reduce #'cons xs :initial-value acc))
+          coll :initial-value '()))
 ;;printers
 (defun print-map (m &optional (stream t))
   "Generic map printer."

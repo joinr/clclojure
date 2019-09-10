@@ -1004,9 +1004,9 @@
 
 (extend-type  symbol 
     IMeta
-    (-meta (obj) (symbol-meta obj))
+    (-meta [obj] (symbol-meta obj))
     IWithMeta
-    (-with-meta (obj m) (with-symbol-meta obj m)))
+    (-with-meta [obj m] (with-symbol-meta obj m) obj))
 
 ;;subvector impls...
 (extend-type
