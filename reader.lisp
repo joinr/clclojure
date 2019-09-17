@@ -188,7 +188,17 @@
     "A reader macro that allows us to define persistent vectors
     inline, just like Clojure."
     (declare (ignore char))
-    (apply #'persistent-vector (read-delimited-list #\] stream t))        
+    (if (not (quoting?))
+        (apply #'persistent-vector (read-delimited-list #\] stream t))
+        (let* ((xs (read-delimited-list #\] stream t))
+               (ys (mapcar (lambda (x) (list 'sb-int:quasiquote  x))
+                           xs))
+               )
+          ;;Trying to figure out if I can get splicing working
+          ;;without hacking backq.lisp and munging sb-int:quasiquote
+          (progn (pprint xs)
+                 (pprint ys)
+                 (eval `(persistent-vector ,@ys)))))
     )
 
   ;;Original from Stack Overflow, with some slight modifications.
@@ -196,7 +206,10 @@
     "A reader macro that allows us to define persistent maps
    inline, just like Clojure."
     (declare (ignore char))
-    (apply #'persistent-map `(,@(read-delimited-list #\} stream t))))
+    (if (not (quoting?))
+        (apply #'persistent-map `(,@(read-delimited-list #\} stream t)))        
+        (eval `(persistent-map ,@(mapcar (lambda (x) (list 'sb-int:quasiquote  x))
+                                            (read-delimited-list #\} stream t))))))
   
   (set-macro-character #\{ #'|brace-reader|)
   (set-syntax-from-char #\} #\))
