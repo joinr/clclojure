@@ -106,12 +106,109 @@ and work-arounds.  Nothing is insurmountable so far, which is pretty cool.
 - Initial implementation of reify working, wrapped deftype in a version 
   compatible with cl:deftype
 
+** Revisiting 2019
+*** Reconciled some problems with data literals, clojure's evaluation model, and CL's model.
+The issue is tricky and - even after using Clojure for 8+ years -
+something I completely missed.  
+
+So folks laud CL having awesome reader macros, and talking
+about how they allow you to implement any language etc.  Banking on
+these comments, I went about doing that (Clojure).  As it turns
+out....IF you want to define a language with new data literals , and
+those literals have their OWN evaluation semantics, reader macros
+cannot help you (they help to a point).
+
+- I think racket probably better supports this based on research, but 
+  I have no proof.
+
+When we read a vector in clojure (not a syntax-quoted one), we
+actually get a literal vector data structure (not a a list of `(vector
+arg1 arg2 arg3), but an actual vector of [(eval arg1) (eval arg2)
+...]).
+
+I chased my tail on this twice now, and finally realized that in
+clojure, (eval [x y]) -> [(eval 'x) (eval 'y)].  
+
+So when you read a vector, and eval it, you actually have to apply
+those evaluation semantics to build up the resulting vector.  In CL,
+eval just passes the vector through.  
+
+This poses a problem in CL, since yes, you can trivially extend the
+reader to handle vectors, but you CANNOT get the evaluation semantics
+to line up, since CL provides no mechanism to do so (unlike say reader
+macros).  You can of course define your whole infrastructure,
+including your own eval, etc., but I'm interested in minimally
+bootstrapping a functional enough clojure to get the language tooling
+ported, so hacking on running lisp implementation of `eval` is
+attractive.
+
+I tried having the reader macro return =`(vector ,@args)= instead of
+building the literal vector directly ala =(eval `(apply #'vector
+,@args))= , which worked (mostly!), except that for things like macros,
+instead of dealing with a vector for say bindings, you'd now be
+dealing with the syntax-quoted list of =(vector arg1 arg2 ....)=.  
+
+I though about hacking all the macros to recognize this, and coerce
+the vector sexpr into an actual vector, but it's like squeezing air in
+a balloon.  
+
+Rather, simply extending eval =sb-impl:simple-eval-in-lexenv= to
+understand that there are other data literals (as expressed by say a
+generic function) that have their own evaluation semantics as forms,
+allows one to get up to par with using clojure literals e.g. in
+macros.  
+
+It should be minor surgery (and actually portable), but since
+the goal is to bootstrap something that can read the source for
+/clojure.tool.reader/ and /clojure.tools.analyzer/, etc. and emit a pure
+common-lisp implementation, I "think" it'd be a one-time deal.  
+
+- Currently implemented in /eval.lisp/, which provides /clclojure.eval/ and an
+  API for allowing custom evaluation semantics defined by the 
+  generic function =custom-eval=.
+
+- Also implemented a companion package, /clclojure.literals/, which
+  enables custom evaluation, and extends the semantics for the 
+  boostrapped persistent structures.
+
+*** Quasiquoting Data Literals
+So we have evaluation semantics consistent with Clojure for
+vectors, maps (and trivially sets when they arrive).
+
+The backtick implementation in sbcl's backq.lisp is currently
+befuddling due to lack of familiarity.  Based on the existing
+implementation in readers.lisp, I get =unquote= working fine with
+user-defined literals like vectors and maps, but unquote-splicing is
+throwing.  Trying to hack around it from the reader level, e.g. coerce
+to a normal quasiquoted sexpr then eval that, rather than hacking
+backq.lisp as I did clclojure.eval.  Lack of familiarity is stunting
+progress a bit.
+
+Once the CL native reader and analyzer are in place, then the normal
+eval semantics would take hold (unless there's a desire to maintain
+the bootstrapping methodology and allow clojure literals like
+persistent vectors, maps, and sets to have eval semantics for interop
+or something, I dunno).
+
+*** Refactoring
+There are a lot of "learning" debris throughout the code base
+that are not on the critical path for bootstrapping (or no longer
+are).  These need to be pruned and moved elsewhere so that a 
+consistent, clear path of required code is attentuated.
+
 * Hurdles
 A couple of big hurdles:
  
 **  Lisp1 vs Lisp2.  
 - rely on macros (like def) to unify symbol and function namespaces,
   leveraging CL's environment.
+  - This is mostly implemented via =unified-let*= in lexical.lisp,
+    which is then used in =clclojure.base:defn= and elsewhere.
+  - The only thing missing is arbitrary support for keyword
+    access based on function application, which I have working
+    prototype of, but it's not valid outside of clojure macros.
+    - Better solution is to address this as a compiler pass
+      in the analyzer.
 
 - The longer route would be writing a custom eval, compiler, etc.  
   Doesn't look necessary at the moment.
@@ -157,6 +254,15 @@ to make it identical to symbol value....but.....
      - Looks like they are already, at the package level.
    - Need better error messaging on missing protocols
      - TODO: get-protocol should signal.
+     - Namespace qualified symbols needed.
+       - Currently there's a potential for collisions, since
+         the protocol registry (a hashtable) doesn't
+         assoc the protocol name with the package name
+         it was defined it.
+       - We can approximate qualified symbols using the
+         dot syntax, even though CL won't resolve those
+         symbols to a clojure namespace directly.
+   - Get variadic protocol implementation verified.
 **  Deftype.
     - shadows CL deftype.
     - current implementation follows defprotcol, appears to work for
@@ -164,7 +270,7 @@ to make it identical to symbol value....but.....
     - Look at walking method impl bodies to eliminated unnecesary 
       slot bindings (currently we generally bind all non-shadowed
       slots).
-
+      
 ** Multimethods.
    - Initial ideas for multiple dispatch following clojure's implementation.
 ** Metadata
@@ -201,25 +307,39 @@ to make it identical to symbol value....but.....
      not splicing, need to revisit quoted-children.
      - ex `[,'a] => [,'A] (incorrect)
  
-*** @ is a literal for #'deref in clojure, is whitespace in clojure.
+*** @ is a literal for #'deref in clojure, comma is whitespace in clojure.
   - Similar, we'll flip the read-table.
 *** [] denote vectors
   - already have a reader macro in reader.lisp  
-  - There's an incorrect read going on, [x 2] will
+  - vectors read correctly and obey clojure eval semantics.
+  - +There's an incorrect read going on, [x 2] will
     currently read when it should throw since x
-    is not defined.  
-    - TODO: revisite quoted-children for vectors and 
-      the reader fn bracket-reader.  
-    - If we're not reading a quoted
-      vec, we need to eval args to persistent-vector ctor.
+    is not defined.+
+    - +TODO: revisite quoted-children for vectors and 
+      the reader fn bracket-reader.+
+    - +If we're not reading a quoted
+      vec, we need to eval args to persistent-vector ctor.+
+    - Quasiquoting works except for splicing.
  
 *** {} denote maps 
-  - already have a reader macro in pmap.lisp  
+  - already have a reader macro in readers.lisp.
+  - Janky but useful bootstrapping implementation in
+    cowmap.lisp, which is a copy-on-write wrapper around
+    a CL hashtable.
+    - This should be enough to bootstrap, where clojure.core
+      actually defines a persistent map implementation for us.
+      - We can always opt for an optimized implementation
+        if it makes sense to go for a built-in.
+  - Similar problems with quasiquoting.
 *** \#{} denote sets
   - Easy enough to add a dispatch in reader.lisp
+  - Trivial implementation based on cowmap, pending.
 *** ^ denotes metadata for the reader
   - Trivial to implement as a reader macro, BUT, we need to get 
     metadata working generally.
+    - with-meta currently mutates symbol's plists.  Ideally we'd need
+      a corresponding =alter-var-root!= to do that.
+    - need to implement metadata slots for other clojure structures (data literals, persistent lists).
 *** \c vs. #\c for chars
   - Added initial support for clj->cl, need to define
     printable representation for chars as well.
@@ -228,6 +348,8 @@ to make it identical to symbol value....but.....
     - Looking at *print-escape* and friends to see if
       we can hack this.  We may need our own printer,
       outside of the provided REPL.
+  - defined a reader macro that coerces \c to #\c.
+    - Maybe less useful for bootstrapping.
 *** reading/printing booleans
   - Similar issues as characters.  PAIP has a good 
     chapter on this for similar issues with Scheme.
@@ -284,6 +406,10 @@ off hacking eval / compile.
 
 **  Destructuring.  
 This may be a bit tricky, although there are a limited number of clojure forms.  
+- Given the goal is to read tools.analyzer and tools.reader, we may
+  get by with an un-prettied version of the original source that
+  elides destructuring (e.g. via macroexpansion on the CLJ side) into
+  something simpler to digest for clclojure's bootstrap.
 **  Seq library.  
 This shouldn't be too hard.  I already have a lazy list lib prototype as well as
 generic functions for the basic ops.  I think I'll try to use the protocols

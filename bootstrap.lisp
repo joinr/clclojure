@@ -507,8 +507,8 @@
 ;(defmethod -get-meta ((obj symbol))    (symbol-meta obj))
 ;(defmethod -set-meta ((obj symbol) m)  (with-symbol-meta obj m))
 
-(defun meta (obj)        (-get-meta obj))
-(defun with-meta (obj m) (-with-meta obj m))	    		                  
+(defun meta (obj)        (-meta obj))
+(defun with-meta (obj m) (-with-meta obj m))
 
 (defparameter imp '(symbol 
 		    (-get-meta (obj) (symbol-meta obj))
