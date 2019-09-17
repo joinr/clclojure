@@ -656,7 +656,6 @@
        `(let ((xs# ~many-xs)))
 	  (~x ~@xs)))")
 
-
 ;;Clojure Core (PENDING)
 ;;======================
 

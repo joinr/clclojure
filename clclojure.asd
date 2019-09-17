@@ -5,8 +5,11 @@
 ;;easy...
 ;;(ql:quickload :clclojure)
 (asdf:defsystem :clclojure
-  :depends-on (:named-readtables) ;copied from example.
+  :depends-on (:named-readtables :cl-package-locks) ;copied from example.
   :components ((:file "common-utils")
+               (:file "eval")
+               (:file "literals"
+                :depends-on ("eval" "pvector" "cowmap"))
                (:file "reader"
                 :depends-on ("pvector" "cowmap"))
                (:file "keywordfunc")
@@ -17,7 +20,8 @@
                (:file "protocols"
                 :depends-on ("common-utils" "reader" "pvector" "cowmap"))
 	       (:file "bootstrap"
-                :depends-on ("common-utils"
+                :depends-on ("literals"
+                             "common-utils"
                              "lexical"
                              "keywordfunc"
                              "protocols"

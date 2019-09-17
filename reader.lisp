@@ -164,28 +164,31 @@
            (set-macro-character ldelim rdr)
            (set-syntax-from-char rdelim #\))))
 
-
+  (defun quoting? () (> sb-impl::*backquote-depth* 0))
+  
   ;;This now returns the actual pvector of items read from
   ;;the stream, versus a quoted form.  Should work nicely
   ;;with our protocol definitions now!
 
+
+  ;;The issue we run into with our EDN forms is this:
+  ;;(defparameter x 2)
+  ;;(eval [x])
+  ;;should yield [2]
+
+  ;;we don't currently.
+  ;;So,
+  
   ;;Original from Stack Overflow, with some slight modifications.
   ;;Have to make this available to the compiler at compile time!
   ;;Maybe move this into a clojure-readers.lisp or something.
   ;;We need to modify this.  It implicity acts like quote for
   ;;symbols, since we're using read-delimited-list.
-  ;; (defun |bracket-reader| (stream char)
-  ;;   "A reader macro that allows us to define persistent vectors
-  ;;   inline, just like Clojure."
-  ;;   (declare (ignore char))
-  ;;   `(persistent-vector ,@(read-delimited-list #\] stream t))
-  ;;   )
-
   (defun |bracket-reader| (stream char)
     "A reader macro that allows us to define persistent vectors
     inline, just like Clojure."
     (declare (ignore char))
-    (eval  `(apply #'persistent-vector ',(read-delimited-list #\] stream t)))
+    (apply #'persistent-vector (read-delimited-list #\] stream t))        
     )
 
   ;;Original from Stack Overflow, with some slight modifications.
@@ -193,7 +196,7 @@
     "A reader macro that allows us to define persistent maps
    inline, just like Clojure."
     (declare (ignore char))
-    (eval `(apply #'persistent-map ',(read-delimited-list #\} stream t))))
+    (apply #'persistent-map `(,@(read-delimited-list #\} stream t))))
   
   (set-macro-character #\{ #'|brace-reader|)
   (set-syntax-from-char #\} #\))

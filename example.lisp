@@ -102,10 +102,11 @@ IBlah
 (defprotocol IMany
     (many [obj] [obj msg]))
 
+;;currently broken, close to fixing...
 (deftype manytest []
   IMany
   (many [this] :one!)
-  (many [this item] item) )
+  (many [this item] item))
 
 
 ;;error in vector, vector args aren't being evaluated.
@@ -129,3 +130,17 @@ IBlah
 
 ;;EXAMPLE> (test-my-scope)
 ;;("World" "Hello" 42 2)
+
+;;named functions don't currently parse!
+;;This fails too, we have some jank with the
+;;reader when we're inside a macro...
+;;Need to fix the quasi quoter, should
+;;be in backtick.lisp.
+(defn test-arities []
+  (let [sum (fn ([x] x)
+                ([x y] (+ x y))
+                ([x y &rest zs] (reduce #'+ zs :initial-value (+ x y))))]
+    (clclojure.pvector:persistent-vector
+     (sum 1)
+     (sum 1 2)
+     (sum 1 2 3 4 5 6))))

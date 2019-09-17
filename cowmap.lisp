@@ -10,8 +10,10 @@
 	   :empty-map?
 	   :map-count
            :map-assoc
+           :map-seq
            :empty-map
-           :cowmap-table)
+   :cowmap-table
+   :cowmap)
   (:shadow :assoc
 	   :find))
 (in-package clclojure.cowmap)
