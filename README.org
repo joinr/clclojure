@@ -305,7 +305,10 @@ to make it identical to symbol value....but.....
      we'll just flip the symbols as appropriate.
    - TODO: quasitquoting in clojure (let []) inside of macros is 
      not splicing, need to revisit quoted-children.
-     - ex `[,'a] => [,'A] (incorrect)
+     - +ex `[,'a] => [,'A] (incorrect)+
+     - This now appears to be working, via =clclojure.readers:quasify=.
+     - Should be compatible if we switch reader macros for , and ,@ around
+       too.
  
 *** @ is a literal for #'deref in clojure, comma is whitespace in clojure.
   - Similar, we'll flip the read-table.
