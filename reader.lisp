@@ -32,7 +32,7 @@
   ;;Maybe move this into a clojure-readers.lisp or something.
 
   ;;alist of literals...
-  (defparameter *literals* '(list)          ; '(list cons)
+  (defparameter *literals* '(list)      ; '(list cons)
     )
   (defparameter *reader-context* :read)
   ;;default quote...o
@@ -83,11 +83,11 @@
   
   ;;Gives us clj->cl reader for chars...
   (set-macro-character #\\
-     #'(lambda (stream char)
-         (declare (ignore char))
-         (let ((res (read stream t nil t)))
-           (as-char res)))
-     )
+                       #'(lambda (stream char)
+                           (declare (ignore char))
+                           (let ((res (read stream t nil t)))
+                             (as-char res)))
+                       )
 
   ;;Doesn't work currently, since we can't redefine
   ;;print-method for chars...
@@ -110,7 +110,7 @@
   
   ;;This should be consolidated...
   (set-macro-character #\'
-     #'quoted-read)
+                       #'quoted-read)
 
 
   ;;need to define quasiquote extensions...
@@ -178,6 +178,32 @@
 
   ;;we don't currently.
   ;;So,
+
+  ;;Quasiquoting custom data literals..
+  ;;===================================
+  ;;THis is way janky...
+  ;;I'm not afraid to say I don't know how I pulled this off.
+  ;;The key is that the quasiquoting mechanism in backq.lisp
+  ;;has a sb-int:comma struct to denote 3 kinds of commas:
+  ;;0 -> ,x
+  ;;1 -> ,.x
+  ;;2 -> ,@x
+  
+  ;;We ignore the dot version for now, although it's probably simple
+  ;;enough to get working.
+  ;;So we just manually build the expression.
+  ;;If it's not a comma, we quasiquote it and let the macroexpander
+  ;;figure it out.
+  (defun quasify (xs)
+    (nreverse
+     (reduce  (lambda (acc x) x
+                (if (sb-int:comma-p x)
+                    (let ((expr (sb-int:comma-expr x)))
+                      (case (sb-int:comma-kind x) 
+                        (0  (cons expr acc))
+                        (2  (reduce (lambda (a b) (cons b a)) (eval  expr) :initial-value acc))
+                        (1  (error "comma-dot not handled!"))))
+                    (cons (list 'sb-int:quasiquote x) acc))) xs :initial-value '())))
   
   ;;Original from Stack Overflow, with some slight modifications.
   ;;Have to make this available to the compiler at compile time!
@@ -190,16 +216,7 @@
     (declare (ignore char))
     (if (not (quoting?))
         (apply #'persistent-vector (read-delimited-list #\] stream t))
-        (let* ((xs (read-delimited-list #\] stream t))
-               (ys (mapcar (lambda (x) (list 'sb-int:quasiquote  x))
-                           xs))
-               )
-          ;;Trying to figure out if I can get splicing working
-          ;;without hacking backq.lisp and munging sb-int:quasiquote
-          (progn (pprint xs)
-                 (pprint ys)
-                 (eval `(persistent-vector ,@ys)))))
-    )
+        (eval `(persistent-vector ,@(quasify (read-delimited-list #\] stream t))))))
 
   ;;Original from Stack Overflow, with some slight modifications.
   (defun |brace-reader| (stream char)
@@ -208,8 +225,7 @@
     (declare (ignore char))
     (if (not (quoting?))
         (apply #'persistent-map `(,@(read-delimited-list #\} stream t)))        
-        (eval `(persistent-map ,@(mapcar (lambda (x) (list 'sb-int:quasiquote  x))
-                                            (read-delimited-list #\} stream t))))))
+        (eval `(persistent-map ,@(quasify (read-delimited-list #\} stream t))))))
   
   (set-macro-character #\{ #'|brace-reader|)
   (set-syntax-from-char #\} #\))

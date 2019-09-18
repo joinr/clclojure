@@ -89,6 +89,17 @@ IBlah
 ;; (defn idx [v n]
 ;;   (-nth v n))
 
+
+;;quasiquoting of literals now works...
+(defparameter quasi-form
+  `[,@(list 1 2 ) ,x ,@(list :literal  x :hah)
+    [,x ,x ,x [x]
+    {:a 2
+     :b {:unquote ,x}
+     :c {:quoted x}}]])
+
+;;[1 2 2 :LITERAL 2 :HAH [2 2 2 [X] {:C {:QUOTED X} :B {:UNQUOTE 2} :A 2}]]
+
 ;;coming soon...
 ;;meta, destrutcturing, core clojure functions
 ;;per cljs, and more...
