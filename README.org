@@ -184,6 +184,38 @@ to a normal quasiquoted sexpr then eval that, rather than hacking
 backq.lisp as I did clclojure.eval.  Lack of familiarity is stunting
 progress a bit.
 
+
+I had to dig into the innards of their eval and backquote
+implementations to jank some stuff together, but it works.  It's life
+Jim, but not as we know it....  I literally got done hacking the
+quasiquote stuff in reader.lisp, clclojure.reader:quasify to make
+things work, and had no idea how I got it to work since my previous
+intuitions had failed. SBCL uses a "comma" struct to indicate splicing
+operands inside a quasiquote, and there's some weird interplay with
+macroexpand. So I kludged stuff together through trial and error, to
+build an arglist to shove at my vector and map constructor.
+  
+- [[https://github.com/joinr/clclojure/blob/master/reader.lisp#L197][quasify]] 
+
+- [[https://github.com/joinr/clclojure/blob/master/reader.lisp#L219][literal reader constructor]] 
+
+The other hack is wiring in a generic method into sbcl's default eval
+implementation,
+
+-  [[https://github.com/joinr/clclojure/blob/master/eval.lisp#L166][custom-eval]]
+
+This admits defining custom evaluation rules for new data literals,
+like vectors and maps.
+
+-  [[https://github.com/joinr/clclojure/blob/master/literals.lisp#L16][data literals]]
+
+Surprisingly, SBCL has some well documented/written source. I learned
+a bit plumbing through it, although their compiler stuff (and IR-1
+intermediate language) is still magic to me. Thankfully, it appears to
+hacking the simple-eval-in-lexenv function is enough to wire into the
+compiler (I'm guessing the compiler form leverages it downstream, but
+I'm not sophisticated enough yet to see how it all weaves together).
+
 Once the CL native reader and analyzer are in place, then the normal
 eval semantics would take hold (unless there's a desire to maintain
 the bootstrapping methodology and allow clojure literals like
