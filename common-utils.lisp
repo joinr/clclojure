@@ -16,6 +16,7 @@
    :filter
    :if-let
    :when-let
+   :when-not
    :zip 
    :->>
    :->
@@ -33,6 +34,13 @@
    :take!
    :drop!
    :defun*
+   :nil?
+   :odd?
+   :even?
+   :pos?
+   :neg?
+   :zero?
+   :with-recur
    ))
 (in-package :common-utils)
 
@@ -165,6 +173,10 @@
     `(let ((,pred ,init))
        (when ,pred ,body))))
 
+(defmacro when-not (pred body)
+  `(when (not ,pred)
+     ,body))
+
 ;;Note -> CL has analogues for some of these built in.
 ;;Tree manipulators include sublis, subst, and friends.
 
@@ -252,6 +264,14 @@
     (loop for key being the hash-keys of xs
        do (push key the-keys))
     the-keys))
+
+;;makes porting easier.
+(defun nil? (obj) (null obj))
+(defun pos? (n)   (plusp n))
+(defun neg? (n)   (minusp n))
+(defun odd? (n)   (oddp n))
+(defun even? (n)  (evenp n))
+(defun zero? (n)  (zerop n))
 
 ;;Eager Sequence Functions, may be OBE
 ;;====================================
@@ -478,6 +498,76 @@
 			       (get-arities)
 			       (pull-out-variadic))))
       cases-variadic))
+
+;;can we implement (recur ...) ?
+
+;; (block some-name
+;;   (tagbody some-point 
+;;     :dostuff
+;;      (when :recur
+;;        (progn  (update-vars)
+;;                (go some-point))
+;;        )
+;;       )
+;;   result)
+
+;; (defun custom-loop (x)
+;;   (let ((res))
+;;     (macrolet ((recur (xnew)
+;;                  `(progn (setf ,'x ,xnew)
+;;                          (pprint ,'x)
+;;                          (go ,'recur-from))))
+;;       (tagbody recur-from
+;;          (setf res
+;;                (if (= x 10)
+;;                    x
+;;                    (recur (1+  x)))))
+;;       res)))
+
+(defmacro with-recur (args &rest body)
+  (let* ((recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
+         (local-args (mapcar (lambda (x)
+                               (intern (symbol-name x))) args))
+         (res        (gensym "res"))
+         (recur-from (gentemp "recur-from"))
+         (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) local-args
+                             ))
+         (bindings   (mapcar (lambda (xy)
+                               `(setf ,(car xy) ,(cdr xy))) (pairlis local-args recur-args))))
+    `(let ((,res))
+       (tagbody ,recur-from
+          (flet ((,recur-sym ,recur-args
+                   (progn ,@bindings
+                          (go ,recur-from))
+                   ))
+            (setf ,res ,@body)))
+       ,res)))
+
+;;not properly tail recursive....maybe needs to be compiled.
+(defmacro with-recur (args &rest body)
+  (let* ((recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
+         )
+    
+    `(labels ((,recur-sym ,args
+                ,@body))
+       (,recur-sym ,@args)))))
+
+(defun tst (bound)
+  (loop for i from 0 to bound
+        with state = 0
+        do (setf state (1+ state))
+        finally
+        (return i)))
+
+;; (defmacro with-recur (args &rest body)
+;;   (list* 'labels (quote recur) args
+;;      body))
+
+(defun custom-loop2 (x bound)
+  (with-recur (x)
+    (if (>= x bound)
+        x        
+        (recur (1+ x)))))
 
 ;;creates a lambda that dispatches based on args across multiple bodies, 
 ;;basically a composite lambda function.

@@ -180,8 +180,15 @@
 
 ;;Basic Seq API
 ;;=============
-(defun first (xs) (seq-first (seq xs)))
-(defun rest  (xs) (seq-rest  (seq xs)))
+(defun  first (xs) (seq-first (seq xs)))
+(defun  rest  (xs) (seq-rest  (seq xs)))
+(defun  next
+  (coll)
+  "Returns a seq of the items after the first. Calls seq on its
+  argument.  If there are no more items, returns nil"
+  (when-not (nil? coll)           
+      (seq (rest coll))))
+
 (defun cons (x obj)
   (cond ((null obj) (list x))
         ((listp obj)
@@ -373,10 +380,22 @@
 (defmethod seq ((obj hash-table))
   (lazy-entries obj))
 
+;;don't have recur implemented yet...
+;; (defun* dorun
+;;   ((coll) 
+;;    (when-let (s (seq coll)) 
+;;      (recur (next s))))
+;;   ((n coll) 
+;;    (when (and (seq coll) (pos? n))
+;;      (recur (dec n) (next coll)))))
+
+;(defun doall )
+
 (defun* partition
     ((n offset coll)
-     (lazy-seq 
-      (cons (take n coll) (partition n offset (drop offset coll)))))
+     (when-let ((s (seq coll)))
+       (lazy-seq 
+        (cons (take n coll) (partition n offset (drop offset coll))))))
   ((n coll)
     (lazy-seq 
        (cons (take n coll) (partition n n (drop n coll))))))
