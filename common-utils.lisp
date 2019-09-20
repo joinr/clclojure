@@ -590,25 +590,88 @@
 ;;            (go recur-from))))
 ;;     res))
 
+;;https://common-lisp.net/project/bdb/qbook/mycl-util/api/function_005FMYCL-UTIL_003A_003AFIND-ANYWHERE.html
+(defun find-anywhere (item tree)
+  (cond ((eql item tree) tree)
+	((atom tree) nil)
+	((find-anywhere item (first tree)))
+	((find-anywhere item (rest tree)))))
+
+
+;; Tail positions and recur targets
+;; ---------------------------------+-------------------------------------------------------------------+---------------
+;;             Form(s)              |                            Tail position                          | Recur target?
+;; ---------------------------------+-------------------------------------------------------------------+---------------
+;; fn, defn                         | (fn [args] expressions tail)                                      | Yes
+;; loop                             | (loop [bindings] expressions tail)                                | Yes
+;; let, letfn, binding              | (let [bindings] expressions tail)                                 | No
+;; do                               | (do expressions tail)                                             | No
+;; if, if-not                       | (if test then-tailelse-tail)                                      | No
+;; when, when-not                   | (when test expressions tail)                                      | No
+;; cond                             | (cond test test tail ...:else else tail)                          | No
+;; or, and                          | (or test test... tail)                                            | No
+;; case                             | (case const const tail ... default tail)                          | No
+
+
+;; (lambda* (x)
+;;     ())
+
+;; (defun tail-call (form)
+;;   (case (first form)
+;;     (('lambda*        ) 
+;;      ('with-recur     )
+;;      ;('defun    )     
+;;      ;('let 'flet 'labels)
+;;      ('progn    )
+;;      ('if       )
+;;      ('when     )
+;;      ('or 'and  )
+;;      ('case     )
+;;      )))
+
+;;we can probably generalize this.
+;;we can probably also detect if it's in the
+;;tail position.
+(defun find-recur (tree)
+  (progn ;(pprint tree)
+         (cond ((atom tree) nil)
+               ((listp tree)
+                (case (first tree)
+                  ('recur tree)
+                  (('fn 'loop 'lambda* 'lambda) nil)
+                  (t (cond ((find-recur (first tree)))
+                           ((find-recur (rest tree))))))))))
+
+;;naive way to explode the body and search for a lexical recur form
+(defun detect-recur (body)
+  (find-recur (sb-cltl2:macroexpand-all body)))
 
 ;;Beginnings of a foundation for loop/recur,
 ;;and automated (recur ..) constructs in functions.
-(defmacro with-recur (args &rest body)
-  (let* ((recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
-         (local-args (mapcar (lambda (x)
-                               (intern (symbol-name x))) args))
+(defmacro with-recur (bindings &rest body)
+  "A form that acts akin to clojure's loop/recur, 
+   where given a sequence of (arg1 init arg2 init ...)
+   arguments bound to initial values, evaluates body 
+   in a form with a lexically defined function 'recur',
+   which has the same args as bindings, and effectively
+   jumps back to the beginning of the recur point, 
+   carrying arguments forward, evaluating body again
+   until a non-recur branch is evaluated."
+  (let* ((pairs (partition! 2 bindings))
+         (args  (mapcar (lambda (xy) (first xy)) pairs))
+         (recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
+         ;; (local-args (mapcar (lambda (x)
+         ;;                       (intern (symbol-name x))) args))
          (res        (gensym "res"))
          (continue?  (gensym "continue"))
          (recur-from (gentemp "recur-from"))
-         (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) local-args
-                             ))
-         (pairs      (pairlis local-args recur-args))
+         (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) args
+                             ))         
          (bindings   (mapcar (lambda (xy)
-                               `(setf ,(car xy) ,(cdr xy))) pairs)))
+                               `(setf ,(car xy) ,(cdr xy))) (pairlis args recur-args))))
     `(let ((,continue? t)
            (,res)
-           ;; ,@(mapcar (lambda (xy)
-           ;;             `(,(car xy) ,(cdr xy))) pairs)
+           ,@pairs
            )
        (flet ((,recur-sym ,recur-args
                 (progn ,@bindings
@@ -621,7 +684,6 @@
                 (setf ,continue? nil)
                 (go ,recur-from))))
          ,res))))
-
 
 ;;not properly tail recursive....maybe needs to be compiled.
 ;; (defmacro with-recur (args &rest body)
@@ -646,7 +708,7 @@
 ;;testing...
 (comment 
  (defun custom-loop2 (x bound)
-   (with-recur (x)
+   (with-recur (x x)
      (if (>= x bound)
          x        
          (recur (1+ x)))))
