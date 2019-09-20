@@ -32,6 +32,7 @@
    :ndrop!
    :take!
    :drop!
+   :defun*
    ))
 (in-package :common-utils)
 
@@ -494,6 +495,11 @@
 	       (var  (when var `(apply (lambda ,(first var) ,(second var)) args*))))
 	   `(lambda (&rest args) 		    
 	      (case-arg-count args ,cases ,var))))))
+
+(defmacro defun* (name &rest args-bodies)
+  (let ((func (gensym "func")))
+    `(let ((,func (lambda* ,@args-bodies) ))
+       (defun ,name (&rest ,'args) (apply ,func ,'args)))))
 
 ;;testing
 (comment 

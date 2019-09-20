@@ -100,6 +100,10 @@ IBlah
 
 ;;[1 2 2 :LITERAL 2 :HAH [2 2 2 [X] {:C {:QUOTED X} :B {:UNQUOTE 2} :A 2}]]
 
+(let [x 2
+      y `[1 ,x 2 [3 4 ,@[1 2]]]]
+  y)
+
 ;;coming soon...
 ;;meta, destrutcturing, core clojure functions
 ;;per cljs, and more...
