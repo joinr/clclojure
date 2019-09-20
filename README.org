@@ -228,6 +228,62 @@ that are not on the critical path for bootstrapping (or no longer
 are).  These need to be pruned and moved elsewhere so that a 
 consistent, clear path of required code is attentuated.
 
+*** Sequences and Hacks
+So I decided (for ease of metaprogramming my bootstrap), to clean up
+the lame sequence implementation I had from years ago and write a
+proper one.  This went very well.
+
+I even got up to the point where I'd implemented idiomatic lazy
+sequences, integrated with CLOS, and started getting reduce working.
+Then I ran into a snag:
+
+I wanted to use CL's built-in reduce for its sequence types, since it
+was already efficient.  Clojure has the notion of a simple protocol,
+InternalReduce, which basically says "hey, reduce yourself!" or else
+it falls back to (likely slower) seq-based first/rest reduction.  So
+this is desirable (plus nice interop points).
+
+I got everything working, but one thing was wrong: Clojure implements
+a short-circuiting variant of reduce, via invoking (reduced
+the-result).  This creates a little wrapped type that can be quickly
+checked during the reduction loop to see if it's a reduced item, which
+signals to stop reducing.  The reduced item is then unpacked (via
+deref) and returned as the result.
+
+Problem: the CL folks didn't think of this decades ago.  So how to
+bootstrap this functionality on extant concrete?
+
+I almost gave up, then remembered vaunted warnings from Java land
+about idiots using Exceptions for control flow.  This built on the
+idea that I could just throw an error if I detected a reduced value,
+and handle the reduction gracefully outside of the built-in cl:reduce.
+
+My ugly hack (although using the elegant tools of signals and
+handler-case) emerged:
+
+We have a condition type:
+https://github.com/joinr/clclojure/blob/master/sequences.lisp#L252
+
+and a way to wrap the accumulating function you passed in so it'll throw:
+https://github.com/joinr/clclojure/blob/master/sequences.lisp#L255
+
+then we just use handler-case to detect the reduced value via error, unpack it, and return it as an early reduction:
+https://github.com/joinr/clclojure/blob/master/sequences.lisp#L262
+
+As another fun time, I also ran into problems with CLOS and multiple
+dispatch that were a little unsavory.  Had to learn about
+call-next-method.  Realized that CLOS doesn't have a method preference
+hierarchy by default (clojure does), and that these kinds of problems
+create interesting lisp OOP solutions...Also managed to crash SBCL due
+to it several times (I was trying to leverage SBCL's extensible
+sequences, where unlike other lisps, you can inherit from the sequence
+base class, which I wanted my lazyseq classes to do).  This ended up
+failing since going the generic method route, I wrote a specializer on
+'sequence, which overode the other specializer on 'lazyseq, since
+'lazyseq inherited from 'sequence.  Despite getting some of it worked
+out, I still managed to crash SBCL several times (stochastic...), and
+reverted to NOT having 'lazyseq extend 'sequence for now.
+
 * Hurdles
 A couple of big hurdles:
  
