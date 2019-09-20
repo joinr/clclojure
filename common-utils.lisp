@@ -273,6 +273,8 @@
 (defun even? (n)  (evenp n))
 (defun zero? (n)  (zerop n))
 
+)
+
 ;;Eager Sequence Functions, may be OBE
 ;;====================================
 (comment  (defun flatten (expr)
@@ -543,14 +545,92 @@
             (setf ,res ,@body)))
        ,res)))
 
-;;not properly tail recursive....maybe needs to be compiled.
+
+;; (defmacro with-recur (args &rest body)
+;;   (let* ((recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
+;;          (local-args (mapcar (lambda (x)
+;;                                (intern (symbol-name x))) args))
+;;          (res        (gensym "res"))
+;;          (recur-from (gentemp "recur-from"))
+;;          (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) local-args
+;;                              ))
+;;          (update-binds (gentemp "update-binds"))
+;;          (bindings   (mapcar (lambda (xy)
+;;                                `(setf ,(car xy) ,(cdr xy))) (pairlis local-args recur-args))))
+;;     `(let ((,res))
+;;        (flet ((,update-binds ,recur-args
+;;                 (progn ,@bindings)))
+;;          (macrolet ((,recur-sym ,args
+;;                       `(progn (,,update-binds ,,@args)
+;;                               (go ,,recur-from)))))
+;;          (tagbody ,recur-from
+;;             (setf ,res ,@body)))
+;;        ,res)))
+
+;; (with-recur (x 2)
+;;   (if (< x 4)
+;;       (recur (1+ x))
+;;       x))
+
+;; (let ((continue? t)
+;;       (x 2)
+;;       (res)
+;;       (continue? nil))
+;;   (flet ((recur (x)
+;;            (setf x x)
+;;            (setf continue? t)))   
+;;     (tagbody recur-from
+;;        (progn
+;;          (setf res
+;;                (if (< x 4)
+;;                    (recur (1+ x))
+;;                    x))
+;;          (when continue?
+;;            (setf continue? nil)
+;;            (go recur-from))))
+;;     res))
+
+
+;;Beginnings of a foundation for loop/recur,
+;;and automated (recur ..) constructs in functions.
 (defmacro with-recur (args &rest body)
   (let* ((recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
-         )
+         (local-args (mapcar (lambda (x)
+                               (intern (symbol-name x))) args))
+         (res        (gensym "res"))
+         (continue?  (gensym "continue"))
+         (recur-from (gentemp "recur-from"))
+         (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) local-args
+                             ))
+         (pairs      (pairlis local-args recur-args))
+         (bindings   (mapcar (lambda (xy)
+                               `(setf ,(car xy) ,(cdr xy))) pairs)))
+    `(let ((,continue? t)
+           (,res)
+           ;; ,@(mapcar (lambda (xy)
+           ;;             `(,(car xy) ,(cdr xy))) pairs)
+           )
+       (flet ((,recur-sym ,recur-args
+                (progn ,@bindings
+                       (setf ,continue? t))
+                ))
+         (tagbody ,recur-from
+            (progn 
+              (setf ,res ,@body)
+              (when ,continue?
+                (setf ,continue? nil)
+                (go ,recur-from))))
+         ,res))))
+
+
+;;not properly tail recursive....maybe needs to be compiled.
+;; (defmacro with-recur (args &rest body)
+;;   (let* ((recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
+;;          )
     
-    `(labels ((,recur-sym ,args
-                ,@body))
-       (,recur-sym ,@args)))))
+;;     `(labels ((,recur-sym ,args
+;;                 ,@body))
+;;        (,recur-sym ,@args))))
 
 (defun tst (bound)
   (loop for i from 0 to bound
@@ -563,11 +643,15 @@
 ;;   (list* 'labels (quote recur) args
 ;;      body))
 
-(defun custom-loop2 (x bound)
-  (with-recur (x)
-    (if (>= x bound)
-        x        
-        (recur (1+ x)))))
+;;testing...
+(comment 
+ (defun custom-loop2 (x bound)
+   (with-recur (x)
+     (if (>= x bound)
+         x        
+         (recur (1+ x)))))
+
+ )
 
 ;;creates a lambda that dispatches based on args across multiple bodies, 
 ;;basically a composite lambda function.
@@ -598,7 +682,10 @@
     (() 2)
     ((x) (+ x 1))
     ((x y) (+ x y))
-    ((&rest xs) (reduce #'+ xs)))))
+    ((&rest xs) (reduce #'+ xs))))
+
+
+ 
 
 ;; COMMON-UTILS> (funcall the-func 2)
 ;; 3
@@ -687,7 +774,7 @@
 ;;        (otherwise (apply test-fn-var args)))))
 
 
-(defun func-name (name arity)    (read-from-string (format nil "~A-~A" name arity))))
+(defun func-name (name arity)    (read-from-string (format nil "~A-~A" name arity)))
 (defmacro named-fn* (name &rest args-bodies)
   (if (= (length args-bodies) 1)
       (let ((args-body (first args-bodies)))
@@ -727,6 +814,8 @@
   (reduce (lambda (acc xs)
                  (reduce #'cons xs :initial-value acc))
           coll :initial-value '()))
+
+)
 ;;printers
 (defun print-map (m &optional (stream t))
   "Generic map printer."
