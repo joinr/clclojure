@@ -613,8 +613,37 @@
 ;; case                             | (case const const tail ... default tail)                          | No
 
 
-;; (lambda* (x)
-;;     ())
+(defun tail-children (expr)
+  (case (first expr)
+    ((lambda let let* flet labels)  (destructuring-bind (l binds &rest body) expr                
+                                      (destructuring-bind (tail &rest xs) (reverse body)
+                                        (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+    (progn   (destructuring-bind (l &rest body) expr                
+                (destructuring-bind (tail &rest xs) (reverse body)
+                  (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+    (if       (destructuring-bind (i pred l &optional r) expr
+                (cons (list :tail l) (when r (list (list :tail r))))))
+    (when     (destructuring-bind (i pred l) expr
+                (list (list :tail l))))
+    ((case ecase ccase)    (destructuring-bind (l binds) expr                
+                             (mapcar (lambda (lr)
+                                       (list :tail (second lr))) binds)))
+    ((or and) (destructuring-bind (l &rest body) expr                
+                (destructuring-bind (tail &rest xs) (reverse body)
+                  (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))) )
+    (defun     (destructuring-bind (l nm binds &optional docstring  &rest body) expr                
+                 (destructuring-bind (tail &rest xs) (reverse body)
+                   (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs))))) 
+    ))
+    ;;('with-recur     )
+    ;;           
+    ;;('if       )
+    ;;('when     )
+    ;;('or 'and  )
+;;('case     )))
+
+(defun valid-tail     (expr))
+(defun valid-non-tail (expr))
 
 ;; (defun tail-call (form)
 ;;   (case (first form)
