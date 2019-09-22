@@ -363,6 +363,9 @@
   (reduce f l :initial-value init))
 
 (defgeneric partition! (n l &key offset))
+(defmethod partition! (n (l null) &key offset)
+  '())
+
 (defmethod  partition! (n (l cons) &key (offset n))
   "Akin to partition from clojure.  Builds 
    a list of lists, where each list is size n 
@@ -597,6 +600,22 @@
 	((find-anywhere item (first tree)))
 	((find-anywhere item (rest tree)))))
 
+;;we can probably generalize this.
+;;we can probably also detect if it's in the
+;;tail position.
+(defun find-recur (tree)
+  (progn ;(pprint tree)
+    (cond ((atom tree) nil)
+          ((listp tree)
+           (case (first tree)
+             (recur tree)
+             ((fn loop lambda* lambda) nil)
+             (t (cond ((find-recur (first tree)))
+                      ((find-recur (rest tree))))))))))
+
+;;naive way to explode the body and search for a lexical recur form
+(defun detect-recur (body)
+  (find-recur (sb-cltl2:macroexpand-all body)))
 
 ;; Tail positions and recur targets
 ;; ---------------------------------+-------------------------------------------------------------------+---------------
@@ -614,111 +633,234 @@
 
 
 (defun tail-children (expr)
-  (case (first expr)
-    ((lambda let let* flet labels)  (destructuring-bind (l binds &rest body) expr                
-                                      (destructuring-bind (tail &rest xs) (reverse body)
-                                        (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
-    (progn   (destructuring-bind (l &rest body) expr                
-                (destructuring-bind (tail &rest xs) (reverse body)
-                  (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
-    (if       (destructuring-bind (i pred l &optional r) expr
-                (cons (list :tail l) (when r (list (list :tail r))))))
-    (when     (destructuring-bind (i pred l) expr
-                (list (list :tail l))))
-    ((case ecase ccase)    (destructuring-bind (l binds) expr                
-                             (mapcar (lambda (lr)
-                                       (list :tail (second lr))) binds)))
-    ((or and) (destructuring-bind (l &rest body) expr                
-                (destructuring-bind (tail &rest xs) (reverse body)
-                  (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))) )
-    (defun     (destructuring-bind (l nm binds &optional docstring  &rest body) expr                
+  (when (listp expr)
+    (case (first expr)
+      ((lambda let let* flet labels with-recur)         
+         (destructuring-bind (l binds &rest body) expr                
+           (destructuring-bind (tail &rest xs) (reverse body)
+             (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+      (progn   (destructuring-bind (l &rest body) expr                
                  (destructuring-bind (tail &rest xs) (reverse body)
-                   (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs))))) 
-    ))
-    ;;('with-recur     )
-    ;;           
-    ;;('if       )
-    ;;('when     )
-    ;;('or 'and  )
-;;('case     )))
+                   (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+      (if       (destructuring-bind (i pred l &optional r) expr
+                  (cons (list :tail l) (when r (list (list :tail r))))))
+      (when     (destructuring-bind (i pred l) expr
+                  (list (list :tail l))))
+      ((case ecase ccase)    (destructuring-bind (l binds) expr                
+                               (mapcar (lambda (lr)
+                                         (list :tail (second lr))) binds)))
+      ((or and) (destructuring-bind (l &rest body) expr                
+                  (destructuring-bind (tail &rest xs) (reverse body)
+                    (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))) )
+      (defun     (destructuring-bind (l nm binds &optional docstring  &rest body) expr                
+                   (destructuring-bind (tail &rest xs) (reverse body)
+                     (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
 
-(defun valid-tail     (expr))
-(defun valid-non-tail (expr))
+      ;;TBD
+      ;;(loop ....)
+      
+      (otherwise  (mapcar (lambda (x) (list :non-tail x)) (rest expr))))
+      
+      ;;probably need a default case where all children are non-tail.
+      ;;should add loop here..or at least loop/recur form.
+      )))
 
-;; (defun tail-call (form)
-;;   (case (first form)
-;;     (('lambda*        ) 
-;;      ('with-recur     )
-;;      ;('defun    )     
-;;      ;('let 'flet 'labels)
-;;      ('progn    )
-;;      ('if       )
-;;      ('when     )
-;;      ('or 'and  )
-;;      ('case     )
-;;      )))
+;;given a root expr, all we have to do to ensure tail compliance is..
+;;when there are tail-children, with categories :non-tail,
+;;ensure that they don't contain recur.
+(defstruct callsite kind expr)
+(defun ->callsite (k e) (make-callsite :kind k :expr e))
 
-;;we can probably generalize this.
-;;we can probably also detect if it's in the
-;;tail position.
-(defun find-recur (tree)
-  (progn ;(pprint tree)
-         (cond ((atom tree) nil)
-               ((listp tree)
-                (case (first tree)
-                  ('recur tree)
-                  (('fn 'loop 'lambda* 'lambda) nil)
-                  (t (cond ((find-recur (first tree)))
-                           ((find-recur (rest tree))))))))))
+(defun pass (arg)
+  (progn (pprint arg)
+         ))
 
-;;naive way to explode the body and search for a lexical recur form
-(defun detect-recur (body)
-  (find-recur (sb-cltl2:macroexpand-all body)))
+(defun categorize-tails (expr)
+  (when-let ((xs (tail-children expr)))
+    (reduce (lambda (acc child)
+              (destructuring-bind (k expr) child
+                (let* ((ys (tail-children expr))
+                       (child-recur? (when ys (filter (lambda (x) (when (callsite-p x) (eq (callsite-kind x) :recur))) ys)))
+                       (children     (mapcar (lambda (c) (categorize-tails (second c))) ys))
+                       (leaves       (filter (lambda (x)  x)  children))
+                       (acc (if  ys 
+                                 (reduce (lambda (acc x)  (cons x  acc)) leaves
+                                         :initial-value acc)
+                                 acc)))
+                  (pprint `(,child-recur? ,child ,ys  ,children ,leaves ,acc))
+                  (if (or  child-recur? (detect-recur expr))
+                      (cons (->callsite
+                             (case k
+                               (:tail     :recur)
+                               (:non-tail :illegal-recur)) expr) acc)
+                      acc)))) xs :initial-value '())))
+
+;;we want 2 things: is there a recursive call?
+;;is there an invalid tail call?
+(defun summary-tails (expr)
+  "Expands expression, macroexpanding the body and traversing looking for invocations of
+   of 'recur, and illegal invocations from non-tail positions.  Returns a pair of
+   (recur? illegals), where recur? is t|nil if any recur calls were encountered,
+   and illegals is a list of all illegal recur callsites."
+  (when-let ((xs (categorize-tails expr)))
+    (reduce (lambda (acc x)
+              (destructuring-bind (recur illegals) acc
+                (case (callsite-kind x)
+                  (:recur (list t illegals))
+                  (:illegal-recur (list recur (cons  x illegals))))))
+            (flatten  xs) :initial-value '(nil nil))))
+
+
+(comment
+ ;;we can call simmary-tails on all these and get nil,
+ ;;or some combination of (t, nil), (t, some-list-of illegal callsites)
+ (defparameter normal-call
+   `(if (= 2 3)
+        :equal
+        (progn (print :otherwise)
+               :inequal)))
+
+ (defparameter good-tail
+   '(if (= 2 3)
+     (recur 2)
+     (recur 3)))
+
+ (defparameter bad-tail
+   '(progn
+     (recur 2)
+     3))
+
+ (defparameter gnarly-bad-tail
+   '(lambda (x)
+     (with-recur (acc x)
+       (let ((blah 5)
+             (blee 3))
+         (if (<= acc blah)
+             (recur (1+ x))
+             (progn (when (< 2 3)
+                      (recur 44))
+                    2))))))
+
+ (defparameter gnarly-good-tail
+   '(lambda (x)
+     (with-recur (acc x)
+       (let ((blah 5)
+             (blee 3))
+         (if (<= acc blah)
+             (recur (1+ x))
+             (progn (when (< 2 3)
+                      (print 44))
+                    2)))))))
+
+
+(define-condition illegal-recur (error) 
+  ((data :initarg :data :reader data))
+  (:report (lambda (condition stream)
+             (format stream "Detected one or more non-tail calls to (recur ..): ~a" (data condition)))))
+
+(define-condition uneven-bindings (error) 
+  ((data :initarg :data :reader data))
+  (:report (lambda (condition stream)
+             (format stream "Detected an uneven number of arguments: ~a" (data condition)))))
 
 ;;Beginnings of a foundation for loop/recur,
 ;;and automated (recur ..) constructs in functions.
 (defmacro with-recur (bindings &rest body)
-  "A form that acts akin to clojure's loop/recur, 
-   where given a sequence of (arg1 init arg2 init ...)
-   arguments bound to initial values, evaluates body 
-   in a form with a lexically defined function 'recur',
-   which has the same args as bindings, and effectively
-   jumps back to the beginning of the recur point, 
-   carrying arguments forward, evaluating body again
-   until a non-recur branch is evaluated."
-  (let* ((pairs (partition! 2 bindings))
-         (args  (mapcar (lambda (xy) (first xy)) pairs))
-         (recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
-         ;; (local-args (mapcar (lambda (x)
-         ;;                       (intern (symbol-name x))) args))
-         (res        (gensym "res"))
-         (continue?  (gensym "continue"))
-         (recur-from (gentemp "recur-from"))
-         (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) args
-                             ))         
-         (bindings   (mapcar (lambda (xy)
-                               `(setf ,(car xy) ,(cdr xy))) (pairlis args recur-args))))
-    `(let ((,continue? t)
-           (,res)
-           ,@pairs
-           )
-       (flet ((,recur-sym ,recur-args
-                (progn ,@bindings
-                       (setf ,continue? t))
-                ))
-         (tagbody ,recur-from
-            (progn 
-              (setf ,res ,@body)
-              (when ,continue?
-                (setf ,continue? nil)
-                (go ,recur-from))))
-         ,res))))
+  "A form that acts akin to clojure's loop/recur, where given a
+   sequence of (arg1 init arg2 init ...)  arguments bound to initial
+   values, evaluates body in a form with a lexically defined function
+   'recur', which has the same args as bindings, and effectively jumps
+   back to the beginning of the recur point, carrying arguments
+   forward, evaluating body again until a non-recur branch is
+   evaluated.
 
+   At compile time, expands body to determine if and instance of 
+   recur is invoked.  Enforces tail-call semantics such that 
+   recur cannot be used illegally in a non-tail position in body.
+   If recur is not invoked, emits a simple let* form with bindings
+   bound to lexical vars, and body as body."
+  (let* ((e             `(,'with-recur ,bindings ,@body))
+         (recur-illegals (summary-tails      e))
+         (recurred?      (first recur-illegals))
+         (illegals       (second recur-illegals))
+         (pairs          (partition! 2 bindings)))    
+    (cond ((not (evenp (length bindings))) (error 'uneven-bindings :data bindings))
+          ((and recurred? illegals)        (error 'illegal-recur   :data illegals))
+          ((not recurred?)                 `(let* ,pairs ,@body))
+          (t
+           (let* ((args       (mapcar (lambda (xy) (first xy)) pairs))
+                  (recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
+                  (res        (gensym "res"))
+                  (continue?  (gensym "continuex"))
+                  (recur-from (gentemp "recur-from"))
+                  (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) args))         
+                  (bindings   (mapcar (lambda (xy)
+                                        `(setf ,(car xy) ,(cdr xy))) (pairlis args recur-args))))
+             `(let ((,continue? t)
+                    (,res)
+                    ,@pairs)
+                (flet ((,recur-sym ,recur-args
+                         (progn ,@bindings
+                                (setf ,continue? t))))
+                  (tagbody ,recur-from
+                     (progn 
+                       (setf ,res ,@body)
+                       (when ,continue?
+                         (setf ,continue? nil)
+                         (go ,recur-from))))
+                  ,res)))))))
+
+
+;;(with-recur (x 2 y 3) (+ x y))
+(with-recur (x 0)
+  (if (< x 10)
+      (recur (1+ x))
+      x))
+
+(with-recur (x 0)
+  (if (> x 9)
+      x
+      (recur (1+ x))))
+
+(defun good-tail ()
+  (with-recur (x 2)
+    (if (> x 5)
+        x
+        (if (= x 2)
+            (recur 5)
+            (recur (1+ x))))))
+
+;;not currently checked!
+(defun bad-tail ()
+  (with-recur ()
+    (progn
+      (recur 2)
+      3)))
+
+(defun gnarly-bad-tail (x)
+  (with-recur (acc x)
+    (let ((blah 5)
+          (blee 3))
+      (if (<= acc blah)
+          (recur (1+ x))
+          (progn (when (< 2 3)
+                   (recur 44))
+                 2)))))
+
+(defun gnarly-good-tail (x)
+  (with-recur (acc x)
+    (let ((blah 5)
+          (blee 3))
+      (if (<= acc blah)
+          (recur (1+ x))
+          (progn (when (< 2 3)
+                   (print 44))
+                 2)))))
 ;;not properly tail recursive....maybe needs to be compiled.
 ;; (defmacro with-recur (args &rest body)
 ;;   (let* ((recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
 ;;          )
-    
+
 ;;     `(labels ((,recur-sym ,args
 ;;                 ,@body))
 ;;        (,recur-sym ,@args))))
@@ -728,7 +870,7 @@
         with state = 0
         do (setf state (1+ state))
         finally
-        (return i)))
+        (return i))))
 
 ;; (defmacro with-recur (args &rest body)
 ;;   (list* 'labels (quote recur) args
