@@ -604,6 +604,29 @@
 	((find-anywhere item (first tree)))
 	((find-anywhere item (rest tree)))))
 
+(defun symbol= (l r)
+  (string= (symbol-name l) (symbol-name r)))
+
+(defun symbol? (x) (and (not (keywordp x)) (symbolp x)))
+
+(defun seql (l r)
+  (if (and (symbol? l) (symbol? r))
+      (symbol= l r)
+      (eql l r)))
+
+(defmacro custom-case (test keyform cases)
+  "CASE Test  Keyform {({(Key*) | Key} Form*)}*
+  Evaluates the Forms in the first clause with a Key test to the value of
+  Keyform. If a singleton key is T then the clause is a default clause." 
+  (sb-impl::case-body 'case keyform cases t test nil nil nil))
+
+(defmacro scase (keyform &rest cases)
+  "Like case, but uses the more general seql for symbol-equality, which discriminates
+   on the basis of keyword and symbol better.  Rather than symbol equality based on
+   eql, compares symbol-name for equality.  does not permit keywords with same
+   symbol name as symbol to be equal."
+  `(custom-case ,'common-utils::seql ,keyform ,cases))
+
 ;;we can probably generalize this.
 ;;we can probably also detect if it's in the
 ;;tail position.
@@ -611,7 +634,7 @@
   (progn ;(pprint tree)
     (cond ((atom tree) nil)
           ((listp tree)
-           (case (first tree)
+           (scase (first tree)
              (recur tree)
              ((fn loop lambda* lambda) nil)
              (t (cond ((find-recur (first tree)))
@@ -638,7 +661,7 @@
 
 (defun tail-children (expr)
   (when (listp expr)
-    (case (first expr)
+    (scase (first expr)
       ((lambda let let* flet labels with-recur)         
          (destructuring-bind (l binds &rest body) expr                
            (destructuring-bind (tail &rest xs) (reverse body)

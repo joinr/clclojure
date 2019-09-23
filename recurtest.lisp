@@ -2,8 +2,6 @@
   (:use :common-lisp :common-utils))
 (in-package :common-utils.recurtest)
 
-
-
 (comment
  ;;we can call simmary-tails on all these and get nil,
  ;;or some combination of (t, nil), (t, some-list-of illegal callsites)
@@ -88,7 +86,7 @@
     (let ((blah 5)
           (blee 3))
       (if (<= acc blah)
-          (recur (1+ x))
+          (recur (1+ acc))
           (progn (when (< 2 3)
                    (print 44))
                  2)))))
