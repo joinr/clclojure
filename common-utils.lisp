@@ -41,6 +41,10 @@
    :neg?
    :zero?
    :with-recur
+   :detect-recur
+   :tail-children
+   :categorize-tails
+   :summary-tails
    ))
 (in-package :common-utils)
 
@@ -652,14 +656,16 @@
       ((or and) (destructuring-bind (l &rest body) expr                
                   (destructuring-bind (tail &rest xs) (reverse body)
                     (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))) )
-      (defun     (destructuring-bind (l nm binds &optional docstring  &rest body) expr                
-                   (destructuring-bind (tail &rest xs) (reverse body)
-                     (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
-
+      (defun      (destructuring-bind (l nm binds  &rest body)
+                      (if (and  (stringp (fourth expr)) (listp (fifth expr)))
+                          `(,@(take! 3 expr) ,@(drop! 4 expr)) expr)                      
+                    (destructuring-bind (tail &rest xs) (reverse body)
+                      (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+     
       ;;TBD
       ;;(loop ....)
       
-      (otherwise  (mapcar (lambda (x) (list :non-tail x)) (rest expr))))
+      (otherwise  (mapcar (lambda (x) (list :non-tail x)) (rest expr)))))
       
       ;;probably need a default case where all children are non-tail.
       ;;should add loop here..or at least loop/recur form.
@@ -671,29 +677,36 @@
 (defstruct callsite kind expr)
 (defun ->callsite (k e) (make-callsite :kind k :expr e))
 
-(defun pass (arg)
-  (progn (pprint arg)
-         ))
+(defun recur-call? (expr)
+  (and  (listp expr) (eql (first expr) 'recur)))
 
+;;we got the general idea here...
+;;what we probably want to do is have a recursive routine that searches the call
+;;graph.  We need to retain the state of the parent.  If the parent was a non-tail,
+;;we cannot have recursive tail calls.  That's the invariant.
+;;Much cleaner re-implementation of the code-walker using a basic graph search.
+;;Note: this should be a DFS implementation, so leaves ought to be processed
+;first.
 (defun categorize-tails (expr)
-  (when-let ((xs (tail-children expr)))
-    (reduce (lambda (acc child)
-              (destructuring-bind (k expr) child
-                (let* ((ys (tail-children expr))
-                       (child-recur? (when ys (filter (lambda (x) (when (callsite-p x) (eq (callsite-kind x) :recur))) ys)))
-                       (children     (mapcar (lambda (c) (categorize-tails (second c))) ys))
-                       (leaves       (filter (lambda (x)  x)  children))
-                       (acc (if  ys 
-                                 (reduce (lambda (acc x)  (cons x  acc)) leaves
-                                         :initial-value acc)
-                                 acc)))
-                  (pprint `(,child-recur? ,child ,ys  ,children ,leaves ,acc))
-                  (if (or  child-recur? (detect-recur expr))
-                      (cons (->callsite
-                             (case k
-                               (:tail     :recur)
-                               (:non-tail :illegal-recur)) expr) acc)
-                      acc)))) xs :initial-value '())))
+  (labels ((aux (acc pending)
+             (if-let ((nxt (first pending)))               
+               (let* (;(blah  (pprint nxt))
+                      (k          (first nxt))
+                      (expr       (second nxt))
+                      (pending    (append (rest pending) (tail-children expr)) ;(reduce (lambda (l x) (cons x l))  (tail-children expr) :initial-value (rest  pending) )
+                                  ))
+                 (cond (;; imediate invalid tail call
+                        (and (eql k :non-tail) (recur-call? expr) )
+                        (aux (cons acc (->callsite :illegal-recur expr))
+                                      pending))
+                       ((detect-recur expr) ;;maybe doing some extra work here but meh.
+                        (aux (cons (->callsite
+                                       (case k
+                                         (:tail     :recur)
+                                         (:non-tail :illegal-recur)) expr) acc) pending))
+                       (t   (aux acc pending))))
+               acc)))
+    (aux '() (tail-children expr))))
 
 ;;we want 2 things: is there a recursive call?
 ;;is there an invalid tail call?
@@ -709,48 +722,6 @@
                   (:recur (list t illegals))
                   (:illegal-recur (list recur (cons  x illegals))))))
             (flatten  xs) :initial-value '(nil nil))))
-
-
-(comment
- ;;we can call simmary-tails on all these and get nil,
- ;;or some combination of (t, nil), (t, some-list-of illegal callsites)
- (defparameter normal-call
-   `(if (= 2 3)
-        :equal
-        (progn (print :otherwise)
-               :inequal)))
-
- (defparameter good-tail
-   '(if (= 2 3)
-     (recur 2)
-     (recur 3)))
-
- (defparameter bad-tail
-   '(progn
-     (recur 2)
-     3))
-
- (defparameter gnarly-bad-tail
-   '(lambda (x)
-     (with-recur (acc x)
-       (let ((blah 5)
-             (blee 3))
-         (if (<= acc blah)
-             (recur (1+ x))
-             (progn (when (< 2 3)
-                      (recur 44))
-                    2))))))
-
- (defparameter gnarly-good-tail
-   '(lambda (x)
-     (with-recur (acc x)
-       (let ((blah 5)
-             (blee 3))
-         (if (<= acc blah)
-             (recur (1+ x))
-             (progn (when (< 2 3)
-                      (print 44))
-                    2)))))))
 
 
 (define-condition illegal-recur (error) 
@@ -783,7 +754,9 @@
          (recur-illegals (summary-tails      e))
          (recurred?      (first recur-illegals))
          (illegals       (second recur-illegals))
-         (pairs          (partition! 2 bindings)))    
+         (pairs          (partition! 2 bindings)))
+    ;(pprint e)
+    ;(pprint recur-illegals )
     (cond ((not (evenp (length bindings))) (error 'uneven-bindings :data bindings))
           ((and recurred? illegals)        (error 'illegal-recur   :data illegals))
           ((not recurred?)                 `(let* ,pairs ,@body))
@@ -809,82 +782,6 @@
                          (setf ,continue? nil)
                          (go ,recur-from))))
                   ,res)))))))
-
-
-;;(with-recur (x 2 y 3) (+ x y))
-(with-recur (x 0)
-  (if (< x 10)
-      (recur (1+ x))
-      x))
-
-(with-recur (x 0)
-  (if (> x 9)
-      x
-      (recur (1+ x))))
-
-(defun good-tail ()
-  (with-recur (x 2)
-    (if (> x 5)
-        x
-        (if (= x 2)
-            (recur 5)
-            (recur (1+ x))))))
-
-;;not currently checked!
-(defun bad-tail ()
-  (with-recur ()
-    (progn
-      (recur 2)
-      3)))
-
-(defun gnarly-bad-tail (x)
-  (with-recur (acc x)
-    (let ((blah 5)
-          (blee 3))
-      (if (<= acc blah)
-          (recur (1+ x))
-          (progn (when (< 2 3)
-                   (recur 44))
-                 2)))))
-
-(defun gnarly-good-tail (x)
-  (with-recur (acc x)
-    (let ((blah 5)
-          (blee 3))
-      (if (<= acc blah)
-          (recur (1+ x))
-          (progn (when (< 2 3)
-                   (print 44))
-                 2)))))
-;;not properly tail recursive....maybe needs to be compiled.
-;; (defmacro with-recur (args &rest body)
-;;   (let* ((recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
-;;          )
-
-;;     `(labels ((,recur-sym ,args
-;;                 ,@body))
-;;        (,recur-sym ,@args))))
-
-(defun tst (bound)
-  (loop for i from 0 to bound
-        with state = 0
-        do (setf state (1+ state))
-        finally
-        (return i))))
-
-;; (defmacro with-recur (args &rest body)
-;;   (list* 'labels (quote recur) args
-;;      body))
-
-;;testing...
-(comment 
- (defun custom-loop2 (x bound)
-   (with-recur (x x)
-     (if (>= x bound)
-         x        
-         (recur (1+ x)))))
-
- )
 
 ;;creates a lambda that dispatches based on args across multiple bodies, 
 ;;basically a composite lambda function.
