@@ -665,11 +665,11 @@
       ;;TBD
       ;;(loop ....)
       
-      (otherwise  (mapcar (lambda (x) (list :non-tail x)) (rest expr)))))
+      (otherwise  (mapcar (lambda (x) (list :non-tail x)) (rest expr))))))
       
       ;;probably need a default case where all children are non-tail.
       ;;should add loop here..or at least loop/recur form.
-      )))
+      
 
 ;;given a root expr, all we have to do to ensure tail compliance is..
 ;;when there are tail-children, with categories :non-tail,
