@@ -376,6 +376,94 @@ with no added codegen (e.g. in =lambda*= or other recur targets) if recur never 
 Otherwise, a form with a local function =recur= is emitted and things perform as expected,
 with proper tail calls enforced.
 
+*** Symbol Interning and Mucking With MetaProgramming
+Discovered, through use of =case= to match on symbols for
+dissecting lists during code walking, that my functions wouldn't work
+outside of the package they were originally defined it.  Subsequently,
+macros depending on said functions, (=with-recur= being the foremost example)
+failed to behave as expected.  It turns out, this has to do with how
+CL interns apparently unqualified symbols in a package.
+
+
+Say I implement a function to examine the first element of a 
+list and dispatch depending on the symbol detected there:
+#+BEGIN_SRC lisp
+(defun detect-foo-bar (expr) 
+  (case (first expr) 
+    (foo :foo)
+    (bar :bar)
+    (t nil)))
+#+END_SRC
+
+This function will work great so long as I'm inside of the package where I defined it.
+The =case= test for each clause uses =common-lisp:eql=, so the notion of symbol
+equality applies to the args.  The side-effect introduced here is that
+the symbols 'foo, 'bar, are actually....'current-package:foo and 'current-package:bar
+rather than being free-floating, unqualified symbols.  If we're at the repl, they
+even print as such, without any indication that they're qualified.  This is standard behavior.
+
+The tricky part is that if we then export =detect-foo-bar= and try to use it from ~other-package~, 
+
+#+BEGIN_SRC lisp 
+CL-USER> (original-package:detect-foo-bar '(foo 2 3 4)) 
+NIL
+#+END_SRC
+
+we get no joy, despite the input expression "obviously" having the symbol 'foo in it.  To compound matters,
+the original function we dutifully tested at the REPL works fine in ~original-package~.
+
+The reason is that 'foo in ~original-package~ where we defined the function, and where we
+macroexpanded =case= to implement it, is actually ='original-package::foo=, and the symbol
+we're trying to match against coming from the list read and evaluated in ~CL-USER~ is actually
+=CL-USER::FOO=:
+
+#+BEGIN_SRC lisp
+CL-USER> (symbol-package 'foo)
+#<PACKAGE "COMMON-LISP-USER">
+#+END_SRC
+
+Under these conditions, we realize the symbols are not in the same package, thus not =eql=:
+#+BEGIN_SRC lisp
+CL-USER> (eql 'foo 'original-package:foo)
+NIL
+#+END_SRC
+
+Clojure doesn't have this problem due to its semantics for unqualified symbols across
+namespaces:
+
+#+BEGIN_SRC clojure
+Clojure 1.10.1
+user=> (def foo 'foo)
+#'user/foo
+user=> (ns blah)
+nil
+blah=> (def foo 'foo)
+#'blah/foo
+blah=> (= foo user/foo)
+true
++END_SRC
+
+So CL's behavior was a bit of a surprise, particularly in how it
+seemingly janks up defining utility functions that work on symbols and
+dissect lists, e.g. for metaprogramming.
+
+Implementing (and then testing from another package) =with-recur= and its auxillary functions
+was the first notable time this popped up.  The fact that it can fail silently (in the case
+of =case=) engenders additional caution (absent a better solution that I'm unaware of).
+
+So, my current solution is to define a new equality test based on unqualified symbols, and 
+their =symbol-name= equality.  In ~common-utils~:
+
+- =symbol?= determines if the input is strictly a symbol, and not keyword
+- =symbol== determines if both inputs are =symbol?=, whether the =symbol-name= s are =string==
+- =seql= wraps the typical =common-lisp:eql= with a custom path for inputs that are =symbol?=
+- =custom-case= Allows defining =common-lisp:case= macros with a custom user-defined test.
+- =scase= Implements =case= using =seql= vis =custom-case= and is a drop-in replacement for 
+existing uses of =case= that relied unintentionally on interned symbols for case clauses.
+
+With these in place, and extant code for =with-recur= and friends ported to use =scase=, 
+we now have a working implementation of clojure-style loop/recur.
+
 * Hurdles
 A couple of big hurdles:
  
