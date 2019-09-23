@@ -284,6 +284,98 @@ failing since going the generic method route, I wrote a specializer on
 out, I still managed to crash SBCL several times (stochastic...), and
 reverted to NOT having 'lazyseq extend 'sequence for now.
 
+*** Loop / Recur (currently with-recur)
+Basis of loop/recur.  Combined with lambda* and defun*, this will
+allow clojure style recur forms in function bodies (with a trivial
+extension to loop / recur).  I'm not checking for tail position
+yet....probably need to do that to ensure correctness.  Might have to
+code walk.
+
+This took many tries (dissecting dolist, some simple loop forms), as
+well as trying and failing to implement a (more elegant) version with
+macrolet and another that used a simple labels form for recur (labels
+blew the stack.... think tco only happens there if compiled).
+
+CL has some nice lower level flow control primitives like block and
+tagbody.
+
+
+- "BTW, does your code work on non-tail `recur`s? (Is there even such a thing? idk.)  Example:"
+
+#+BEGIN_SRC lisp
+(with-recur (x 2)
+   (if (< x 4)
+       (progn
+         (recur (1+ x))
+         (format t "back from recur~%"))
+       x)) 
+#+END_SRC 
+
+
+I think, based on the semantics of "go", it will, since it's
+effectively a goto that jumps to the tag in the tagbody.
+
+However, I'm currently working on tailcall detection to enforce
+clojure's semantics.
+
+The new version is now like clojure's 
+#+BEGIN_SRC clojure
+(loop [x 2] 
+  (if (< x 10)
+     (recur (inc x)) 
+     x))
+#+END_SRC 
+
+with a sequence of bindings denoting
+[arg1 init, arg2, init] ....
+
+#+BEGIN_SRC lisp
+(with-recur (x 2) 
+  (if (< x 10) 
+      (recur (1+ x))
+      x))
+#+END_SRC
+
+Started off optimizing to see if I could avoid emitting with-recur for
+functions that don't invoke it, so code-walk and look for recur
+forms..  Then realized I needed to detect tail calls...so started
+going down that rabbit hole..
+
+Curious to see if there's a simple way to walk the code instead of
+denoting the grammar of tail calls.  Like something empirical to
+mechanically demonstrate the evaluation is independent of further
+calls.  Say, build a DAG representing the call graph, demonstrating
+that recur only ever occurs at leaves.
+
+My cro-mag approach it to just define special cases for each form and
+check that way.  Tricky stuff...
+
+**** Tail Call Detection / Enforcement
+Defined some rules (currently for CL, but clclojure should work on top of these 
+with little to no changes) that follow the tail call semantics for special forms.
+
+In =common-utils=, these functions inform =with-recur= about the viability of
+the code at compiletime and throw errors if invalid tail calls are detected:
+- =detect-recur= Simple naive code walker that walks an expression looking for ~(recur ...)~
+- =tail-children= Defines the (currently static) semantics of different special forms 
+  detailing whether they have children and what position (:tail or :non-tail).  Returns
+  a list of pairs of (:tail|:non-tail child-expr)
+- =categorize-tails= Walks an expression, accumulating a list of call-site structs, 
+   which encode what kind of call was made (:recur, :illegal-recur) and what the expr
+   was for use in reporting errors.
+- =summary-tails= Reduces the output of =categorize-tails= into a pair of (t|nil illegals),
+   where ~illegals~ is a list of illegal call-sits, and ~t|nil~ reports whether "any"
+   instances of ~recur~ calls were detected.
+
+=with-recur= then leverages =summary-tails= to determine if there are errors in the
+input at compile time, and signals an illegal tail call if so.  If there aren't 
+errors, but there are not instances of =recur= calls in the expression, =with-recur=
+just optimizes down to a semantically-equivalent =let*=, so it can be invoked regularly
+with no added codegen (e.g. in =lambda*= or other recur targets) if recur never shows up.
+
+Otherwise, a form with a local function =recur= is emitted and things perform as expected,
+with proper tail calls enforced.
+
 * Hurdles
 A couple of big hurdles:
  
