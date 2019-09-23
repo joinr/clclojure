@@ -413,9 +413,9 @@ we get no joy, despite the input expression "obviously" having the symbol 'foo i
 the original function we dutifully tested at the REPL works fine in ~original-package~.
 
 The reason is that 'foo in ~original-package~ where we defined the function, and where we
-macroexpanded =case= to implement it, is actually ='original-package::foo=, and the symbol
+macroexpanded =case= to implement it, is actually '=original-package::foo= , and the symbol
 we're trying to match against coming from the list read and evaluated in ~CL-USER~ is actually
-=CL-USER::FOO=:
+'=CL-USER::FOO=:
 
 #+BEGIN_SRC lisp
 CL-USER> (symbol-package 'foo)
@@ -441,7 +441,7 @@ blah=> (def foo 'foo)
 #'blah/foo
 blah=> (= foo user/foo)
 true
-+END_SRC
+#+END_SRC
 
 So CL's behavior was a bit of a surprise, particularly in how it
 seemingly janks up defining utility functions that work on symbols and
@@ -449,7 +449,7 @@ dissect lists, e.g. for metaprogramming.
 
 Implementing (and then testing from another package) =with-recur= and its auxillary functions
 was the first notable time this popped up.  The fact that it can fail silently (in the case
-of =case=) engenders additional caution (absent a better solution that I'm unaware of).
+of =case= ) engenders additional caution (absent a better solution that I'm unaware of).
 
 So, my current solution is to define a new equality test based on unqualified symbols, and 
 their =symbol-name= equality.  In ~common-utils~:
