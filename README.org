@@ -335,22 +335,19 @@ deref) and returned as the result.
 Problem: the CL folks didn't think of this decades ago.  So how to
 bootstrap this functionality on extant concrete?
 
-I almost gave up, then remembered vaunted warnings from Java land
-about idiots using Exceptions for control flow.  This built on the
-idea that I could just throw an error if I detected a reduced value,
-and handle the reduction gracefully outside of the built-in cl:reduce.
++I almost gave up, then remembered vaunted warnings from Java land+
++about idiots using Exceptions for control flow.  This built on the+
++idea that I could just throw an error if I detected a reduced value+,
++and handle the reduction gracefully outside of the built-in cl:reduce.+
 
-My ugly hack (although using the elegant tools of signals and
-handler-case) emerged:
++My ugly hack (although using the elegant tools of signals and+
++handler-case) emerged:+
 
-We have a condition type:
-https://github.com/joinr/clclojure/blob/master/sequences.lisp#L252
-
-and a way to wrap the accumulating function you passed in so it'll throw:
-https://github.com/joinr/clclojure/blob/master/sequences.lisp#L255
-
-then we just use handler-case to detect the reduced value via error, unpack it, and return it as an early reduction:
-https://github.com/joinr/clclojure/blob/master/sequences.lisp#L262
+We just leverage the excellent low-level construct =block= to define
+an escapable context we can =return-from=.  From inside this block,
+we wrap the call to reduce with a lambda that - upon detecting 
+a reduced item - invokes =return-from= with the dereferenced value of
+the reduced item.
 
 As another fun time, I also ran into problems with CLOS and multiple
 dispatch that were a little unsavory.  Had to learn about

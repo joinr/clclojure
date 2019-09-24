@@ -255,26 +255,23 @@
 (defmethod init-reduce  (obj f init)
   (init-reduce (seq obj) f init))
 
-;;Not proud of this hack.  Or am I?
-(define-condition early-reduction (error) 
-  ((data :initarg :data :reader data)))
-
-(defun wrapped-accumulator (f)
-  (lambda (acc x)
-    (let ((res (funcall f acc x)))
-      (if  (reduced? res)
-           (error 'early-reduction :data res)
-           res))))
-
 (defmethod internal-reduce ((obj sequence) f)
-  (handler-case
-      (common-lisp:reduce (wrapped-accumulator  f) obj)
-    (early-reduction (res) (deref (data res)))))
+  (block early
+    (common-lisp:reduce (lambda (acc x)
+                          (let ((res (funcall f acc x)))
+                            (if (not (reduced? res))
+                                res
+                                (return-from early (deref res)))))
+                        obj))))
 
 (defmethod init-reduce ((obj sequence) f init)
-  (handler-case
-      (common-lisp:reduce (wrapped-accumulator  f) obj :initial-value init)
-    (early-reduction (res) (deref (data res)))))
+  (block early
+    (common-lisp:reduce (lambda (acc x)
+                          (let ((res (funcall f acc x)))
+                            (if (not (reduced? res))
+                                res
+                                (return-from early (deref res)))))
+                        obj :initial-value init)))
 
 ;;Some useful core functions.
 ;;this will get replaced by the clojure.core stuff,
