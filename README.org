@@ -464,6 +464,88 @@ existing uses of =case= that relied unintentionally on interned symbols for case
 With these in place, and extant code for =with-recur= and friends ported to use =scase=, 
 we now have a working implementation of clojure-style loop/recur.
 
+* Layout
+The current WIP is broken into several Common Lisp files (only tested on SBCL).
+You can look at the dependencies in clclojure.asd.
+The general layout and organization follows (subject to change):
+** common-utils
+Contains a plethora of utility functions and convenient clojure
+analogues (or direct ports) useful for porting clojure source.  Primary features
+include multi-arity lambdas via =lambda*= and multi-arity functions via =defun*=.
+Also provides a =with-recur= form that allows for a similar idiom for Clojure's
+=loop/recur=.  This is typically pulled in by all other packages for general
+utility.  Some limited sequence functionality overlaps with sequences.lisp, and may
+be replaced in the future.
+** sequences
+Provides an implementation of clojure's lazy sequence abstraction.  Implemented
+in CLOS, and porting the seq protocols.  Provides a subset of the clojure core
+sequence library for CL used in bootstrapping and metaprogramming.  The intent
+is not to have a full port, but a minimally useful subset.  Integrates the seq 
+abstraction with CLOS sequence types.
+** pvector
+A port of the java implementation of clojure's persistent vector
+based on Hash Array Mapped Tries (HAMTs).  Serves as a stand-alone
+datastructure with local functions.  Also defines =subvec= which
+is the O(1) slice of a persistent vector.
+** cowmap
+A simple persistent map implemented by copy-on-write operations over
+a standard hash table.  This is a minimal implementation to support
+bootstrapping, and not intended for performance or production use.
+** pmap (wip)
+A port of the java implementation of clojure's persistent hashmap.
+Incomplete.
+** protocols
+Defines forms for =defprotocol= and =deftype= in common lisp.
+Protocols are implemented as bundles of generic functions and args,
+stored in a CLOS struct.  Protocols are registered, and define
+=satisfies?= predicates for the protocol to ensure valid
+implementations of =reify= =deftype= =extend-type= and
+=extend-protocol=.  Protocol definitions expect vector args (rewrite
+pending to extend these to sequences to allow simple cl-based protocol
+definitions). 
+
+** reader
+Provides a consolidated place for reader macro support.  Primary
+purpose is to enable vectors, maps, and sets for bootstrapping.
+Original experiments also supported characters.  Intentionally 
+hijacks the read-table.  Needs to be ported to named-readtables,
+or excluded entirely once bootstrapping of clojure.tools.reader is done.
+
+** eval
+Due to the custom evaluation rules for clojure's data literals, simple
+reader macros are not enough to get literal support.  This package
+defines a generic function, =custom-eval=, and an API for
+installing/uninstalling custom evaluation support in SBCL.  The
+implementation swaps the function definition for
+=SB-IMPL::simple-eval-in-lexenv= and adds a final condition to the
+non-list eval rules: if =custom-eval= is supported, then the generic
+function is invoked.  This allows user-defined extension of the
+evaluation semantics in a minimal way, and retains low-level support
+(e.g. from the compiler).
+
+** literals
+Consolidated place to extend custom evaluation rules for vectors, maps, and other literals.
+** keywordfunc
+Initial hack at implementing keywords-as-functions support in CL.
+This currently works only in lexical forms, and is not a global modification.
+Exposes the macro =with-key-fn= which will scan the body for keywords in function
+position, and build a table of keyword functions and fbind.  The more commonly used
+feature is the =keyaccess= type, which is used in the ~lexical~ package.
+** lexical
+Implements a lexical environment ala =let*= called =unified-let*= that
+will unify lisp-2 bindings into a lisp-1 lexical environment for the body.
+This is the foundational method for implementing clojure-style =let=.
+** bootstrap
+Implements a core set of clojure special forms and brings along the protocol definitions
+from ~cljs.core~.  Eventually, the entire ~cljs.core~ library will be pulled in here
+and evaluated.  This should hopefully provide a sufficiently robust environment
+to then bootstrap the rest of clojure via tools.reader and tools.analyzer, leveraging
+extant CL implementations from the earlier bootstrapping process where it makes sense.
+** symbols (wip)
+Nascent thought piece on implement clojure-specific vars and namespaces.  Clojure's
+qualified symbols and keywords are a tad different and require some thought towards integration
+with CL.
+
 * Hurdles
 A couple of big hurdles:
  

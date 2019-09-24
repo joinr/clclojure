@@ -7,20 +7,6 @@
   (:export :*literals* :*reader-context* :quoted-children :quote-sym :literal?))
 (in-package :clclojure.reader)
 
-
-
-(comment 
- (defconstant +left-bracket+ #\[)
- (defconstant +right-bracket+ #\])
- (defconstant +left-brace+ #\{)
- (defconstant +right-brace+ #\})
- (defconstant +comma+ #\,)
- (defconstant +colon+ #\:)
-
-
- (defconstant +at+ #\@)
- (defconstant +tilde+ #\~))
-
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
 
   ;;Problem right now is that, when we read using delimited-list,
@@ -64,6 +50,7 @@
                         (t (funcall #'quote-sym s))))  (rest c))))
   
   ;;Enforces quoting semantics for literal data structures..
+  ;;We may not need this anymore since we hacked eval.
   (defmacro clj-quote (expr)
     
     (cond ((literal? expr)     `(quoted-children ,expr))
@@ -98,9 +85,6 @@
   (defun print-cl-char (c &optional (stream t))
     "Generic char printer for common lisp syntax."
     (format stream "#\~c" c))
-
-  (comment  (defmethod print-object ((obj standard-char) stream)
-              (print-clj-char obj stream)))
 
   (defun quoted-read (stream char)
     (declare (ignore char))
@@ -158,7 +142,6 @@
   ;;namespace-qualified symbols are kind of out of bounds at the
   ;;moment...
     
-  
   (defun push-reader! (literal ldelim rdelim rdr)
     (progn (setf  *literals* (union  (list literal) *literals*))
            (set-macro-character ldelim rdr)
@@ -230,32 +213,10 @@
   (set-macro-character #\{ #'|brace-reader|)
   (set-syntax-from-char #\} #\))
   
-  ;;this is for not just reading, but evaluating as well...
-  ;;in theory, the default reader function will suffice for
-  ;;quoted or unevaluated forms.  We will need to evaluate
-  ;;our args otherwise....
-  ;; (defun |bracket-reader| (stream char)
-  ;;   "A reader macro that allows us to define persistent vectors
-  ;;   inline, just like Clojure."
-  ;;   (declare (ignore char))
-  ;;   (eval  `(apply #'persistent-vector (list ,@(read-delimited-list #\] stream t)))))
-
   ;;TODO move to named-readtable
   (push-reader! 'persistent-vector  #\[ #\] #'|bracket-reader|)
   ;;TODO move to named-readtable
   (push-reader! 'clclojure.pvector:persistent-vector  #\[ #\] #'|bracket-reader|)
-    
-  (comment  (set-macro-character #\[ #'|bracket-reader|)
-            (set-syntax-from-char #\] #\))
-
-            ;;This should be consolidated...
-            (set-macro-character #\'
-                                 #'(lambda (stream char)
-                                     (let ((res (read stream t nil t)))
-                                       (if (atom res) `(quote ,res)
-                                           (case (first res)
-                                             (persistent-vector `(quoted-children ,res)))
-                                           ))))))
     
 (comment
  ;;WIP, moving to more elegant solution from named-readtables....
@@ -265,27 +226,7 @@
  ;;   (:case :preserve))
  )
   
-  ;; (comment (defun |brace-reader| (stream char)
-  ;;            "A reader macro that allows us to define persistent vectors
-  ;;   inline, just like Clojure."
-  ;;            (declare (ignore char))
-  ;;            `(persistent-vector ,@(read-delimited-list #\] stream t)))
-  ;;          (set-macro-character #\{ #'|brace-reader|)
-  ;;          (set-syntax-from-char #\} #\))
-
-  ;;          ;;standard quote dispatch
-  ;;          (set-macro-character #\'  #'(lambda (stream char)
-  ;;                                        (list 'quote (read stream t nil t))))
-           
-           
-  ;;          (set-macro-character #\'  #'(lambda (stream char)
-  ;;                                        (let ((res (read stream t nil t)))
-  ;;                                          (case (first res)
-  ;;                                            ('persistent-vector 'persistent- ))
-  ;;                                          (list 'quote )))))
-  
-
-
+ 
   ;;https://gist.github.com/chaitanyagupta/9324402
   ;;https://common-lisp.net/project/named-readtables/
 
