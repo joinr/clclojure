@@ -105,28 +105,28 @@
 
   ;;so, clojure resolves the symbol in the current ns, at read-time.
 
-  (defun resolved-symbol (s)
-    (let* ((this-package (package-name *package*)))
-      (multiple-value-bind (x  y)
-          (find-symbol (symbol-name s))
-        (if x
-            ;;symbol exists
-            `(,(package-name (symbol-package x)) ,(symbol-name x))
-            `(,this-package ,(symbol-name s))
-            ))))
+  ;; (defun resolved-symbol (s)
+  ;;   (let* ((this-package (package-name *package*)))
+  ;;     (multiple-value-bind (x  y)
+  ;;         (find-symbol (symbol-name s))
+  ;;       (if x
+  ;;           ;;symbol exists
+  ;;           `(,(package-name (symbol-package x)) ,(symbol-name x))
+  ;;           `(,this-package ,(symbol-name s))
+  ;;           ))))
 
-  (defun qualify (s)
-    (apply #'common-utils::symb
-           (let ((res (resolved-symbol s)))
-             (list (first res) "::" (second res)))))
+  ;; (defun qualify (s)
+  ;;   (apply #'common-utils::symb
+  ;;          (let ((res (resolved-symbol s)))
+  ;;            (list (first res) "::" (second res)))))
   
-  (defun quasi-quoted-read (stream char)
-    (declare (ignore char))
-    (let ((res (read stream t nil t)))
-      (cond ((symbolp res)
-             (let ((resolved )))
-             `(quote ,res))
-            (t              `(clj-quote ,res)))))
+  ;; (defun quasi-quoted-read (stream char)
+  ;;   (declare (ignore char))
+  ;;   (let ((res (read stream t nil t)))
+  ;;     (cond ((symbolp res)
+  ;;            (let ((resolved )))
+  ;;            `(quote ,res))
+  ;;           (t              `(clj-quote ,res)))))
   
   ;;Additionally, for dataliterals, quasiquote serves as a template
   ;;for building said datastructure, as if by recursively quasiquoting
@@ -216,8 +216,8 @@
   ;;TODO move to named-readtable
   (push-reader! 'persistent-vector  #\[ #\] #'|bracket-reader|)
   ;;TODO move to named-readtable
-  (push-reader! 'clclojure.pvector:persistent-vector  #\[ #\] #'|bracket-reader|)
-    
+  (push-reader! 'clclojure.pvector:persistent-vector  #\[ #\] #'|bracket-reader|))
+  
 (comment
  ;;WIP, moving to more elegant solution from named-readtables....
  ;; (defreadtable clojure:syntax
