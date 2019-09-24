@@ -35,45 +35,9 @@
 (in-package clclojure.base)
 
 ;;move this later...
-(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  (defun eval-vector (v)
-    (clclojure.pvector:vector-map  (lambda (x) (eval x)) v))
-  
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute) 
   (defun vector? (x) (typep x 'clclojure.pvector::pvec))
 
-  ;;this is a top-down evaluator...once we go CL, we can't
-  ;;go back.  Unless we define clj wrappers for all the special forms,
-  ;;and lift the CL eval into clj-eval....
-  (defmacro clj-eval (expr)
-    (cond ((clclojure.base::vector? expr) (eval-vector expr))
-          (t  (cl:eval expr))))
-
-  ;;we probably want clj-defmacro, which uses clj-eval instead of
-  ;;cl:eval.
-
-  ;;Then we can define our language forms in terms of clj-defmacro...
-
-  ;;We need to handle evaluation of special forms like vectors and maps
-  ;;that occur on the rhs of the binding forms....
-  ;;lhs doesn't get eval'd (destructuring may expand the form),
-  ;;but RHS has clojure-style evaluation semantics, i.e. we need
-  ;;to eval any vector/map/set literals and splice them in.
-  ;; (defmacro vec->bindings (v &rest body)
-  ;;   (assert (and (vector? v)
-  ;;                (evenp (vector-count v)) ) (v)
-  ;;                "Expected vector arg with even number of elements")
-  ;;   `(unified-let* (,@ (partition! 2 (vector-to-list v))) ,@body))
-
-  ;;works with our vector expression...
-  ;; (defmacro vec->bindings (vexpr &rest body)
-  ;;   (progn (pprint vexpr)
-  ;;          (let ((binds (rest  vexpr)))
-  ;;            `(unified-let* (,@ (partition! 2 binds)) ,@body))))
-
-  ;;We'll redefine this later with an implementation...
-  ;; (defmacro clj-let (bindings &rest body)
-  ;;  `(vec->bindings  ,bindings ,@body))
- 
   ;;Let's hack let to allow us to infer vector-binds
   ;;as a clojure let definition...
   (defmacro let (bindings &body body)
@@ -82,114 +46,13 @@
          `(unified-let* (,@(partition! 2 (vector-to-list  bindings))) ,@body)
          `(cl:let  ,bindings ,@body)))
 
-  ;;Lisp1 -> Lisp2   (Somewhat outdated....)
-  ;;==============
-
-  ;;Unification of Function and Symbol Names (Pending)
-  ;;==================================================
-
-  ;;My good friend Mr. Hanson pointed out that I could hijack lambda entirely.
-  ;;In common lisp, symbols have a function slot and a value slot.
-  ;;So if we want to have a lisp1, we want to eliminate the partitioning between 
-  ;;function and var namespaces. 
-  ;;If we want to make a lisp1 style symbol, we just set the symbol-value 
-  ;;and the symbol-function to the same thing; i.e. we point the symbol-function 
-  ;;to the symbol value.  
-  
-  ;;(defmacro unify (symb) 
-  ;;  `(when (function (symbol-function ,symb) (symbol-value ,symb))))
-
   (defun macro?    (s) (when (macro-function s) 't))
   (defun function? (s) (fboundp s)))
-
-;;Lisp1 Evaluation
-;;================
-
-;;These are for convenience.  CL has a bunch of special operators...
-;;Note-> there's a schism over special-form-p, and special-operator-p, 
-;;special-operator is the accepted nomenclature, although older implementations
-;;use special-form...
-(defparameter special-forms 
-  '(quote defmacro lambda apply cl))
-
-(defun special? (x) 
-  (and (atom x) 
-       (or (when (special-operator-p x) x) (find x special-forms))))
-;;Given an environment, and a symbol (currently expr), uses common lisp to 
-;;evaluate the expression.
-(defun resolve (expr &optional env) 
-  (if (null env)  (handler-case (eval expr)  
-		    (unbound-variable () (eval `(function ,expr))))
-      (let ((res (second (assoc expr  env))))
-	(if (null res) (resolve expr) res))))
-
-;; (defun resolve2 (expr &rest env) 
-;;   (if (null env)  (eval (symbol-value expr))
-;;       (let ((res (second (assoc expr (first env)))))
-;; 	(if (null res) (resolve2 expr) res))))
-
-;;Fancy Symbol Resolution
-;;=======================
-;;Supplemental functions to be used for code analysis and tree walking later.
-;;Todo: Change the lamba list for env from rest to optional.  Currently requires extraneous 
-;;first calls.
-(defun resolve*     (xs  env) (mapcar   (lambda (x) (resolve x env)) xs))
-(defun resolve-tree (xs  env) (map-tree (lambda (x) (resolve x env)) xs))
-
-;;Determines if an expression (really a symbol) is self evaluating.
-(defun self-evaluating? (expr)  
-  (or (functionp expr) 
-      (or (numberp expr) (stringp expr) (characterp expr) (keywordp expr))
-      (special? expr)))
-
-;;retrieve the current bindings associated with a symbol.
-(defmacro current-binding (x) `(list (quote ,x) x))
-;;compose an alist of all the current bindings of each x in xs.
-(defun lex-bindings (args)
-  (reduce (lambda (acc x) (cons (current-binding x) acc)) args :initial-value '()))
-
-;;Extend the lexical environment with a set of new bindings.
-(defun push-bindings (env args)
-  (reduce (lambda (x acc) (cons acc x)) args :initial-value env))
-
-;;Evaluate an alist of binding pairs.  Used for forms like let and friends.
-(defun eval-binds (xs f env)
-  (mapcar (lambda (bind) (list (first bind) (funcall f (second bind) env)))  xs))
-
-;;The base lisp1 environment contains bindings for the arithmetic operators, 
-;;and will likely include more bindings.  Might change the environment from 
-;;and a-list to a hashtable at some point.
-(defparameter base-env (list (list '+ #'+)
-			     (list '* #'*)
-			     (list '/ #'/)))
 
 (define-condition not-implemented (error) ())
 (define-condition uneven-arguments (error) ())
 
-;(defun get-funcallable (x);
-;  (if (symbolp x) 
-;      ((symbol-function x)
-
-;(defun function-form (x)
-;  (if (fboundp x) (funcall 
-
 (defgeneric destructure (bindings))
-
-;;(spec [x y & rest])
-;;(destructure spec)
-;;(lambda (args)
-;;  ((x (first args))
-;;   (y (second args))
-;;   (rest (cddr args))))
-;;(spec {:keys [x y]})
-;;(lambda (args)
-;;  ((x (get args :x))
-;;   (y (get args :y)))
-;(fn [{:keys [x y] :as m}] (+ x y))
-
-;;(lambda (m) (dbind (({:keys [x y]} args)) ,body))
-
-;;(fn [[x y]] (+ x y))
 
 ;;a single function definition
 (defstruct fn-def args body)
@@ -202,9 +65,6 @@
   (if (vector? v)
       `(quote ,v);;`(persistent-vector ,@(mapcar #'quote-sym  (vector-to-list v))) 
       `(persistent-vector ,@(mapcar #'quote-sym  (rest v)))))
-
-(defmacro quoted-hash (h)
-  `(persistent-map ,@(mapcar #'quote-sym (rest h))))
 
 (defun variadic (v) (member '& (vector-to-list v)))
 
@@ -226,10 +86,10 @@
 (defmacro fn* (&rest specs)	  
   `(list ,@(mapcar (lambda (vb) `(read-fn ,(first vb) ,(second vb))) specs)))
 
-(defparameter test-fn
-  '(fn* ([x] x)
-        ([x y]        (+ x y))
-        ([x y & xs]   (common-lisp:reduce #'+ xs :initial-value (+ x y)))))
+;; (defparameter test-fn
+;;   '(fn* ([x] x)
+;;         ([x y]        (+ x y))
+;;         ([x y & xs]   (common-lisp:reduce #'+ xs :initial-value (+ x y)))))
 
 (defstruct arg-parse lambda-list outer-let)
 
@@ -251,11 +111,6 @@
 			  body)))
 	`(lambda ,lambda-list ,interior)))))
 
-;; (defun dispatch (f) `(apply ,f args))
-;; (defun function-dispatch (fd) 
-;;   (reduce (lambda (acc x) (cons (list (arity x) (dispatch (eval (fndef->sexp x)))) acc))
-;;           fd :initial-value (list)))
-
 ;;parse a list of function definitions into an n-lambda dispatching function.
 (defmethod fndef->sexp ((fd cons))
   (if (= (length fd) 1)  (fndef->sexp (first fd)) ;simple case
@@ -270,108 +125,28 @@
 ;;Todo: support destructuring in the args.
 (defmacro fn (&rest specs)
   (if (vector-form? (first specs)) 
-      ;; (progn (pprint :single)
-      ;;        (fndef->sexp (read-fn (first specs) (second specs))))
       (eval `(fndef->sexp (fn* (,@specs))))
       ;;TODO get rid of this eval....
       (eval `(fndef->sexp (fn* ,@specs)))))
 
+;;def 
+;;===
+
+;;Experimental.  Not sure of how to approach this guy.
+;;for now, default to everything being public / exported.
+;;that should be toggled via metadata in real implementation.
+(defmacro def (var &rest init-form)
+  `(progn (defparameter ,var ,@init-form)
+          (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
+          (when (functionp (symbol-value (quote  ,var)))
+            (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
+          (export ',var)
+	  (quote ,var)
+          ))
+
 ;;A CHEAP implementation of defn, replace this...
 (defmacro defn (name args &rest body)
-  `(def ,name (fn ,args ,@body))) 
-
-;;NOTE: This is not necessary going forward....
-;;We can already mimic a lisp1 without a custom evaluator.
-;;There "may" be a need for analyze/eval for some of the more
-;;crafty stuff, particularly where clojure macros expose the
-;;environment to the macro form...
-
-;;We have a lisp1, sorta! 
-;;I need to add in some more evaluation semantics, but this might be the 
-;;way to go.  For now, it allows us to have clojure semantics for functions 
-;;and macros.  There's still some delegation to the common lisp evaluator - 
-;;which is not a bad thing at all!
-(defun lisp1 (expr &optional (env base-env))
-  (cond ((atom expr)  (if (self-evaluating? expr) expr (resolve expr env)))
-	((null expr) '())
-	((listp expr)
-	 (let ((f (first expr)))	   
-	   (case (special? f) 
-	     ;Special forms evaluate to themselves.  
-	     (function (eval `(function ,(second expr))))
-	     (quote    (second expr))
-	     ;;common-lisp's lambda form
-	     (lambda   (let* ((args (second expr))
-		    	      (body (third  expr)))
-			  (if (atom body) 
-			      (eval `(lambda ,args ,(resolve body env))) ;simple			     
-			      ;this is currently packing around the lexical environment. 
-			      ;Note: it's going to get a lot nastier if you include the cases
-			      ;that lambda lists cover and such.  Right now, i'm assuming a
-			      ;simple list of args, lex-bindings will have to process lambda
-			      ;lists and other fun corner cases...I'll probably add an analyzer
-			      ;that will compile the non-free bits of the lambda down, ala SICP.
-			      (let ((lex-env   (list 'quote env))
-				    (arg-list  (list* 'list args)))
-				(eval `(lambda ,args  
-					 (lisp1 ,(list 'quote body) 
-						(push-bindings  ,lex-env (lex-bindings ,arg-list)))))))))
-;	     ((let let*) (let* ((binds (second expr))
-;				(body  (third  expr)))
-;			   (eval `(let* ,(eval-binds binds #'lisp1 env) 
-;				    (lisp1 ,(list 'quote body)
-;					   (push-bindings ,lex-env (lex-bindings )))
-	     ;defmacro forms have a name, an args, and a body. 
-	     (defmacro (error 'not-implemented))
-	     ;;allows common-lisp semantics, this is an escape hatch.
-	     (cl    (eval (first (rest expr))))
-    	     ;Otherwise it's a function call.
-	     (otherwise (apply (lisp1 f env) (mapcar (lambda (x) (lisp1 x env)) (rest expr)))))))))
-
-;;Our clojure evaluator uses the lisp1 evaluator, and tags on some extra 
-;;evaluation rules.  More to add to this.
-(defmacro clojure-eval (exprs)
-  `(lisp1 (quote ,exprs)))
-
-;;this is a top-down evaluator...once we go CL, we can't
-;;go back.  Unless we define clj wrappers for all the special forms,
-;;and lift the CL eval into clj-eval....
-(defmacro clj-eval (expr)
-  (cond ((clclojure.base::vector? expr) (eval-vector expr))
-        (t  (cl:eval expr))))
-
-;(let ((x (+ 2 1)))
-;  (lambda (y) (+ x y)))
-
-;{:binds '( (x (+ 2 1) )
-; :body   (lambda (y) (+ x y))}
-
-
-
-
-;;testing 
-;;(clojure-eval ((lambda (x) (+ 2 x)) 2))
-;;BASE> 4
-
-;;Lambda/function call analysis (PENDING)
-;;=======================================
-;;if we want to build a structure that represents a lambda, then 
-;;we can worry about evaluating that structure as a cl lambda.
-;; (LAMBDA (X) (#<Compiled-function + #x409FFC6> 2 X))
-;;we can kill 2 birds with one stone, if, during resolve, 
-;;we walk the code and swap out function calls with 
-;;funcall 
-
-;(lambda (x) (the-func obj args)) ;valid lisp1 
-;(lambda (x) (funcall the-func-obj args)) ;;desired lisp2 (cl)
-;;analyze a lambda expr.  
-(defun function-call? (expr) (functionp (first expr)))
-;;this is a cheap way to eval lambdas...
-;;we need to change it to a compilation step, but we'll do that later.
-;;for  
-  
-;;everywhere we see (some-function arg) 
-;;we want to tell cl it's (funcall some-function arg)
+  `(def ,name (fn ,args ,@body)))
 
 ;;Clojure Transformations (PENDING)
 ;;================================
@@ -401,94 +176,7 @@
 ;;(ns blah)             -> (defpackage blah)
 ;;#"some-regex"         -> (make-regex "some-regex")  ;;need to use cl-ppre probably...
 
-;;Quasiquoting/macro expansion
-;;# means gensym.  We have to walk the code tree and detect any #-appended symbols, do 
-;;a with-gensym for them, and go on.  Usually only happens in let bindings.
-;;i.e. blah# -> #blah_286_whatever 
-
-(defun destructure-bind (args body)
-  (list args body))
- 
-;;parse an args input into a compatible CL lambda list
-;;(defun args->lambdalist (args)
-;;  (if ((vector? args) (seq args))
-;;      (throw (
-	
-;;let's do a simple fn and see if we can re-use anything...
-;;(simple-function ....) 
-;;(fn [x y z] (+ x y z))
-;;(defmacro fn (args body)
-;;  (let ((ll (args->lambdalist args)))
-;;    `(lambda ,args
-  
-;;(variadic-function ...) 
-;;(n-function ...)
-
-(defun multiple-arity? (args) (listp args))
-
-;;we'll deal with loop/recur later...
-
-(defun var-args  (args) (member '& args))
-(defun variadic? (args) (not (null (var-args args))))
-
-(defun spec->lambda (args body)
-  (let ((n (length args)))
-    `((,n ,(var-args args))  (lambda ,args ,body))))
-
-;;only one function can be variadic in a fn form 
-
-;;map destructuring...
-;;(fn [&{:keys [x y] :or {x v1 y v2} :as my-map}] ~body) ->  
-
-;;(lambda (&keys (x v1) (y v2))
-;;   (let* ((my-map (hash-map x v1 y v2)))
-;;        ,@body
-
-;;(fn [{:keys [x y] :or {x v1 y v2} :as my-map}] ~body) -> 
-;;(lambda (my-map))
-;;   (let* ((x (or (get my-map x) v1))
-;;          (y (or (get my-map y) v2)))
-;;        ,@body)
-
-;;The following forms boil down to 
-;;(fn [vector-arg arg] body)
-;;(fn [& vector-arg]  body)
-
-;;(fn [[x y] z] body) ->
-;; (lambda (coll z)
-;;   (let* ((x (first coll))
-;;           y (second coll)))
-;;       ,@body)
-
-;;(fn [& xs] ~body) -> (lambda (&args xs) body)
-
-;;destructuring, in general, is the process of transforming a sequence of 
-;;args into an appropriate binding.  
-;;since args are unified to always be in vectors, it's tranforming a vector 
-;;into something.
-
-;;a binding form may include primitive symbols, with the symbol & delineating 
-;;list arguments.  everything after & is to be bound to a list.
-;;note -> further destructuring may occur here...
-;;[x y & z] 
-;;So, we recursively destructure the binding form.  
-;;We can bifurcate the process more if we split the destructuring into special cases.
-;;The first case is that we haven't hit & yet, so we are collecting simple structures. 
-;;The second case is after we've hit &. 
-
-;;If we are in case 1, we traverse the vector of symbols and see if they're compound. 
-;;The only cases to handle are 
-;;Symbol   -> Symbol 
-;;Vector   -> (destructure vector)  ;;recursive call 
-;;hash-map -> (destructure hash-map) ;;more complex destructuring.
-
-
-;;(defmacro defn (name &rest args body)
-;;  (let ((args (mapcar (lambda (x) (if-let ((func (symbol-function x))) (progn (setf (symbol-value x) func)))
-
-
 (defmacro doc (v) `(pprint (rest (assoc 'DOC (meta ,v)))))   
-
 
 ;;Meta Data
 ;;=========
@@ -501,24 +189,9 @@
 (defmacro symbol-meta (symb)        `(get (quote ,symb) 'meta))
 (defmacro with-symbol-meta (symb m) `(setf (get (quote ,symb) 'meta) ,m))
 
-;(defgeneric -get-meta (obj))
-;(defgeneric -set-meta (obj m))
-
-;(defmethod -get-meta ((obj symbol))    (symbol-meta obj))
-;(defmethod -set-meta ((obj symbol) m)  (with-symbol-meta obj m))
-
 (defun meta (obj)        (-meta obj))
 (defun with-meta (obj m) (-with-meta obj m))
-
-(defparameter imp '(symbol 
-		    (-get-meta (obj) (symbol-meta obj))
-		    (-set-meta (obj m) (with-symbol-meta obj m))))
-  
-
-
-;;(defun meta (obj) 
-;;  (cond (symbolp obj) (eval `(get (quote ,obj) 'meta))
-
+ 
 ;;One thing about metadata, and how it differs from property lists: 
 ;;You can call meta on datastructures, or objects, and get a map back.
 ;;Symbols can have meta called on them with (meta #'the-symbol), which 
@@ -530,131 +203,6 @@
 ;;another way to do this is to have clojure-specific symbols be actual 
 ;;clos objects, which have meta data fields automatically.  Then we 
 ;;lose out on all the built in goodies from common lisp though.
-
-(defmacro unify-values (var)
-  `(when (functionp (symbol-value (quote  ,var)))
-     (setf (symbol-function (quote ,var))
-           (symbol-value (quote  ,var)))))
-
-;;def 
-;;===
-
-;;Experimental.  Not sure of how to approach this guy.
-;;for now, default to everything being public / exported.
-;;that should be toggled via metadata in real implementation.
-(defmacro def (var &rest init-form)
-  `(progn (defparameter ,var ,@init-form)
-          (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
-          (when (functionp (symbol-value (quote  ,var)))
-            (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
-          (export ',var)
-	  (quote ,var)
-          ))
-
-(comment  ;testing
-  (def the-val 2)
-  (def symbol? #'symbolp)
-  (eval-clojure '(symbol? the-val)) ;=> nil
-  (eval-clojure '(add-two the-val)) ;=> 4
-)
-
-
-;;Macrology 
-;;=========
-
-
-;;if we have a quasiquotation, clojure allows the following: 
-;;var# -> (with-gensym (var) ...)
-;;~expr  -> ,expr
-;;~@expr -> ,@expr
-
-;;a clojure-style macro..
-
-;;transform ~ into , for quasiquoting   
-(defun tildes->commas (the-string)
-  (substitute  #\, #\~ the-string))
-
-;;replaces the old ` with a quasiquote symbol, and wraps the expression as a list.
-;;We can then parse the list to make 
-(defun explicit-quasiquotes (the-string)
-  (format nil "(quote (~a))" (common-utils::replace-all  the-string "`(" "quasi-quote (")))
-
-;;delayed
-;; (defun tilde-transformer
-;;   (stream subchar arg)
-;;     (let* ((sexp  (read (explicit-quasiquotes (tildes->commas stream)) t))
-;;            (fname (car sexp))
-;;            (arguments (cdr sexp)))
-;;      `(map 
-;;            (function ,fname)
-;;            ,@arguments)))
-
-;;(set-dispatch-macro-character  #\# #~  #'tilde-transformer)
-
-
-;;if there's a @, we want to turn that badboy into a deref...
-
-;;for code-walking later...
-(defun gensym-stub  (x) 
-  (let* ((the-string (str x))
-	 (bound (1- (length the-string))))
-    (when (char-equal #\# (aref the-string bound))
-      (format nil "~a" (subseq the-string 0  bound)))))
-
-
-;;given (defun (x) `(let ((x# ,x)) x#))
-;;or 
-;;(defun (x) 
-;; (quasi-quote 
-;;    (let ((x# (splice x)))
-;;      x#)))
-
-;;write a function, quasi-quote, that will traverse its args 
-;;and produce a compatible common lisp expression
-;;(quasiquote '(let ((x# (splice x))) x#)) => 
-;;'(with-gensyms (x#)
-;;   (let ((x# (splice x))) x#))
-;;we just need to find-gensyms...
-;;'(with-gensyms (scrape-gensyms expr)
-;;   expr)
-
-(defun scrape-gensyms (expr)         
-  (filter (lambda (x) (not (null x)))
-	  (mapcar #'gensym-stub (common-utils::flatten expr))))
-
-;;not used
-(defmacro clojure-mac (name args body)
-  (let ((xs (union (mapcar #'intern (scrape-gensyms body)) '())))
-   `(with-gensyms ,xs 
-      (defmacro ,name ,args ,body))))
-
-;;a lot of this functionality is related to quasi-quoting...
-;;within a quasi quote, 
-;;on the read-side, we need to flip tildes to commas
-;;on the evaluation side, we need to handle defmacro specially 
-
-;;(defmacro clojuremacro (name args body)
-;;  (let ((
-  
-;;deref @
-;;we need to process the deref-able symbols 
-
-
-(defun deref-symb? (x)
-  (char-equal #\@ (aref (str x) 0)))
-
-(defparameter mac-sample
-  `(defmacro the-macro (x)
-     (let ((many-xs (list x x)))
-       `(let ((xs# ~many-xs)))
-	  (~x ~@xs))))
-
-;;given a string...
-(defparameter mac-string
- "`(defmacro the-macro (x)
-     (let ((many-xs (list x x)))
-       `(let ((xs# ~many-xs)))
-	  (~x ~@xs)))")
 
 ;;Clojure Core (PENDING)
 ;;======================
@@ -716,41 +264,6 @@
 ;;         (meta &form))))
 ;; )
 
-;;Most of these will currently break, since the protocols use a clojure vector spec
-;;and my defprotocol uses lists.  Need to bridge the gap...Still, getting them 
-;;implemented will be hugely good, as it's the backbone of just about everything 
-;;else.
-
-;;key eval
-;;basic xform to get keywords-as-function compilation pass.
-;;we can define an eval that kinda works...
-;;if we analyze the form, we should end up with something we
-;;can coerce into a CL compatible form....
-(comment 
- (defmacro keval (expr)
-   (if (atom expr)
-       `(cl:eval ,expr)
-       (if (keywordp (first expr))
-           `(gethash ,(first expr) ,@(rest expr))
-           `(cl:eval ,expr))))
- ;;it may be nice to define functional xforms...
- ;;allow keywords to be functions....
- ;;if the thing in fn position is an IFn,
- ;;rewrite to an invoke call on the IFn...
-   ;;i.e., prepend -invoke
-)
-
-(defmacro myquote (expr)
-  (if (atom expr)
-      (progn
-        (print :atom)
-        `(quote ,expr))
-      (case (first expr)
-        (persistent-vector `(clclojure.reader:quoted-children ,expr))
-        (t  (progn (print  :list)
-                   `(quote ,expr))))))
-
-
 ;;hacky way to accomodate both forms...
 ;;we know we're in clojure if the args are vector
 (defmacro deftype (&rest args)
@@ -771,9 +284,6 @@
     `(let ((,ctor (clojure-deftype ,classname [] ,@implementations)))
        (funcall ,ctor))))
 
-(defmacro symbolic-bindings (binding-form &rest body)
-  (let ((xs (eval `(quote ,binding-form))))
-    `(clj-let ,xs ,@body)))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;; core protocols ;;;;;;;;;;;;;
 
 ;;Need to get back to this guy...multiple arity is not yet implemented...
@@ -960,8 +470,9 @@
 (defprotocol IChunkedNext
   (-chunked-next [coll]))
 
-;;Vector implementations...not currenty working!
-;;although...extend-protocol works!
+
+;;Extending types to native structures and clojure literals:
+;;==========================================================
 
 (extend-type
  clclojure.pvector::pvec

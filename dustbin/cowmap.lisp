@@ -10,9 +10,6 @@
 	   :empty-map?
 	   :map-count
            :map-assoc
-           :map-dissoc
-           :map-entry-at
-           :map-contains?
            :map-seq
            :empty-map
    :cowmap-table

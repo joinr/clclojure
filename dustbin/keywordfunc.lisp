@@ -1,8 +1,8 @@
-;;This is a legacy implementation of keywords-as-functions.
-;;We'll probably revisit this.
 (defpackage :clclojure.keywordfunc
   (:use  :common-lisp  ;:clclojure.base
          :common-utils)
+  ;; (:shadowing-import-from :clclojure.base
+  ;;  :deftype :let)
   (:export :keyfn? :key-accessor :->keyaccess :keyaccess-func :keyaccess-key :with-keyfn))
 (in-package :clclojure.keywordfunc)
 
