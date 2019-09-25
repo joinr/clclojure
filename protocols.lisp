@@ -238,12 +238,12 @@
                    (defparameter ,name  (function ,name))
                    (setf (symbol-function (quote ,name)) (symbol-value (quote ,name)))
                    ,name)))
-      (otherwise `(progn (defgeneric ,name (,'this ,'&rest ,'args) (:documentation ,docs))
-                         ;;lets us use protocol fns as values...
-                         (defparameter ,name  (function ,name))
-                         (setf (symbol-function (quote ,name)) (symbol-value (quote ,name)))
-                         ,name))
-      )))
+      (otherwise      
+       `(progn (defgeneric ,name (,'this ,'&rest ,'args) (:documentation ,docs))
+               ;;lets us use protocol fns as values...
+               (defparameter ,name  (function ,name))
+               (setf (symbol-function (quote ,name)) (symbol-value (quote ,name)))
+               ,name)))))
 
 (defun quoted-names (xs)
   (mapcar (lambda (x) (list 'quote x))
@@ -306,19 +306,39 @@
 	 (body (third spec)))
     `(defmethod ,(first spec) ,newargs  ,body)))
 
-;; (defmacro implement-function (typename spec)
-;;   (let* ((args    (if (vector? (second  spec))
-;;                       (vector-to-list (second spec))
-;;                       (drop-literals (second spec))))
-;; 	 (newargs (cons (list (first args) typename) (rest args)))
-;; 	 (body (third spec)))
-;;                                         ;(print spec)
-;;     `(defmethod ,(first spec) ,newargs  ,body)))
+;;given something like this
+;; '((f [this x]   (list x))
+;;   (f [this x y] (list x y)))
+;;emit a lambda* dispatch function like
+
+;;(lambda* ((f (this x)   (list x))
+;;          (f (this x y) (list x y)))
+
+;; '((f [this x]   (list x))
+;;   (f [this x y] (list x y)))
+
+(defun emit-dispatch (specs)
+  `(lambda* ,@(mapcar (lambda (spec)
+                       (let* ((spec (rest spec)) ;strip out the initial function name
+                              (args (vector-to-list (first spec)))
+                              (body (rest spec)))
+                         `(,args ,@body)))
+                     specs)))
+
+;;multiple arity protocol function implementation.
+(defun implement-function* (typename specs)
+  (let ((dispatch (gensym "dispatch"))
+        (name     (first (first specs))))
+    `(let ((,dispatch ,(emit-dispatch specs)))
+       (defmethod ,name ((,'obj ,typename) ,'&rest ,'args)
+         (apply ,dispatch ,'obj ,'args)))))
 
 (defmacro emit-method (name typename imp)
   `(progn (add-protocol-member (quote ,name)  (quote ,typename))
-            ,@(mapcar (lambda (spec)                   
-                        (implement-function typename spec))
+          ,@(mapcar (lambda (spec)
+                      (if (listp (first spec))
+                          (implement-function* typename spec)
+                          (implement-function typename spec)))
                       (rest imp))))
 
 (defun emit-implementation (name satvar imp)
