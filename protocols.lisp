@@ -30,14 +30,15 @@
 ;;(perhaps allowing CL to define protocols in their native
 ;;tongue, I dunno).  In the future, we'll enforce
 ;;vectors....
+;;TBD replace with seq
 (defun as-list (xs)
-  (if (vector? xs) (nreverse  (vector-to-list xs))
+  (if (vector? xs)  (vector-to-list xs)
       (if (vector-expr xs) (rest xs)
           xs)))
 
 ;;changed this since we have lists now...
 (defun drop-literals (xs)
-  (nreverse (filter (lambda (x) (not  (or (literal? x) (stringp x)))) (as-list  xs))))
+   (filter (lambda (x) (not  (or (literal? x) (stringp x)))) (as-list  xs)))
 
 ;;Note-> we need to add support for variadic functions, 
 ;;and variadic protocols members.
@@ -63,7 +64,7 @@
   (car protocolspec))
 
 (defun spec-functions (protocolspec)
-  (remove-if-not   #'listp  (as-list  protocolspec)))
+  (remove-if-not #'listp  (as-list  protocolspec)))
 
 ;;bombing out since we can't extend SEQUENCE to
 ;;our own types (thanks hyperspec!)
@@ -72,7 +73,14 @@
 ;;are acceptable sequences....
 (defun function-names (protocolspec)
   (mapcar #'first (spec-functions protocolspec)))
-	  
+
+(defun function-info (protocolspec)
+  (mapcar #'first (spec-functions protocolspec)))
+
+;;TODO replace this with a more stringent version based
+;;on protocol-function implementations rather than the spec.
+;;This has arity information derived, so can provide a stronger
+;;structural check.
 (defun make-satisfier (protocolspec)
   "From a list of function specs, builds a function that compares a
    list of function specs to ensure both specifications have the same 
@@ -83,6 +91,7 @@
 	(lambda (x) 
 	  (declare (ignore x))
 	  t)
+        ;;We need to harden this to check arities for the functions.
 	(lambda (newspec) 
 	  (null (set-difference names (function-names newspec)))))))
 
@@ -98,20 +107,48 @@
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   ;;A protocol is a name, a set of generic functions, and a set of
   ;;types that implement the protocol.
-  (defstruct protocol name functions satisfier (members (list)))
+  (defstruct protocol name functions satisfier doc (members (list)))
   (defmethod make-load-form ((v protocol) &optional env)
+    (declare (ignore env))
+    (make-load-form-saving-slots v))
+  
+  ;;Protocol function carries information about the arities
+  ;;documentation, and other meta derived from the spec.
+  (defstruct protocol-function name args bodies arities doc)
+  (defmethod make-load-form ((v protocol-function) &optional env)
     (declare (ignore env))
     (make-load-form-saving-slots v)))
 
-(defun ->protocol (name functions &optional satisfier)
-  (make-protocol :name name :functions functions :satisfier satisfier))
 
+(defun ->protocol (name functions &optional satisfier doc)
+  (make-protocol :name name :functions functions :satisfier satisfier :doc (or doc "Not Documented")))
+
+;;not used.
 (defun protocol-to-spec (p)
   (with-slots (name functions) p
     (list name functions)))
 
+(defun args->arities (xs)
+  (mapcar (lambda (args)
+            (multiple-value-bind (l variadic?)
+                (common-utils::args-type  (as-list args))
+              (list :args args :arity l :variadic? (when  variadic? t))))
+          xs))
+
+(defun function->info (name args-doc)
+  (let* ((args    (remove-if  #'stringp args-doc))
+         (doc     (first  (remove-if-not #'stringp args-doc)))
+         (arities (args->arities args)))
+    (make-protocol-function :name name :args args
+                            :bodies (length arities) :arities arities :doc (or doc "not documented"))))
+
 ;;We won't keep a central listing of protocols.  They'll be first class objects, 
 ;;as in Clojure on the JVM.
+
+;;So, for bookeeping, it'd be nice to hold onto function specifications.
+;;Simple things like
+;;{:name      blah
+;; :arities  #{1 2 3 :variadic}}
 
 ;Debating whether to keep this around, 
 ;I may not need it...
@@ -228,8 +265,9 @@
 (defun build-generic (functionspec)
   (let* ((args (drop-literals (rest functionspec)))
          (name (first functionspec))
-         (docs (if (stringp (last functionspec))
-                   (last functionspec)
+         (doc  (first (last functionspec)))
+         (docs (if (stringp doc)
+                   doc
                    "Not Documented")))
     (case (length args)
       (1 (let ((args (drop-literals  (first args))))
@@ -238,6 +276,7 @@
                    (defparameter ,name  (function ,name))
                    (setf (symbol-function (quote ,name)) (symbol-value (quote ,name)))
                    ,name)))
+      ;;variadic
       (otherwise      
        `(progn (defgeneric ,name (,'this ,'&rest ,'args) (:documentation ,docs))
                ;;lets us use protocol fns as values...
@@ -249,18 +288,33 @@
   (mapcar (lambda (x) (list 'quote x))
 	  (function-names xs)))
 
+(defun derive-protocol-functions (xs)
+  (let* ((funcs (remove-if #'stringp xs)))
+    (mapcar (lambda (spec) (function->info (first spec) (rest spec)))  funcs)))
+
 (defun spec-to-protocol (protocolspec)
-  `(progn ,@(mapcar #'build-generic (spec-functions protocolspec))
-	     (->protocol (quote ,(spec-name protocolspec))
-			 (list ,@(mapcar (lambda (x) (list 'quote x)) (function-names protocolspec)))
-			 (make-satisfier (quote ,protocolspec)))))
+  (let ((pfs (gensym "protofuncs"))
+        (doc (last (last protocolspec))))
+    `(let ((,pfs  (,'list ,@(derive-protocol-functions (rest protocolspec))))) 
+       (progn ,@(mapcar #'build-generic (spec-functions protocolspec))
+              (->protocol (quote ,(spec-name protocolspec))
+                          ,pfs
+                          (make-satisfier (quote ,protocolspec))
+                          ,(if (stringp doc) doc "Not Documented"))))))
 
 ;;we'll have to update this guy later, but for now it's okay.
 ;;Added that a symbol gets created in the current package.
+;; (defmacro defprotocol (name &rest functions)
+;;   (let ((p (gensym))
+;; 	(spec (cons name functions)))
+;;     `(let ((,p (eval (spec-to-protocol (quote ,spec)))))
+;;        (progn (add-protocol ,p)
+;; 	      (defparameter ,name ,p)))))
+
 (defmacro defprotocol (name &rest functions)
   (let ((p (gensym))
 	(spec (cons name functions)))
-    `(let ((,p (eval (spec-to-protocol (quote ,spec)))))
+    `(let ((,p ,(spec-to-protocol spec)))
        (progn (add-protocol ,p)
 	      (defparameter ,name ,p)))))
 
@@ -336,7 +390,7 @@
 (defmacro emit-method (name typename imp)
   `(progn (add-protocol-member (quote ,name)  (quote ,typename))
           ,@(mapcar (lambda (spec)
-                      (if (listp (first spec))
+                      (if (listp (second spec))
                           (implement-function* typename spec)
                           (implement-function typename spec)))
                       (rest imp))))

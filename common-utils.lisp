@@ -52,7 +52,40 @@
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
 
 (defun quote-sym (sym) `(quote ,sym))
-  
+
+
+(defun symbol= (l r)
+  "Unqualified symbol equality based on symbol-name
+   only, rather than compound equality of qualified symbols
+   which incorporate name and package."
+  (string= (symbol-name l) (symbol-name r)))
+
+(defun symbol? (x)
+  "Predicate to discriminate symbols, like symbolp, but
+   also excludes keywordp values."
+  (and (not (keywordp x)) (symbolp x)))
+
+(defun seql (l r)
+  "Defines unqualified symbol equality for l and r.
+   If both l and r are symbol?, then checks equality
+   using symbol=, else defaults to eql."
+  (if (and (symbol? l) (symbol? r))
+      (symbol= l r)
+      (eql l r)))
+
+(defmacro custom-case (test keyform cases)
+  "CASE Test  Keyform {({(Key*) | Key} Form*)}*
+  Evaluates the Forms in the first clause with a Key test to the value of
+  Keyform. If a singleton key is T then the clause is a default clause." 
+  (sb-impl::case-body 'case keyform cases t test nil nil nil))
+
+(defmacro scase (keyform &rest cases)
+  "Like case, but uses the more general seql for symbol-equality, which discriminates
+   on the basis of keyword and symbol better.  Rather than symbol equality based on
+   eql, compares symbol-name for equality.  does not permit keywords with same
+   symbol name as symbol to be equal."
+  `(custom-case ,'common-utils::seql ,keyform ,cases))
+
 (defmacro defconstant! (symbol value)
   `(defconstant ,symbol 
      (or (and (boundp ',symbol) 
@@ -463,7 +496,7 @@
 ;;      ((x y) (+ x y))
 ;;      ((x y &rest others) (list x y (first others)))))
 
-(defun variadic? (x)   (member x '(& &rest &optional &key)))
+(defun variadic? (x)   (member x '(& &rest &optional &key) :test #'seql))
 (defun args-type (xs)  (values (length xs) (when xs (filter #'variadic? xs))))
 (defun arg-bodies->dispatch-specs (arg-bodies)
   (mapcar (lambda (xs) 
@@ -603,29 +636,6 @@
 	((atom tree) nil)
 	((find-anywhere item (first tree)))
 	((find-anywhere item (rest tree)))))
-
-(defun symbol= (l r)
-  (string= (symbol-name l) (symbol-name r)))
-
-(defun symbol? (x) (and (not (keywordp x)) (symbolp x)))
-
-(defun seql (l r)
-  (if (and (symbol? l) (symbol? r))
-      (symbol= l r)
-      (eql l r)))
-
-(defmacro custom-case (test keyform cases)
-  "CASE Test  Keyform {({(Key*) | Key} Form*)}*
-  Evaluates the Forms in the first clause with a Key test to the value of
-  Keyform. If a singleton key is T then the clause is a default clause." 
-  (sb-impl::case-body 'case keyform cases t test nil nil nil))
-
-(defmacro scase (keyform &rest cases)
-  "Like case, but uses the more general seql for symbol-equality, which discriminates
-   on the basis of keyword and symbol better.  Rather than symbol equality based on
-   eql, compares symbol-name for equality.  does not permit keywords with same
-   symbol name as symbol to be equal."
-  `(custom-case ,'common-utils::seql ,keyform ,cases))
 
 ;;we can probably generalize this.
 ;;we can probably also detect if it's in the
