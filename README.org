@@ -543,6 +543,54 @@ existing uses of =case= that relied unintentionally on interned symbols for case
 With these in place, and extant code for =with-recur= and friends ported to use =scase=, 
 we now have a working implementation of clojure-style loop/recur.
 
+*** Variadic Protocols
+We now appear to have functioning variadic protocols, as well as
+marker protocols (protocols with no methods).
+
+These work via a simple dispatch mechanism, via common-utils:lambda*.
+
+The generic function is somewhat opaque in the args, only taking (obj
+&rest args) but the dispatch mechansim conforms to the protocol
+definition, allowing multiple dispatches per clojure's definition.
+
+Behind the scenes, we have a simple lambda* that's created for the
+implementation during defmethod time, which actually carries out the
+implementation.
+
+It is invoked inside the body of the defmethod specializer, and
+simplied applid to the obj and args, allowing the lambda* dispatch
+mechanism to take over.
+
+This is good for bootstrapping, but the lack of integration with slime
+and e.g. arg detection (ala CIDER) is not desirable long-term.
+
+For dev purposes, it's meaningless though since we're bootstrapping
+pretty simply.  I don't plan to hack a custom slime mode to enable
+documenting multiple- arity functions just for the boostrap.
+
+This opens most of the remaining doors for our basic boostrap.  We can
+now leverage most of cljs.core to get the basic libraries lifted in 
+with little effort (given the current state of reader, seqs, etc.).
+
+It should also be possible to work backwards from the protocol
+implementations to get us into an even simpler bootstrapping environment.
+For the time being, we'll continue wrapping existing CL functionality
+though.
+
+*** Multimethods (WIP)
+We still need to implement multimethods but that'll be a simple
+variation on the dispatch stuff.  These show up in both the
+reader and analyzer, so they're next.
+
+*** Generic Symbol Equality (#'seql)
+One nagging feature that probably needs to be addressed is the
+necessity of using common-utils:seql for symbol equality testing due
+to CL's somewhat baroque equality and the impediment it causes toward
+simple metaprogramming.
+
+This is prolific: even hash tables aren't trivially extended with a
+custom equality test out of the box, although that's not a vast
+hurdle.
 * Hurdles
 A couple of big hurdles:
  
