@@ -78,10 +78,16 @@
 IBlah
 ;; #S(CLCLOJURE.PROTOCOLS::PROTOCOL
 ;;    :NAME IBLAH
-;;    :FUNCTIONS (BLAH)
+;;    :FUNCTIONS (#S(CLCLOJURE.PROTOCOLS::PROTOCOL-FUNCTION
+;;                   :NAME BLAH
+;;                   :ARGS ([OBJ])
+;;                   :BODIES 1
+;;                   :ARITIES ((:ARGS [OBJ] :ARITY 1 :VARIADIC? NIL))
+;;                   :DOC "not documented"))
 ;;    :SATISFIER #<CLOSURE (LAMBDA (CLCLOJURE.PROTOCOLS::NEWSPEC)
 ;;                           :IN
-;;                           CLCLOJURE.PROTOCOLS::MAKE-SATISFIER) {10074575AB}>
+;;                           CLCLOJURE.PROTOCOLS::MAKE-SATISFIER) {100553992B}>
+;;    :DOC "Not Documented"
 ;;    :MEMBERS (REIFY1 BLATHER))
 
 ;;On the cusp of greatness, but still
@@ -89,6 +95,8 @@ IBlah
 ;; (defn idx [v n]
 ;;   (-nth v n))
 
+
+(defparameter x :ecks)
 
 ;;quasiquoting of literals now works...
 (defparameter quasi-form
@@ -98,11 +106,16 @@ IBlah
      :b {:unquote ,x}
      :c {:quoted x}}]])
 
-;;[1 2 2 :LITERAL 2 :HAH [2 2 2 [X] {:C {:QUOTED X} :B {:UNQUOTE 2} :A 2}]]
+;;[1 2 :ECKS :LITERAL :ECKS :HAH [:ECKS :ECKS :ECKS [X] {:C {:QUOTED X} :B {:UNQUOTE :ECKS} :A 2}]]
 
-(let [x 2
-      y `[1 ,x 2 [3 4 ,@[1 2]]]]
-  y)
+;;splicing doesn't work yet, need to work around
+;;unquote-splicing requirement that everything be a common lisp
+;;sequence type, or coerce to lazy-seq, or override reader macro.
+
+;;WIP
+;; (let [x 2
+;;       y `[1 ,x 2 [3 4 ,@[1 2]]]]
+;;   y)
 
 ;;coming soon...
 ;;meta, destrutcturing, core clojure functions
@@ -123,8 +136,11 @@ IBlah
   (many [this] :one!)
   (many [this item] item))
 
+(def mt (->manytest))
 
-;;error in vector, vector args aren't being evaluated.
+;;EXAMPLE> (many mt)
+;;:ONE!
+
 (defn test-my-scope []
   (let
       [hello :hello
@@ -158,4 +174,30 @@ IBlah
     (clclojure.pvector:persistent-vector
      (sum 1)
      (sum 1 2)
-     (sum 1 2 3 4 5 6))))
+     (sum 1 2 3 4 5 6)) ))
+
+;;EXAMPLE> (test-arities)
+;;[1 3 21]
+
+
+
+;;Vector literal in body isn't acting like we'd want it to (it's quoting).
+;;Need to figure this out.  Also, if you try to
+;;eval outside the 
+;; (defn test-arities []
+;;   (let [sum (fn ([x] x)
+;;                 ([x y] (+ x y))
+;;                 ([x y &rest zs] (reduce #'+ zs :initial-value (+ x y))))]
+;;     [(sum 1)
+;;      (sum 1 2)
+;;      (sum 1 2 3 4 5 6)
+;;     ]))
+
+;; EXAMPLE> (test-arities)
+;; [(SUM 1) (SUM 1 2) (SUM 1 2 3 4 5 6)]
+
+;;(let [x 2] [x])
+;;[x] 
+;;this is incorrect, need to examine what's up with let..
+
+
