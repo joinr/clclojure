@@ -318,16 +318,83 @@
        (progn (add-protocol ,p)
 	      (defparameter ,name ,p)))))
 
-;extends protocol defined by name to 
-;each type in the typespecs, where typespecs 
-;are of the form...
-;(typename1 (func1 (x) (body))
-;           (func2 (x) (body))           
-; typename2 (func1 (x) (body))
-;           (func2 (x) (body))) 
-;bascially converts the implementations into a
-                                        ;defmethod..
-;;takes a list of
+(comment 
+
+ (defprotocol IComplex
+     (f2 [x] [x y] [x y & zs]))
+
+ (defparameter test-impl
+   '(common-lisp:cons
+     (f2 [x] x)
+     (f2 [x y] (cons y x))
+     (f2 [z y & zs] (append (cons y z) zs))))
+
+ (defparameter parsed
+   '((CONS
+      (F2 [X] X)
+      (F2 [X Y] (CONS Y X))
+      (F2 [Z Y & ZS] (APPEND (CONS Y Z) ZS)))))
+ )
+
+;;once we have implementations, grouped by type..
+;;we need to parse the functions within them.
+;;We expect something of the form:
+;;(type-name &rest implementations)
+;;where
+;;implementations conform to
+;;(function-name arg-vector & body)
+;;We have multiple possible implementations
+;;E.g.
+;;(function-name arg-vector1 & body)
+;;(function-name arg-vector2 & body2)
+;;Order is not guaranteed either.
+;;So, we need to group-by function-name.
+;;(function-name (arg-vector1 body1)
+;;               (arg-vector2 body2)
+;;               (arg-vector3 body3))
+
+;;May have to use seql instead of eql for symbol equality..
+;;collect-functions will coerce function definitions with multiple
+;;implementations in the above normal form into a
+;;variadic form that's compatible with/expected by emit*
+;;and leave single implementations alone.
+;;So we'd get
+
+;; (common-lisp:CONS
+;;    (F2 [X] X)
+;;    (F2 [X Y] (CONS Y X))
+;;    (F2 [Z Y & ZS] (APPEND (CONS Y Z) ZS))) 
+
+;;parsed into the method 
+;; (CONS
+;;  (F2 ([X] X)
+;;      ([X Y] (CONS Y X))
+;;      ([Z Y & ZS]
+;;          (APPEND (CONS Y Z) ZS))))
+
+;;while single-arg implementations, or
+;;functions with only one implementation,
+;;are parsed as single-arity functions.
+
+(defun collect-functions (type-fns)
+  (let ((fns (group-by #'first (rest type-fns) ;:test #'common-utils:seql
+                       )))
+    (cons (first type-fns)
+          (mapcar (lambda (kv)
+                    (case (length (second kv))
+                      (1   (first (second kv))) ;;leave it alone.
+                      (otherwise   ;;generate a variadic implementation.
+                       (cons (first kv) 
+                             (nreverse (mapcar #'cdr (second kv)))))))
+                  (hash-table->entries fns)))))
+
+;;extends protocol defined by name to 
+;;each type in the typespecs, where typespecs 
+;;are of the form...
+;;(typename1 (func1 (x) (body))
+;;           (func2 (x) (body))           
+;; typename2 (func1 (x) (body))
+;;           (func2 (x) (body))) 
 (defun parse-implementations (x)
   (labels ((get-spec (acc specs)
 	     (if (null specs)
@@ -338,7 +405,8 @@
 		       (let ((currentspec (first acc)))
 			 (get-spec (cons (cons arg currentspec) (rest acc))
 				   (rest specs))))))))
-    (mapcar #'nreverse (get-spec (list) x))))
+    (mapcar (lambda (x) (collect-functions (nreverse x))) ;#'nreverse
+            (get-spec (list) x))))
 
 ;; (defparameter samplext
 ;;   '(pvec 
@@ -371,10 +439,15 @@
 ;; '((f [this x]   (list x))
 ;;   (f [this x y] (list x y)))
 
+;;On the implementation side, we need to replace
+;;& - which is permissible in clj, with &rest for
+;;common lisp.
+(defun replace-ampersand (xs)
+  (substitute '&rest '& xs))
+
 (defun emit-dispatch (specs)
   `(lambda* ,@(mapcar (lambda (spec)
-                       (let* ((spec (rest spec)) ;strip out the initial function name
-                              (args (vector-to-list (first spec)))
+                        (let* ((args (replace-ampersand (vector-to-list (first spec))))
                               (body (rest spec)))
                          `(,args ,@body)))
                      specs)))
@@ -382,17 +455,18 @@
 ;;multiple arity protocol function implementation.
 (defun implement-function* (typename specs)
   (let ((dispatch (gensym "dispatch"))
-        (name     (first (first specs))))
-    `(let ((,dispatch ,(emit-dispatch specs)))
+        (name     (first specs))
+        (fns      (rest specs)))
+    `(let ((,dispatch ,(emit-dispatch fns)))
        (defmethod ,name ((,'obj ,typename) ,'&rest ,'args)
          (apply ,dispatch ,'obj ,'args)))))
 
-(defmacro emit-method (name typename imp)
-  `(progn (add-protocol-member (quote ,name)  (quote ,typename))
+(defmacro emit-method (protoname typename imp)
+  `(progn (add-protocol-member (quote ,protoname)  (quote ,typename))
           ,@(mapcar (lambda (spec)
                       (if (listp (second spec))
                           (implement-function* typename spec)
-                          (implement-function typename spec)))
+                          (implement-function typename  spec)))
                       (rest imp))))
 
 (defun emit-implementation (name satvar imp)

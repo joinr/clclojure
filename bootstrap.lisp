@@ -287,29 +287,29 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;; core protocols ;;;;;;;;;;;;;
 
 ;;Need to get back to this guy...multiple arity is not yet implemented...
-;; (defprotocol IFn
-;;   (-invoke
-;;     [this]
-;;     [this a]
-;;     [this a b]
-;;     [this a b c]
-;;     [this a b c d]
-;;     [this a b c d e]
-;;     [this a b c d e f]
-;;     [this a b c d e f g]
-;;     [this a b c d e f g h]
-;;     [this a b c d e f g h i]
-;;     [this a b c d e f g h i j]
-;;     [this a b c d e f g h i j k]
-;;     [this a b c d e f g h i j k l]
-;;     [this a b c d e f g h i j k l m]
-;;     [this a b c d e f g h i j k l m n]
-;;     [this a b c d e f g h i j k l m n o]
-;;     [this a b c d e f g h i j k l m n o p]
-;;     [this a b c d e f g h i j k l m n o p q]
-;;     [this a b c d e f g h i j k l m n o p q s]
-;;     [this a b c d e f g h i j k l m n o p q s t]
-;;     [this a b c d e f g h i j k l m n o p q s t rest]))
+(defprotocol IFn
+  (-invoke
+    [this]
+    [this a]
+    [this a b]
+    [this a b c]
+    [this a b c d]
+    [this a b c d e]
+    [this a b c d e f]
+    [this a b c d e f g]
+    [this a b c d e f g h]
+    [this a b c d e f g h i]
+    [this a b c d e f g h i j]
+    [this a b c d e f g h i j k]
+    [this a b c d e f g h i j k l]
+    [this a b c d e f g h i j k l m]
+    [this a b c d e f g h i j k l m n]
+    [this a b c d e f g h i j k l m n o]
+    [this a b c d e f g h i j k l m n o p]
+    [this a b c d e f g h i j k l m n o p q]
+    [this a b c d e f g h i j k l m n o p q s]
+    [this a b c d e f g h i j k l m n o p q s t]
+    [this a b c d e f g h i j k l m n o p q s t rest]))
 
 
 ;;These work
@@ -327,10 +327,10 @@
 
 ;;this will break.  current implementation of defprotocol doesn't allow for 
 ;;multiple arity functions like this.  Need to handle variadic functions...
-;; (defprotocol IIndexed
-;;   (-nth [coll n] [coll n not-found]))
+(defprotocol IIndexed
+  (-nth [coll n] [coll n not-found]))
 
-;; (defprotocol ASeq)
+(defprotocol ASeq)
 
 (defprotocol ISeq
     (-first [coll])
@@ -339,8 +339,8 @@
 (defprotocol INext
   (-next [coll]))
 
-;; (defprotocol ILookup
-;;   (-lookup [o k] [o k not-found]))
+(defprotocol ILookup
+  (-lookup [o k] [o k not-found]))
 
 (defprotocol IAssociative
   (-contains-key? [coll k])
@@ -377,8 +377,9 @@
 (defprotocol IWithMeta
   (-with-meta [o meta]))
 
-;; (defprotocol IReduce
-;;   (-reduce [coll f] [coll f start]))
+(defprotocol IReduce
+    (-reduce [coll f]
+             [coll f start]))
 
 (defprotocol IKVReduce
   (-kv-reduce [coll f init]))
@@ -428,37 +429,37 @@
    be implemented efficiently in terms of e.g. a StringBuffer append."
   (-pr-writer [o writer opts]))
 
-;; (defprotocol IPending
-;;   (-realized? [d]))
+(defprotocol IPending
+  (-realized? [d]))
 
-;; (defprotocol IWatchable
-;;   (-notify-watches [this oldval newval])
-;;   (-add-watch [this key f])
-;;   (-remove-watch [this key]))
+(defprotocol IWatchable
+  (-notify-watches [this oldval newval])
+  (-add-watch [this key f])
+  (-remove-watch [this key]))
 
-;; (defprotocol IEditableCollection
-;;   (-as-transient [coll]))
+(defprotocol IEditableCollection
+  (-as-transient [coll]))
 
 
-;; (defprotocol ITransientCollection
-;;   (-conj! [tcoll val])
-;;   (-persistent! [tcoll]))
+(defprotocol ITransientCollection
+  (-conj! [tcoll val])
+  (-persistent! [tcoll]))
 
-;; (defprotocol ITransientAssociative
-;;   (-assoc! [tcoll key val]))
+(defprotocol ITransientAssociative
+  (-assoc! [tcoll key val]))
 
-;; (defprotocol ITransientMap
-;;   (-dissoc! [tcoll key]))
+(defprotocol ITransientMap
+  (-dissoc! [tcoll key]))
 
-;; (defprotocol ITransientVector
-;;   (-assoc-n! [tcoll n val])
-;;   (-pop! [tcoll]))
+(defprotocol ITransientVector
+  (-assoc-n! [tcoll n val])
+  (-pop! [tcoll]))
 
-;; (defprotocol ITransientSet
-;;   (-disjoin! [tcoll v]))
+(defprotocol ITransientSet
+  (-disjoin! [tcoll v]))
 
-;; (defprotocol IComparable
-;;   (-compare [x y]))
+(defprotocol IComparable
+  (-compare [x y]))
 
 (defprotocol IChunk
   (-drop-first [coll]))

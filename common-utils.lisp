@@ -3,7 +3,10 @@
 (defpackage :common-utils
   (:use :common-lisp)
   (:export  
-   :comment 
+   :comment
+   :symbol?
+   :symbol=
+   :seql 
    :make-keyword 
    :to-string
    :str   
@@ -14,6 +17,12 @@
    :filter-tree 
    :reduce-tree
    :filter
+   :group-by
+
+   :hash-table->entries
+   :hash-table->keys
+   :hash-table->vals
+   
    :if-let
    :when-let
    :when-not
@@ -136,14 +145,14 @@
 
 (defun filter (pred xs) (remove-if-not pred xs))
 ;;some hack functions to help us validate bodies.
-(defun group-by (key-func xs)
+(defun group-by (key-func xs &key (test 'eql))
   (reduce (lambda (acc x) 
 	    (let* ((k (funcall key-func x))
 		   (vals (gethash k acc (list))))
 	      (progn (push x vals)
 		     (setf (gethash k acc) vals)
 		     acc)))
-	  xs :initial-value (make-hash-table)))  
+	  xs :initial-value (make-hash-table :test test)))  
 ;;this is a hack, will be replaced later.   Thanks common lisp cookbook!
 ;;I hate loop!
 (defun hash-table->entries (tbl)
@@ -151,6 +160,16 @@
    (loop for key being the hash-keys of tbl
          using (hash-value value)
          collect (list key value))))
+
+(defun hash-table->keys (tbl)
+  (loop for key being the hash-keys of tbl
+        using (hash-value value)
+        collect  key ))
+
+(defun hash-table->vals (tbl)
+  (loop for key being the hash-keys of tbl
+        using (hash-value value)
+        collect value))
 
 ;;https://stackoverflow.com/questions/26045442/copy-hash-table-in-lisp
 ;;josh taylor's answer
@@ -979,10 +998,15 @@
           coll :initial-value '()))
 
 )
+
 ;;printers
+;;This is janky.  TBD: beter implementation (e.g. lazy seq...)
 (defun print-map (m &optional (stream t))
   "Generic map printer."
-  (format stream "{~{~s~^ ~}}" (flatten (hash-table->entries m))))
+  (format stream "{~{~s~^ ~}}"
+    (nreverse
+     (reduce (lambda (acc kv)
+               (cons  (cadr kv) (cons (car kv) acc)))  (hash-table->entries m) :initial-value '()))))
 
 
 ;;we can modify our named fns...
