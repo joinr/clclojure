@@ -6,7 +6,8 @@
    :comment
    :symbol?
    :symbol=
-   :seql 
+   :seql
+   :scase 
    :make-keyword 
    :to-string
    :str   

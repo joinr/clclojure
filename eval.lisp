@@ -1,10 +1,14 @@
 (defpackage :clclojure.eval
   (:use :common-lisp        
         :cl-package-locks)
-  (:export :custom-eval :enable-custom-eval :disable-custom-eval
+  (:export :custom-eval :let-expr :let-expr? :noisy-expand :custom-eval-bindings
+           :custom-eval? :enable-custom-eval :disable-custom-eval
    :simple-eval-in-lexenv))
 
 (in-package clclojure.eval)
+
+(defgeneric let-expr     (obj))
+(defmethod  let-expr     (obj) obj)
 
 (defgeneric custom-eval  (obj))
 ;;We perform the same thing existing eval does for unknown
@@ -13,8 +17,154 @@
 (defmethod custom-eval (obj) obj)
 
 ;;another option is to use find-method...
-;(find-method #'custom-eval '() '(t) nil)
+;;(find-method #'custom-eval '() '(t) nil)
 (defvar +original-eval+ (symbol-function  'SB-IMPL::simple-eval-in-lexenv))
+
+
+(defun custom-eval? (obj)
+  (find-method #'custom-eval '() `(,(class-of obj)) nil))
+
+(defun let-expr? (obj)
+  (find-method #'let-expr '() `(,(class-of obj)) nil))
+
+(defparameter *noisy-custom* nil)
+(defparameter *noisy-depth*  0)
+
+(defun noisy-log (msg)
+  (when *noisy-custom*
+    (pprint (list :noisy-log msg))))
+
+(defmacro noisy-expand (expr)
+  (let ((*noisy-custom* t))
+    (pprint  (custom-eval-bindings expr nil))))
+
+(defmacro bump-depth (&rest body)
+  `(let ((,'clclojure.eval::*noisy-depth* (1+ ,'clclojure.eval::*noisy-depth*)))
+     ,@body))
+
+(defun symbol-key (s)
+  (if (and (symbolp s)
+           (string= (string-upcase (package-name  (symbol-package s)))
+                    "CLCLOJURE.BASE")
+           (string= (string-upcase (symbol-name s))
+                    "LET"))
+      :clj-let
+      s))
+
+;;we need to make sure this is recursive, so that the body is walked,
+;;as are the arg bindings.
+(defun custom-eval-bindings (expr lexenv)
+  (when (> *noisy-depth* 50)
+    (error "Possibly infinite recursion: ~S " expr))
+  (when *noisy-custom* (pprint `(:evaluating ,expr)))
+  (if (listp expr)
+      (case (symbol-key  (first expr))
+        (:clj-let
+         (let ((nexpr (macroexpand expr)))
+           (noisy-log :clj-let)
+           (bump-depth
+            (custom-eval-bindings nexpr lexenv))))
+        ((let let*)
+         (destructuring-bind (name args &rest body) expr
+           ;;this is wrong for labels and flet
+           (let* ((new-args 
+                    (mapcar (lambda (kv)
+                              (let ((lhs (first  kv))
+                                    (rhs (second kv)))
+                                (if (let-expr? rhs)
+                                    `(,lhs ,(clclojure.eval:let-expr rhs))
+                                    `(,lhs ,(macroexpand rhs))))) args))
+                  (new-body (mapcar (lambda (v)
+                                      (cond ((let-expr? v)
+                                             (clclojure.eval:let-expr v))
+                                            ((listp v)
+                                             (bump-depth  (custom-eval-bindings v lexenv)))
+                                            (t v))) body)))
+             (noisy-log :let-let*-labels-flet-macrolet)
+             `(,name ,new-args ,@new-body))))
+        ((labels flet macrolet)
+         (destructuring-bind (name args &rest body) expr
+           ;;this is wrong for labels and flet
+           (let* ((new-body (mapcar (lambda (v)
+                                      (cond ((let-expr? v)
+                                             (clclojure.eval:let-expr v))
+                                            ((listp v)
+                                             (bump-depth
+                                              (custom-eval-bindings v lexenv)))
+                                            (t v))) body)))
+             (noisy-log :labels-flet-macrolet)
+             `(,name ,args ,@new-body))))
+        (otherwise
+         (if (listp (cdr expr))             
+             (progn (noisy-log :list-expr)                    
+                    (mapcar (lambda (v)                              
+                              (cond ((let-expr? v)
+                                     (clclojure.eval:let-expr v))
+                                    ((listp v)
+                                     (bump-depth
+                                      (custom-eval-bindings v lexenv)))
+                                    (t v))) expr))
+             (destructuring-bind (l . r) expr
+               (progn (noisy-log :cons-expr)
+                      (cons (cond ((let-expr? l)
+                                   (clclojure.eval:let-expr l))
+                                  ((listp l)
+                                   (bump-depth
+                                    (custom-eval-bindings l lexenv)))
+                                  (t l))
+                            (cond ((let-expr? r)
+                                   (clclojure.eval:let-expr r))
+                                  ((listp r)
+                                   (bump-depth
+                                    (custom-eval-bindings r lexenv)))
+                                  (t r))
+                            ))))))
+      (if (let-expr? expr)
+          (progn (noisy-log :custom-let-expr)
+                 (let-expr expr))
+          (progn (noisy-log :pass-through-expr)
+                 expr))))
+
+;;we have a minor problem with let/let* in that they don't
+;;participate in the custom-eval hack for data literals.
+;;Ergo, if we have a vector literal, like [x], we get
+;;the legacy eval semantics that just passes the the thing through
+;;unevaluated.
+
+;;Tracing out the calls in sbcl/src/code/eval.lisp
+
+;; (sb-impl::%simple-eval
+;;  '(let* ((x 2)
+;;          (y [x])) y)
+;;  (sb-impl::make-null-lexenv))
+;; yields:
+;; [x]
+
+;;So we either need to walk the code at macro expansion
+;;time and unpack all the literals...
+;;Or (better), hook into simple-eval
+;;and allow custom eval semantics,
+;;or (maybe better), hook into
+;;sb-impl:%simple-eval and
+;;enable custom evaluation semantics...
+
+;;We "could" code walk this stuff
+;;in our clclojure let macro too,
+;;and make sure our literals expand
+;;to function calls...
+
+;;The simplest solution is just to inject #'custom-eval
+;;calls into the pipeline so that %simple-eval
+;;picks it up when it goes to build the expression
+;;sb-impl:%simple-eval coerces the expression into
+;;a lambda prior to sending it off for compilation.
+;;We can leverage this to walk the bindings for
+;;let, let* and inject rhs bindings that
+;;have custom-eval applied if they are
+;;custom-eval?
+;;This should cover like 90% of our cases
+;;without interfering with legacy
+;;common lisp stuff.
 
 ;;This is identical to the default sbcl eval..
 ;;with the exception of the hook to our custom method.
@@ -149,7 +299,12 @@
                                       else)
                                   lexenv)))
                ((let let*)
-                (%simple-eval exp lexenv))
+                ;;minor hack to enable custom eval semantics
+                ;;We pre-process the expression to ensure that
+                ;;calls to custom-eval are inserted for types with custom-eval...
+                                        ;(%simple-eval exp lexenv)
+                (%simple-eval (clclojure.eval:custom-eval-bindings exp lexenv) lexenv)                
+                )
                (t
                 (if (and (symbolp name)
                          (eq (info :function :kind name) :function))

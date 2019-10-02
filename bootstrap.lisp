@@ -70,9 +70,13 @@
 
 ;;Todo: move this out to CLOS?
 ;;parse a clojure style function definition.
-(defmacro read-fn (arg-vec body)
-  `(make-fn-def :args   (quoted-vec ,arg-vec) 
-		:body   (quote ,body)))
+;; (defmacro read-fn (arg-vec body)
+;;   `(make-fn-def :args   (quoted-vec ,arg-vec) 
+;; 		:body   (quote ,body)))
+
+(defun read-fn (arg-vec body)
+  (make-fn-def :args   arg-vec
+               :body   body))
 
 (defgeneric arity (fd))
 (defmethod  arity ((fd clclojure.pvector::pvec))  
@@ -83,8 +87,11 @@
 ;;compose multiple function (arg body) pairs into a list of function definitions.
 ;;We should then be able to dispatch on the count of args, simply invoking 
 ;;the appropriate function matched to arity.
-(defmacro fn* (&rest specs)	  
-  `(list ,@(mapcar (lambda (vb) `(read-fn ,(first vb) ,(second vb))) specs)))
+;; (defmacro fn* (&rest specs)	  
+;;   `(list ,@(mapcar (lambda (vb) `(read-fn ,(first vb) ,(second vb))) specs)))
+
+(defun fn* (&rest specs)
+  `(,@(mapcar (lambda (vb) (read-fn (first vb) (second vb))) specs)))
 
 ;; (defparameter test-fn
 ;;   '(fn* ([x] x)
@@ -124,10 +131,12 @@
 ;;Clojure's anonymous function special form.
 ;;Todo: support destructuring in the args.
 (defmacro fn (&rest specs)
-  (if (vector-form? (first specs)) 
-      (eval `(fndef->sexp (fn* (,@specs))))
-      ;;TODO get rid of this eval....
-      (eval `(fndef->sexp (fn* ,@specs)))))
+  (let ((res 
+          (if (vector-form? (first specs)) 
+              (fndef->sexp (fn*  specs))
+              ;;TODO get rid of this eval....
+              (fndef->sexp (apply #'fn* specs)))))    
+    `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
 
 ;;def 
 ;;===

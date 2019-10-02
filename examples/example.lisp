@@ -179,25 +179,20 @@ IBlah
 ;;EXAMPLE> (test-arities)
 ;;[1 3 21]
 
-
-
-;;Vector literal in body isn't acting like we'd want it to (it's quoting).
-;;Need to figure this out.  Also, if you try to
-;;eval outside the 
-;; (defn test-arities []
-;;   (let [sum (fn ([x] x)
-;;                 ([x y] (+ x y))
-;;                 ([x y &rest zs] (reduce #'+ zs :initial-value (+ x y))))]
-;;     [(sum 1)
-;;      (sum 1 2)
-;;      (sum 1 2 3 4 5 6)
-;;     ]))
+(defn test-arities []
+  (let [sum (fn ([x] x)
+                ([x y] (+ x y))
+                ([x y &rest zs] (reduce #'+ zs :initial-value (+ x y))))]
+    [(sum 1)
+     (sum 1 2)
+     (sum 1 2 3 4 5 6)
+    ]))
 
 ;; EXAMPLE> (test-arities)
-;; [(SUM 1) (SUM 1 2) (SUM 1 2 3 4 5 6)]
+;; [1 3 21]
 
-;;(let [x 2] [x])
-;;[x] 
-;;this is incorrect, need to examine what's up with let..
+(let [x 2] [x])
+;;[2]
+
 
 

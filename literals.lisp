@@ -14,13 +14,26 @@
   ;;have chunks, fyi.
   (defmethod custom-eval ((obj pvec))
     (vector-map (lambda (x) (eval x)) obj))
+  (defmethod let-expr   ((obj pvec))
+    `(clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj)))
 
   (defmethod custom-eval ((obj subvector))
     (vector-map (lambda (x) (eval x)) obj))
+  
+  (defmethod let-expr   ((obj subvector))
+    `(clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj)))
 
   ;;(map {x y j k} => (persistent-map (eval x) (eval y) (eval j) (eval k))
   (defmethod custom-eval ((obj cowmap))
     (reduce (lambda (acc kv)
               (destructuring-bind (k v) kv
-                (map-assoc acc (eval k) (eval v)))) (map-seq obj) :initial-value (empty-map)))
+                (map-assoc acc (eval k) (eval v))))
+            (map-seq obj) :initial-value (empty-map)))
+
+  (defmethod let-expr   ((obj cowmap))
+    `(clclojure.cowmap:persistent-map
+      ,@(reduce (lambda (acc kv)
+                  (cons (first kv) (cons (second kv) acc)))  (clclojure.cowmap:map-seq obj) :initial-value '())))
+
+  
 )
