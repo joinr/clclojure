@@ -577,11 +577,6 @@ implementations to get us into an even simpler bootstrapping environment.
 For the time being, we'll continue wrapping existing CL functionality
 though.
 
-*** Multimethods (WIP)
-We still need to implement multimethods but that'll be a simple
-variation on the dispatch stuff.  These show up in both the
-reader and analyzer, so they're next.
-
 *** Generic Symbol Equality (#'seql)
 One nagging feature that probably needs to be addressed is the
 necessity of using common-utils:seql for symbol equality testing due
@@ -591,6 +586,106 @@ simple metaprogramming.
 This is prolific: even hash tables aren't trivially extended with a
 custom equality test out of the box, although that's not a vast
 hurdle.
+*** Lexical Literals
+So, everything worked fine when evaluating literals from the null
+lexical environment based on the custom-eval semantics in
+clclojure.eval:custom-eval and related wiring into sbcl's =eval=.
+
+This did not carry over into expressions with lexically bound
+forms that were also data literals.  Results kept returning wierd
+quoted forms for values rather than the actual evaluated forms.
+
+It ended up being a long and tricky process to tease out the
+underlying cause, and to diagnose a quickish fix.
+
+As it turns out, CL is pretty canny about how it handles lexical
+scope.  To satisfy the compiler, we'd like to pass off friendly,
+common forms that SBCL expects.  Unfortunately, if literals show
+up in various places where lexical scope is defined (such as the
+right-hand side bindings for let*, which is emitted by
+=clclojure.base:let=), we end up with problems.
+
+We also end up with problems if the literal is the result (or any
+piece of) the body of expressions that extend lexical scope.
+
+We could theoretically fix all this at a somewhat high level, with
+a code-walker that recognizes our clj forms and does the requisite
+transforms at macroexpansion time.  This is cool, but not
+necessarily what we want for helpful user feedback,
+e.g. macroexpanding a form expecting to see clojure literals.
+
+Thankfully, we have access to the evaluator, and can continue to
+slightly tweak it to suit our needs.  Namely, where lexical forms are
+defined, e.g. =common-lisp:let*= and =common-lisp:let=, we can add in
+a mechanical transform to the expression (not unlike manual macro)
+that walks the expression and expands our literals into
+literal-constructor forms that are readily recognized by sbcl's
+evaluation machinery (and the compiler).
+
+So, the technique is to define another generic function that user's
+can express lexical expressions for, =clclojure.eval:let-expr=.  The
+semantics would be:
+
+#+BEGIN_SRC clojure
+(def y 3)
+
+(let [x [2 y]] [x]) => [[2 3]]
+#+END_SRC 
+
+In CL
+
+#+BEGIN_SRC lisp
+(let* ((x [2 y])) 
+   [x])
+#+END_SRC
+   
+is compiled to
+
+#+BEGIN_SRC lisp
+(let* ((x (persistent-vector 2 y)))
+  (persistent-vector x))
+#+END_SRC
+
+Importantly, we don't want to muck with the literals at
+macroexpansion time (e.g.  for debugging an visualizing the code),
+but we do want to intercept them prior to going to evaluation.
+This sounds very much like a possible compiler macro (or other
+eval-when context), and may be trivially refactored into one.
+
+Absent that, we define a function
+=clclojure.eval:custom-eval-bindings=, which acts as an intercessor,
+and takes an expression to walk, and a lexical environment to pass
+along in case we ever get to use it (this conforms to the function
+signature for sbcl's =sb-impl::%simple-eval=.
+
+We detect various types of expressions that could define literals
+in the lexical scope, and walk the expression based on the form's
+semantics, recursively, replacing any literals with the
+appropriate constructor- based canonically evaluable bindings -
+iff the value supports =clclojure.eval:let-expr?=.
+
+This gets us 90% of the way to happy, but there still exists a
+problem with (fn ) forms, since they actually build up lambdas.
+
+Funny enough, CL doesn't like to just emit (lambda (x) ...) from a
+defmacro expression.
+
+Neigh, if we quasiquote it, we get #'(lambda (x) ...)  which is
+effectively (function (lambda (x) ...))
+
+Since we're emitting these forms, they end up being opaque when we
+look at custom-eval-bindings.  So, we have to process them at
+macroexpansion time , e.g. in the (fn ...) macro.  We do so by
+macroexpanding the body of the lambda, and similarly walking the
+form with =custom-eval-bindings=.  Then, we emit the ultimately
+sharp-quoted lambda with the new body.  This works well, with the
+small tradeoff that fully macroexpanding a (fn ..) macro will
+expand into the more verbose form without any literals.
+
+*** Multimethods (WIP)
+We still need to implement multimethods but that'll be a simple
+variation on the dispatch stuff.  These show up in both the
+reader and analyzer, so they're next.
 * Hurdles
 A couple of big hurdles:
  
