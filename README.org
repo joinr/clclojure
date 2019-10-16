@@ -686,6 +686,11 @@ expand into the more verbose form without any literals.
 We still need to implement multimethods but that'll be a simple
 variation on the dispatch stuff.  These show up in both the
 reader and analyzer, so they're next.
+*** Loose protocol implementation
+Right now, defprotocol expects implementations for all function arities.
+I think Clojure allows partial implementation, or generates stubs via
+abstract methods.  We need to implement this relaxation, e.g. for
+IFn, so we can get boostrapping advanced.
 * Hurdles
 A couple of big hurdles:
  
