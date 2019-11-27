@@ -12,21 +12,26 @@
   ;;this is somewhat inefficient since we're not exploiting
   ;;chunks, but good enough for proof of concept.  We do
   ;;have chunks, fyi.
+  (defmethod clclojure.eval::literal? ((obj pvec)) t)
   (defmethod custom-eval ((obj pvec))
     (vector-map (lambda (x) (eval x)) obj))
 
-  ;; (defmethod let-expr   ((obj pvec))
-  ;;   `(clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj)))
-
   (defmethod let-expr   ((obj pvec))
-    obj)
+    `(clclojure.eval:literal
+      (clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj))))
   
+  ;; (defmethod let-expr   ((obj pvec))
+  ;;   obj)
+
+  (defmethod clclojure.eval::literal? ((obj subvector)) t)
   (defmethod custom-eval ((obj subvector))
     (vector-map (lambda (x) (eval x)) obj))
   
   (defmethod let-expr   ((obj subvector))
-    `(clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj)))
+    `(clclojure.eval:literal
+      (clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj))))
 
+  (defmethod clclojure.eval::literal? ((obj cowmap)) t)
   ;;(map {x y j k} => (persistent-map (eval x) (eval y) (eval j) (eval k))
   (defmethod custom-eval ((obj cowmap))
     (reduce (lambda (acc kv)
@@ -35,9 +40,11 @@
             (map-seq obj) :initial-value (empty-map)))
 
   (defmethod let-expr   ((obj cowmap))
-    `(clclojure.cowmap:persistent-map
-      ,@(reduce (lambda (acc kv)
-                  (cons (first kv) (cons (second kv) acc)))  (clclojure.cowmap:map-seq obj) :initial-value '())))
+    `(clclojure.eval:literal
+      (clclojure.cowmap:persistent-map
+       ,@(reduce (lambda (acc kv)
+                   (cons (first kv) (cons (second kv) acc)))
+                 (clclojure.cowmap:map-seq obj) :initial-value '()))))
 
   
 )

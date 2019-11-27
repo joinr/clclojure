@@ -96,7 +96,7 @@ IBlah
 ;;   (-nth v n))
 
 
-(defparameter x :ecks)
+(def x :ecks)
 
 ;;quasiquoting of literals now works...
 (defparameter quasi-form
@@ -137,6 +137,9 @@ IBlah
   (many [this item] item))
 
 (def mt (->manytest))
+
+(many mt)
+(many mt :hello)
 
 ;;EXAMPLE> (many mt)
 ;;:ONE!
@@ -179,7 +182,7 @@ IBlah
 ;;EXAMPLE> (test-arities)
 ;;[1 3 21]
 
-(defn test-arities []
+(defn test-arities-literal []
   (let [sum (fn ([x] x)
                 ([x y] (+ x y))
                 ([x y &rest zs] (reduce #'+ zs :initial-value (+ x y))))]
@@ -188,7 +191,7 @@ IBlah
      (sum 1 2 3 4 5 6)
     ]))
 
-;; EXAMPLE> (test-arities)
+;; EXAMPLE> (test-arities-literal)
 ;; [1 3 21]
 
 (let [x 2] [x])

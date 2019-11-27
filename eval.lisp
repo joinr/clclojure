@@ -1,11 +1,14 @@
 (defpackage :clclojure.eval
-  (:use :common-lisp        
-        :cl-package-locks)
+  (:use :common-lisp :cl-package-locks)
   (:export :custom-eval :let-expr :let-expr? :noisy-expand :custom-eval-bindings
-           :custom-eval? :enable-custom-eval :disable-custom-eval
-   :simple-eval-in-lexenv))
+   :custom-eval? :enable-custom-eval :disable-custom-eval :literal :symbolic
+   :simple-eval-in-lexenv :defmacro/literal-walker))
 
 (in-package clclojure.eval)
+
+(defgeneric literal? (obj))
+(defmethod  literal? (obj)
+  nil)
 
 (defgeneric let-expr     (obj))
 (defmethod  let-expr     (obj) obj)
@@ -15,6 +18,65 @@
 ;;datums.  Just return the data as-is.  This is effectively
 ;;what sbcl does by default.
 (defmethod custom-eval (obj) obj)
+
+;;we need to define a special xform that allows us to handle forms
+;;that have been translated to their sexpr friendly forms.  If we have
+;;a (let-expr '[x]) then we should get (literal (persistent-vector
+;;'x)).  If we want to de-literal, then we need the inverse, (symbolic
+;;(literal (persistent-vector 'x))) => '[x]
+
+;;this is just identity, but we use it to codify our literals.
+(defun literal   (obj) obj)
+
+;;symbolic identifies data literals encoded
+;;in (literal ...) forms, and helpfully unpacks them
+;;into their actual literal representation.  vectors
+;;return to vectors, maps to maps, sets to sets, etc.
+(defun symbolic  (obj)
+  (if (and  (listp obj)
+            (eql (first obj) 'literal))
+      (let ((stored (second obj)))
+        (eval `(,(first stored)
+                ,@(mapcar (lambda (x)
+                            `(quote ,x)) (rest stored)))))
+      obj))
+
+;;helper function to allow us to replace
+;;(literal ) forms with symbolic ones.
+;;fn :: subform -> context -> env -> subform
+(defun literal-walker (subform context env)
+  (declare (ignore context env))
+  (typecase subform
+    (cons  (cond ((listp (first subform))
+                  (if (eql (first (first subform)) 'clclojure.eval:literal)
+                      (cons (symbolic (first  subform)) (rest subform))                            
+                      subform))
+                 ((eql (first subform) 'clclojure.eval:literal)         
+                  (symbolic subform))
+                 ((literal? (first subform))  (values subform t))
+                 (t subform)))
+    (t subform)))
+
+;;helper function that walks a form and recovers
+;;symbolic data literals.
+(defun recover-literals (form)
+  (sb-walker:walk-form form nil #'literal-walker))
+;;we can alternately use macrolet...
+
+(defun normal-arg? (arg)
+  (not  (eq  (elt (symbol-name arg)  0)
+             #\&)))
+
+;;macro-defining-macro that does a precompile
+;;step to walk the args and bind them to their
+;;recovered forms.
+(defmacro defmacro/literal-walker (name args &body body)
+  `(defmacro ,name ,args
+     (let (,@(mapcar (lambda (arg)
+                       `(,arg (recover-literals ,arg)))
+                     (common-lisp:remove-if-not #'normal-arg? args)))
+       ,@body)
+     ))
 
 ;;another option is to use find-method...
 ;;(find-method #'custom-eval '() '(t) nil)
@@ -46,13 +108,14 @@
      ,@body))
 
 (defun symbol-key (s)
-  (if (and (symbolp s)
-           (string= (string-upcase (package-name  (symbol-package s)))
-                    "CLCLOJURE.BASE")
-           (string= (string-upcase (symbol-name s))
-                    "LET"))
-      :clj-let
-      s))
+  (cond ((and (symbolp s)
+               (string= (string-upcase (package-name  (symbol-package s)))
+                        "CLCLOJURE.BASE")
+               (string= (string-upcase (symbol-name s))
+                        "LET"))
+         :clj-let)
+        ;((macro? s) :macro) ;;not in use.
+        (t    s)))
 
 ;;we need to make sure this is recursive, so that the body is walked,
 ;;as are the arg bindings.

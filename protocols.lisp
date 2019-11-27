@@ -462,7 +462,7 @@
        (defmethod ,name ((,'obj ,typename) ,'&rest ,'args)
          (apply ,dispatch ,'obj ,'args)))))
 
-(defmacro emit-method (protoname typename imp)
+(defmacro/literal-walker emit-method (protoname typename imp)
   `(progn (add-protocol-member (quote ,protoname)  (quote ,typename))
           ,@(mapcar (lambda (spec)
                       (if (listp (second spec))
@@ -479,7 +479,7 @@
            (emit-method ,name ,(first imp) ,imp)
            (error 'missing-implementations (str `(,,name ,,quoted-imp)))))))
   
-(defmacro extend-protocol (name &rest typespecs)
+(defmacro/literal-walker extend-protocol (name &rest typespecs)
   (let* ((imps       (parse-implementations typespecs))
          (satisfies? (gensym))
          (emits      (mapcar  (lambda (imp) (emit-implementation name satisfies? imp))

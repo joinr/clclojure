@@ -18,7 +18,7 @@
                (:file "lexical"
                       :depends-on ("keywordfunc"))
                (:file "protocols"
-                :depends-on ("common-utils" "reader" "pvector" "cowmap"))
+                :depends-on ("literals" "common-utils" "reader" "pvector" "cowmap"))
 	       (:file "bootstrap"
                 :depends-on ("literals"
                              "common-utils"

@@ -691,6 +691,57 @@ Right now, defprotocol expects implementations for all function arities.
 I think Clojure allows partial implementation, or generates stubs via
 abstract methods.  We need to implement this relaxation, e.g. for
 IFn, so we can get boostrapping advanced.
+*** Revisiting Lexical Literals
+So the original implementation for this fixed one thing only to break another.
+In an attempt to comport with the SBCL compiler's pre-baked notion (read ignorance)
+of the evaluation rules for non-list things, I went down the route of defining 
+a custom code walker to intercept calls to =let= and friends.  This interception
+would walk the code, and invoke generic functions to coerce custom literals (like
+vectors) to eval-friendly forms (read, a constructor and args) so I could avoid hacking the compiler.
+
+This worked great and fixed a major problem, where lexical literals were effectively just uneval'd
+and quoted directly.  Now, at eval time, we get custom literals working as in Clojure.
+
+**** Downside
+I broke the expectation that we would be using "actual" persistent vectors as syntactic
+objects in macros (namely =defprotocol=, =fn=, =defn=).  This primarily manifested as
+an ugly regression in =extend-protocol=, where CL would complain that we're trying to
+apply a generic function from the pvector namespace to something non-pvector.
+
+The short of it is that, depending on the order of eval and macroexpansion, and
+if we have a (let ...) binding anywhere, we stand a good chance of coercing our 
+actual [vector] into a (persistent-vector vector) for eval sake, thus breaking
+the expectation that literals will be preserved both for eval and code.
+
+
+**** Fix?
+To get this working, I went down a couple of paths, including looking at 
+hacking into the compiler.  Then I realized, if I can just tag the transformed
+literals, I can identify them and invert the process inside of macros.  You'd 
+end up with a ping-ponging of the custom eval bindings walker munging data literals
+into evalable forms, then macros - prior to expansion - traversing their args and
+coercing the forms back into actual vectors, maps, and sets, etc.  Design wise
+it's ugly, but performance wise should be neglible....
+
+So the eventual solution involves using the code walker from SBCL and a couple of
+generic functions.  We now - by convention - mark our literals with the 
+identity function =literal=, which just wraps the aforementioned constructor.
+
+We then define a function =recover-literals= that can walk a form and detect
+invocations of =literal=, replacing them with the result of calling =symbolic= 
+on the subform, which evals the arg for =literal= and gives us back our
+custom literal.
+
+=recover-literals= serves as an auxillary function used in the macro-defining-macro
+=defmacro/literal-walker=, which will quietly bind the args for the macro definition
+to a lexical binding where the args (inputs) are bound to their =recover-literals= 
+results.  This basically ensures that, when using =defmacro/literal-walker=, 
+we always have access to data literals.  Simultaneously, our literals now also
+work seamlessly in =eval= with custom evaluation semantics, including in lexical
+bindings.
+
+So far, all tests in examples are passing.
+
 * Hurdles
 A couple of big hurdles:
  
