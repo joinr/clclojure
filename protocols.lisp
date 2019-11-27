@@ -6,7 +6,8 @@
 ;;advantage of the bulk of the excellent bootstrapped clojure 
 ;;defined in the clojurescript compiler.  
 (defpackage :clclojure.protocols  
-  (:use :common-lisp :common-utils :clclojure.reader :clclojure.pvector)
+  (:use :common-lisp :common-utils :clclojure.reader :clclojure.pvector
+        :clclojure.eval)
   (:export :defprotocol
            :extend-protocol
            :extend-type
@@ -419,13 +420,13 @@
 (defun implement-function (typename spec)
   (let* ((args    (cond ((vector? (second  spec))
                          (vector-to-list (second spec)))
-                        ;this is a crappy hack.
+                                        ;this is a crappy hack.
                         ((vector-expr (second spec))
                          (rest (second spec)))
                         (t
                          (drop-literals (second spec)))))
-	 (newargs (cons (list (first args) typename) (rest args)))
-	 (body (third spec)))
+         (newargs (cons (list (first args) typename) (rest args)))
+         (body (third spec)))
     `(defmethod ,(first spec) ,newargs  ,body)))
 
 ;;given something like this
@@ -469,6 +470,8 @@
                           (implement-function typename  spec)))
                       (rest imp))))
 
+;;this is the one choke point where we're getting
+;;[x] -> (persistent-vector x) transforms in practice.
 (defun emit-implementation (name satvar imp)
   (let ((quoted-imp (gensym "quotedimp")))
     `(let ((,quoted-imp (quote ,imp)))
@@ -477,11 +480,12 @@
            (error 'missing-implementations (str `(,,name ,,quoted-imp)))))))
   
 (defmacro extend-protocol (name &rest typespecs)
-  (let ((imps       (parse-implementations typespecs))
-        (satisfies? (gensym)))
+  (let* ((imps       (parse-implementations typespecs))
+         (satisfies? (gensym))
+         (emits      (mapcar  (lambda (imp) (emit-implementation name satisfies? imp))
+                               imps)))
     `(let ((,satisfies? (protocol-satisfier (get-protocol (quote ,name)))))
-       ,@(mapcar  (lambda (imp) (emit-implementation name satisfies? imp))
-                  imps))))
+       ,@emits)))
 
 ;Extend-type is also particularly useful.
 ;;Pending -> implement deftype.
@@ -551,13 +555,12 @@
         ;(the-imp    (gensym))
         )
     `(progn ,@(mapcar (lambda (the-imp)
-                  (let ((expr `(emit-protocol-extension (quote ,(first the-imp))
-                                                        (quote ,typename)
-                                                        (quote ,(rest the-imp)))))
-                    (eval  expr)))
-                
-                imps))
-      
+                        (let ((expr `(emit-protocol-extension (quote ,(first the-imp))
+                                                              (quote ,typename)
+                                                              (quote ,(rest the-imp)))))
+                          (eval  expr)))                
+                      imps))
+    
          ;; (if (funcall ,satisfies? imp)             
          ;;     (progn (add-protocol-member (quote ,name)  typename)
          ;;            (dolist (spec (rest imp))

@@ -27,6 +27,9 @@
 (defun let-expr? (obj)
   (find-method #'let-expr '() `(,(class-of obj)) nil))
 
+(defun macro? (x)
+  (macro-function x))
+
 (defparameter *noisy-custom* nil)
 (defparameter *noisy-depth*  0)
 

@@ -14,9 +14,13 @@
   ;;have chunks, fyi.
   (defmethod custom-eval ((obj pvec))
     (vector-map (lambda (x) (eval x)) obj))
-  (defmethod let-expr   ((obj pvec))
-    `(clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj)))
 
+  ;; (defmethod let-expr   ((obj pvec))
+  ;;   `(clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj)))
+
+  (defmethod let-expr   ((obj pvec))
+    obj)
+  
   (defmethod custom-eval ((obj subvector))
     (vector-map (lambda (x) (eval x)) obj))
   
