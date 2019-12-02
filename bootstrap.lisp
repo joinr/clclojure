@@ -39,7 +39,10 @@
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
 
   (common-lisp:defmacro defmacro (name args &rest body)
-    (clclojure.eval:defmacro/literal-walker name args body))
+    ;;`(clclojure.eval:defmacro/literal-walker ,name ,args ,@body)
+    `(common-lisp:defmacro ,name ,args ,@body)
+    )
+  
   (defun vector? (x) (typep x 'clclojure.pvector::pvec))
 
   ;;Let's hack let to allow us to infer vector-binds
@@ -221,7 +224,7 @@
 ;;======================
 
 
-(defmacro loop [])
+;;(defmacro loop [])
 
 ;; (comment 
 

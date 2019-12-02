@@ -193,7 +193,6 @@
      (reduce  (lambda (acc x) x
                 (if (sb-int:comma-p x)
                     (let ((expr (sb-int:comma-expr x)))
-                      (pprint expr)
                       (case (sb-int:comma-kind x) 
                         (0  (cons expr acc))
                         ;;I don't think we want to eval here.
@@ -203,6 +202,9 @@
                                x
                                (list 'sb-int:quasiquote x)) acc))) xs :initial-value '())))
 
+  (defmacro quasiquote (thing)
+    (list 'sb-impl::quasiquote thing))
+  
   (defun backquote-charmacro (stream char)
     (declare (ignore char))
     (let* ((expr (let ((sb-impl::*backquote-depth* (1+ sb-impl::*backquote-depth*)))
@@ -212,8 +214,9 @@
           ;; use RESULT rather than EXPR in the error so it pprints nicely
           (sb-impl::simple-reader-error
            stream "~S is not a well-formed backquote expression" result)
-          (scase (first expr)
+          (scase (when (listp expr) (first expr))
                  (literal expr)
+                 (CLCLOJURE.PVECTOR:persistent-vector  expr)
                  (t result)))))
   
   ;;Original from Stack Overflow, with some slight modifications.
@@ -227,7 +230,8 @@
     (declare (ignore char))
     (if (not (quoting?))
         (apply #'persistent-vector (read-delimited-list #\] stream t))
-        `(persistent-vector  ,@(read-delimited-list #\] stream t))
+        (quoting
+         `(persistent-vector   ,@(quasify (read-delimited-list #\] stream t))))        
         ))
 
   ;;Original from Stack Overflow, with some slight modifications.
@@ -242,6 +246,7 @@
   (set-macro-character #\{ #'|brace-reader|)
   (set-syntax-from-char #\} #\))
 
+  
   (set-macro-character #\` 'backquote-charmacro nil)
   
   ;;TODO move to named-readtable

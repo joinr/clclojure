@@ -742,6 +742,27 @@ bindings.
 
 So far, all tests in examples are passing.
 
+*** Revisiting Quasiquoting
+The method I hacked together for quasiquoting does not work as intended with lexical 
+values in quoted literals.  I did some naive variant that's bone-headed in hindsight,
+where I tried to eval stuff at read-time to build an actual non-sexp literal datastructure.
+Turns out, this is not what Clojure does.  Clojure does depart from CL's quasiquotation 
+(via =syntax-quote=), in that for quoted literals, it emits the actual sexpr construction
+of the literal.  This is similar to my solution for working around lexically scoped
+literals.  The only challenge in SBCL is that the =`= reader macro defaults to emitting
+a =quasiquote= form.  So if we leverage the built-in stuff, we get the quoted form
+of the sexpr vector constructors expanded from the original quasiquoted literal.
+
+The solution is to hack the =`= macro and rebind it to something that's smart enough
+to detect that we're actually quoting a literal.  From there, we should just emit the
+expanded quasiquote result without the =quasiquote= form preceding it.  Or otherwise, 
+expand the quoted result.
+
+Initial testing with persistent vectors is promising...almost there.
+
+
+TBD...
+
 * Hurdles
 A couple of big hurdles:
  
