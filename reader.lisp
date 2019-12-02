@@ -3,7 +3,8 @@
 
 ;;Pending..................
 (defpackage :clclojure.reader
-  (:use :common-lisp :common-utils :named-readtables :clclojure.pvector :clclojure.cowmap)
+  (:use :common-lisp :common-utils :named-readtables :clclojure.pvector :clclojure.cowmap
+        :clclojure.eval)
   (:export :*literals* :*reader-context* :quoted-children :quote-sym :literal?))
 (in-package :clclojure.reader)
 
@@ -148,6 +149,15 @@
            (set-syntax-from-char rdelim #\))))
 
   (defun quoting? () (> sb-impl::*backquote-depth* 0))
+  (defparameter *prev-depth* 0)
+  (defparameter *curr-depth* 0)
+  (defmacro quoting (&rest body)
+    `(if (> sb-impl::*backquote-depth* *prev-depth*)
+         (let ((*prev-depth* *curr-depth*)
+               (*curr-depth* sb-impl::*backquote-depth*))
+           ,@body)
+         ,@body))
+             
   
   ;;This now returns the actual pvector of items read from
   ;;the stream, versus a quoted form.  Should work nicely
@@ -178,15 +188,33 @@
   ;;If it's not a comma, we quasiquote it and let the macroexpander
   ;;figure it out.
   (defun quasify (xs)
+    (pprint (list :curr  *curr-depth* :prev *prev-depth* ))
     (nreverse
      (reduce  (lambda (acc x) x
                 (if (sb-int:comma-p x)
                     (let ((expr (sb-int:comma-expr x)))
+                      (pprint expr)
                       (case (sb-int:comma-kind x) 
                         (0  (cons expr acc))
-                        (2  (reduce (lambda (a b) (cons b a)) (eval  expr) :initial-value acc))
+                        ;;I don't think we want to eval here.
+                        (2  (reduce (lambda (a b) (cons b a)) (eval expr) :initial-value acc))
                         (1  (error "comma-dot not handled!"))))
-                    (cons (list 'sb-int:quasiquote x) acc))) xs :initial-value '())))
+                    (cons  (if (not (= *curr-depth* *prev-depth*))                               
+                               x
+                               (list 'sb-int:quasiquote x)) acc))) xs :initial-value '())))
+
+  (defun backquote-charmacro (stream char)
+    (declare (ignore char))
+    (let* ((expr (let ((sb-impl::*backquote-depth* (1+ sb-impl::*backquote-depth*)))
+                   (read stream t nil t)))
+           (result (list 'quasiquote expr)))
+      (if (and (sb-impl::comma-p expr) (sb-impl::comma-splicing-p expr))
+          ;; use RESULT rather than EXPR in the error so it pprints nicely
+          (sb-impl::simple-reader-error
+           stream "~S is not a well-formed backquote expression" result)
+          (scase (first expr)
+                 (literal expr)
+                 (t result)))))
   
   ;;Original from Stack Overflow, with some slight modifications.
   ;;Have to make this available to the compiler at compile time!
@@ -199,7 +227,8 @@
     (declare (ignore char))
     (if (not (quoting?))
         (apply #'persistent-vector (read-delimited-list #\] stream t))
-        (eval `(persistent-vector ,@(quasify (read-delimited-list #\] stream t))))))
+        `(persistent-vector  ,@(read-delimited-list #\] stream t))
+        ))
 
   ;;Original from Stack Overflow, with some slight modifications.
   (defun |brace-reader| (stream char)
@@ -208,16 +237,20 @@
     (declare (ignore char))
     (if (not (quoting?))
         (apply #'persistent-map `(,@(read-delimited-list #\} stream t)))        
-        (eval `(persistent-map ,@(quasify (read-delimited-list #\} stream t))))))
+        (apply #'persistent-map  (quasify (read-delimited-list #\} stream t)))))
   
   (set-macro-character #\{ #'|brace-reader|)
   (set-syntax-from-char #\} #\))
+
+  (set-macro-character #\` 'backquote-charmacro nil)
   
   ;;TODO move to named-readtable
   (push-reader! 'persistent-vector  #\[ #\] #'|bracket-reader|)
   ;;TODO move to named-readtable
+
   (push-reader! 'clclojure.pvector:persistent-vector  #\[ #\] #'|bracket-reader|))
-  
+
+
 (comment
  ;;WIP, moving to more elegant solution from named-readtables....
  ;; (defreadtable clojure:syntax

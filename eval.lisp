@@ -1,6 +1,6 @@
 (defpackage :clclojure.eval
   (:use :common-lisp :cl-package-locks)
-  (:export :custom-eval :let-expr :let-expr? :noisy-expand :custom-eval-bindings
+  (:export :custom-eval :custom-eval-in-lexenv :let-expr :let-expr? :noisy-expand :custom-eval-bindings
    :custom-eval? :enable-custom-eval :disable-custom-eval :literal :symbolic
    :simple-eval-in-lexenv :defmacro/literal-walker))
 
@@ -13,11 +13,13 @@
 (defgeneric let-expr     (obj))
 (defmethod  let-expr     (obj) obj)
 
-(defgeneric custom-eval  (obj))
+(defgeneric custom-eval  (obj &optional env))
 ;;We perform the same thing existing eval does for unknown
 ;;datums.  Just return the data as-is.  This is effectively
 ;;what sbcl does by default.
-(defmethod custom-eval (obj) obj)
+(defmethod custom-eval (obj &optional env)
+  (declare (ignore env))
+  obj)
 
 ;;we need to define a special xform that allows us to handle forms
 ;;that have been translated to their sexpr friendly forms.  If we have
@@ -64,8 +66,10 @@
 ;;we can alternately use macrolet...
 
 (defun normal-arg? (arg)
-  (not  (eq  (elt (symbol-name arg)  0)
-             #\&)))
+  (if (symbolp arg)
+      (not  (eq  (elt (symbol-name arg)  0)
+                 #\&))
+      t))
 
 ;;macro-defining-macro that does a precompile
 ;;step to walk the args and bind them to their
@@ -384,7 +388,7 @@
            ;;This allows types to define custom evaluation semantics, e.g.
            ;;for data literals, otherwise, it behaves exactly like original
            ;;eval and returns the type.
-           (clclojure.eval:custom-eval exp)))))))       ; something dangerous
+           (clclojure.eval:custom-eval exp lexenv)))))))       ; something dangerous
 
 (in-package :clclojure.eval)
 (lock-package :sb-impl)
@@ -400,3 +404,6 @@
     (setf (symbol-function  'SB-IMPL::simple-eval-in-lexenv)
            +original-eval+)       ; something dangerous
     t))
+
+(defun custom-eval-in-lexenv  (original-expr lexenv)
+  (sb-impl::custom-eval-in-lexenv original-expr lexenv))

@@ -55,6 +55,7 @@
    :tail-children
    :categorize-tails
    :summary-tails
+   :with-env
    ))
 (in-package :common-utils)
 
@@ -82,6 +83,10 @@
   (if (and (symbol? l) (symbol? r))
       (symbol= l r)
       (eql l r)))
+
+(defmacro with-env (ename &rest body &environment env)
+  `(let ((,ename ,env))
+     ,@body))
 
 (defmacro custom-case (test keyform cases)
   "CASE Test  Keyform {({(Key*) | Key} Form*)}*
@@ -1008,7 +1013,6 @@
     (nreverse
      (reduce (lambda (acc kv)
                (cons  (cadr kv) (cons (car kv) acc)))  (hash-table->entries m) :initial-value '()))))
-
 
 ;;we can modify our named fns...
 ;;the recur name is used

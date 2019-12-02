@@ -29,13 +29,17 @@
 (defpackage :clclojure.base
   (:use :common-lisp :common-utils
         :clclojure.keywordfunc :clclojure.lexical
-        :clclojure.pvector :clclojure.cowmap :clclojure.protocols)
-  (:shadow :let :deftype)
-  (:export :def :defn :fn :meta :with-meta :str :deftype :defprotocol :reify :extend-type :extend-protocol :let))
+        :clclojure.pvector :clclojure.cowmap :clclojure.protocols :clclojure.eval)
+  (:shadow :let :deftype :loop :defmacro)
+  (:export :def :defn :fn :meta :with-meta :str
+           :deftype :defprotocol :reify :extend-type :extend-protocol :let :loop :defmacro))
 (in-package clclojure.base)
 
 ;;move this later...
-(EVAL-WHEN (:compile-toplevel :load-toplevel :execute) 
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+
+  (common-lisp:defmacro defmacro (name args &rest body)
+    (clclojure.eval:defmacro/literal-walker name args body))
   (defun vector? (x) (typep x 'clclojure.pvector::pvec))
 
   ;;Let's hack let to allow us to infer vector-binds
@@ -216,6 +220,8 @@
 ;;Clojure Core (PENDING)
 ;;======================
 
+
+(defmacro loop [])
 
 ;; (comment 
 
