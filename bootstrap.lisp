@@ -225,87 +225,6 @@
 ;;======================
 
 
-;;need destructure...
-
-;; "Evaluates the exprs in a lexical context in which the symbols in
-;;   the binding-forms are bound to their respective init-exprs or parts
-;;   therein. Acts as a recur target."
-;; (defmacro loop (bindings &rest body)
-;;   ;; (assert-args
-;;   ;;  (vector? bindings) "a vector for its binding"
-;;   ;;  (even? (count bindings)) "an even number of forms in binding vector")
-;;   (let [db (destructure bindings)]
-;;     (if (= db bindings)
-;;         `(loop* ~bindings ~@body)
-;;         (let [vs (take-nth 2 (drop 1 bindings))
-;;           bs (take-nth 2 bindings)
-;;           gs (map (fn [b] (if (symbol? b) b (gensym))) bs)
-;;           bfs (reduce1 (fn [ret [b v g]]
-;;                            (if (symbol? b)
-;;                                (conj ret g v)
-;;                                (conj ret g v b g)))
-;;                        [] (map vector bs vs gs))]
-;;           `(let ~bfs
-;;              (loop* ~(vec (interleave gs gs))
-;;                     (let ~(vec (interleave bs gs))
-;;                       ~@body)))))))
-
-;; (comment 
-
-;; (defmacro fn  (& sigs) 
-;;   (let* ((name (if (symbol? (first sigs)) (first sigs) nil)
-;;          sigs (if name (next sigs) sigs)
-;;          sigs (if (vector? (first sigs)) 
-;;                  (list sigs) 
-;;                  (if (seq? (first sigs))
-;;                    sigs
-;;                    ;; Assume single arity syntax
-;;                    (throw (IllegalArgumentException. 
-;;                             (if (seq sigs)
-;;                               (str "Parameter declaration " 
-;;                                    (first sigs)
-;;                                    " should be a vector")
-;;                               (str "Parameter declaration missing"))))))
-;;           psig (fn* [sig]
-;;                  ;; Ensure correct type before destructuring sig
-;;                  (when (not (seq? sig))
-;;                    (throw (IllegalArgumentException.
-;;                             (str "Invalid signature " sig
-;;                                  " should be a list"))))
-;;                  (let [[params & body] sig
-;;                        _ (when (not (vector? params))
-;;                            (throw (IllegalArgumentException. 
-;;                                     (if (seq? (first sigs))
-;;                                       (str "Parameter declaration " params
-;;                                            " should be a vector")
-;;                                       (str "Invalid signature " sig
-;;                                            " should be a list")))))
-;;                        conds (when (and (next body) (map? (first body))) 
-;;                                            (first body))
-;;                        body (if conds (next body) body)
-;;                        conds (or conds (meta params))
-;;                        pre (:pre conds)
-;;                        post (:post conds)                       
-;;                        body (if post
-;;                               `((let [~'% ~(if (< 1 (count body)) 
-;;                                             `(do ~@body) 
-;;                                             (first body))]
-;;                                  ~@(map (fn* [c] `(assert ~c)) post)
-;;                                  ~'%))
-;;                               body)
-;;                        body (if pre
-;;                               (concat (map (fn* [c] `(assert ~c)) pre) 
-;;                                       body)
-;;                               body)]
-;;                    (maybe-destructured params body)))
-;;           new-sigs (map psig sigs)]
-;;       (with-meta
-;;         (if name
-;;           (list* 'fn* name new-sigs)
-;;           (cons 'fn* new-sigs))
-;;         (meta &form))))
-;; )
-
 ;;hacky way to accomodate both forms...
 ;;we know we're in clojure if the args are vector
 (defmacro deftype (&rest args)
@@ -538,7 +457,7 @@
         (when (not (zerop (-count coll) )) (nth-vec coll 0)))
  (-pop  [coll]  (subvec coll 1))
  ISeqable
- (-seq [coll] (error 'not-implemented))
+ (-seq [coll] (vector-to-list coll ))
  IHash
  (-hash [o]   (error 'not-implemented))
  IEquiv
@@ -583,7 +502,7 @@
         (when (not (zerop (-count coll) )) (nth-vec coll 0)))
  (-pop  [coll]  (subvec coll 1))
  ISeqable
- (-seq [coll] (error 'not-implemented))
+ (-seq [coll] (vector-to-list )) ;poorly implemented.  should be arrayseq
  IHash
  (-hash [o]   (error 'not-implemented))
  IEquiv
@@ -616,7 +535,7 @@
  (-peek [coll]  (first coll))
  (-pop  [coll]  (rest coll))
  ISeqable
- (-seq [coll] (error 'not-implemented))
+ (-seq [coll] (sequences::seq coll))
  IHash
  (-hash [o]   (sxhash o))
  IEquiv
@@ -624,6 +543,52 @@
  IMapEntry
  (-key [coll] (first coll))
  (-val [coll] (second coll))
+ )
+
+(extend-type
+ sequences::lazyseq
+ ICounted
+ (-count [c] (length c))
+
+ IEmptyableCollection
+ (-empty [c] '())
+ ICollection
+ (-conj [coll itm] (sequences::cons itm coll))
+ IStack
+ (-peek [coll]  (sequences::first coll))
+ (-pop  [coll]  (sequences::rest coll))
+ ISeqable
+ (-seq [coll] (sequences::seq coll))
+ IHash
+ (-hash [o]   (sxhash o)) ;;poorly implemented...
+ IEquiv
+ (-equiv [o other] (error 'not-implemented))
+ IMapEntry
+ (-key [coll] (sequences::first coll))
+ (-val [coll] (sequences::rest coll))
+ )
+
+(extend-type
+ sequences::funcseq
+ ICounted
+ (-count [c] (length c))
+
+ IEmptyableCollection
+ (-empty [c] '())
+ ICollection
+ (-conj [coll itm] (sequences::cons itm coll))
+ IStack
+ (-peek [coll]  (sequences::first coll))
+ (-pop  [coll]  (sequences::rest coll))
+ ISeqable
+ (-seq [coll] (sequences::seq coll))
+ IHash
+ (-hash [o]   (sxhash o)) ;;poorly implemented...
+ IEquiv
+ (-equiv [o other] (error 'not-implemented))
+ IMapEntry
+ (-key [coll] (sequences::first coll))
+ (-val [coll] (sequences::rest coll))
  )
 
 (extend-type
@@ -671,3 +636,296 @@
 ;;map printing compatibility
 (defmethod print-object ((obj clclojure.cowmap::cowmap) stream)
   (common-utils::print-map (cowmap-table obj) stream))
+
+(defmacro when-let [binding & args]
+  )
+;;need to implement arrayseq...
+(defn seq [coll] (-seq coll))
+
+(defn take [n coll]
+  (sequences:take n (seq  coll)))
+
+(defn drop [n coll]
+  (sequences:drop n (seq coll)))
+
+(defn vec [coll]
+  (if (vector? coll) coll
+      (sequences:apply #'persistent-vector (seq coll))))
+
+;;a little lame...
+(defn conj [coll x]
+  (-conj coll x))
+
+(defn empty [coll] (-empty coll))
+
+;; "Returns a new coll consisting of to-coll with all of the items of
+;;   from-coll conjoined. A transducer may be supplied."
+;; {:added "1.0"
+;; :static true}
+(defn into
+  ([] [])
+  ([to] to)
+  ([to from]
+       (if nil ;(instance? clojure.lang.IEditableCollection to)
+           (with-meta (persistent! (reduce conj! (transient to) from)) (meta to))
+           (sequences:reduce conj to (seq  from))))
+  ;; ([to xform from]
+  ;;      (if nil ;(instance? clojure.lang.IEditableCollection to)
+  ;;          (with-meta (persistent! (transduce xform conj! (transient to) from)) (meta to))
+  ;;          (transduce xform conj to from)))
+  )
+
+;; "Returns a lazy sequence consisting of the result of applying f to
+;;   the set of first items of each coll, followed by applying f to the
+;;   set of second items in each coll, until any one of the colls is
+;;   exhausted.  Any remaining items in other colls are ignored. Function
+;;   f should accept number-of-colls arguments. Returns a transducer when
+;;   no collection is provided."
+;; {:added "1.0"
+;; :static true}
+;; (defn map
+;;   ([f]
+;;    (fn [rf]
+;;        (fn
+;;         ([] (rf))
+;;         ([result] (rf result))
+;;         ([result input]
+;;                  (rf result (f input)))
+;;         ([result input & inputs]
+;;                  (rf result (apply f input inputs))))))
+;;   ([f coll]
+;;       (lazy-seq
+;;        (when-let [s (seq coll)]
+;;          (if (chunked-seq? s)
+;;              (let [c (chunk-first s)
+;;                size (int (count c))
+;;                b (chunk-buffer size)]
+;;                (dotimes [i size]
+;;                  (chunk-append b (f (.nth c i))))
+;;                (chunk-cons (chunk b) (map f (chunk-rest s))))
+;;              (cons (f (first s)) (map f (rest s)))))))
+;;   ([f c1 c2]
+;;       (lazy-seq
+;;        (let [s1 (seq c1) s2 (seq c2)]
+;;          (when (and s1 s2)
+;;            (cons (f (first s1) (first s2))
+;;                  (map f (rest s1) (rest s2)))))))
+;;   ([f c1 c2 c3]
+;;       (lazy-seq
+;;        (let [s1 (seq c1) s2 (seq c2) s3 (seq c3)]
+;;          (when (and  s1 s2 s3)
+;;            (cons (f (first s1) (first s2) (first s3))
+;;                  (map f (rest s1) (rest s2) (rest s3)))))))
+;;   ([f c1 c2 c3 & colls]
+;;       (let [step (fn step [cs]
+;;                      (lazy-seq
+;;                       (let [ss (map seq cs)]
+;;                         (when (every? identity ss)
+;;                           (cons (map first ss) (step (map rest ss)))))))]
+;;         (map #(apply f %) (step (conj colls c3 c2 c1))))))
+
+(defn concat
+    ([] nil)
+    ([x] x)
+    ([x y] (sequences:concat (seq x) (seq y)))
+  ([x y & zs]
+      (sequences:apply #'sequences:concat
+        (sequences:map #'seq (list* x y zs)))))
+;;need destructure...
+
+;; "Evaluates the exprs in a lexical context in which the symbols in
+;;   the binding-forms are bound to their respective init-exprs or parts
+;;   therein. Acts as a recur target."
+(defmacro loop* (bindings &rest body)
+  ;; (assert-args
+  ;;  (vector? bindings) "a vector for its binding"
+  ;;  (even? (count bindings)) "an even number of forms in binding vector")          
+  (let [vs (take 2 (drop 1 bindings))
+    bs (take-nth 2 bindings)
+    gs (map (fn [b] (if (symbol? b) b (gensym))) bs)
+    bfs (reduce1 (fn [ret [b v g]]
+                     (if (symbol? b)
+                         (conj ret g v)
+                         (conj ret g v b g)))
+                 [] (map vector bs vs gs))]
+    `(let ~bfs
+       (loop* ~(vec (interleave gs gs))
+              (let ~(vec (interleave bs gs))
+                ~@body)))))
+
+;; (defmacro loop* (bindings &rest body)
+;;   ;; (assert-args
+;;   ;;  (vector? bindings) "a vector for its binding"
+;;   ;;  (even? (count bindings)) "an even number of forms in binding vector")
+;;   (let [db (destructure bindings)]
+;;     (if (= db bindings)
+;;         `(loop* ~bindings ~@body)
+;;         (let [vs (take-nth 2 (drop 1 bindings))
+;;           bs (take-nth 2 bindings)
+;;           gs (map (fn [b] (if (symbol? b) b (gensym))) bs)
+;;           bfs (reduce1 (fn [ret [b v g]]
+;;                            (if (symbol? b)
+;;                                (conj ret g v)
+;;                                (conj ret g v b g)))
+;;                        [] (map vector bs vs gs))]
+;;           `(let ~bfs
+;;              (loop* ~(vec (interleave gs gs))
+;;                     (let ~(vec (interleave bs gs))
+;;                       ~@body)))))))
+;; (comment 
+
+;; (defmacro fn  (& sigs) 
+;;   (let* ((name (if (symbol? (first sigs)) (first sigs) nil)
+;;          sigs (if name (next sigs) sigs)
+;;          sigs (if (vector? (first sigs)) 
+;;                  (list sigs) 
+;;                  (if (seq? (first sigs))
+;;                    sigs
+;;                    ;; Assume single arity syntax
+;;                    (throw (IllegalArgumentException. 
+;;                             (if (seq sigs)
+;;                               (str "Parameter declaration " 
+;;                                    (first sigs)
+;;                                    " should be a vector")
+;;                               (str "Parameter declaration missing"))))))
+;;           psig (fn* [sig]
+;;                  ;; Ensure correct type before destructuring sig
+;;                  (when (not (seq? sig))
+;;                    (throw (IllegalArgumentException.
+;;                             (str "Invalid signature " sig
+;;                                  " should be a list"))))
+;;                  (let [[params & body] sig
+;;                        _ (when (not (vector? params))
+;;                            (throw (IllegalArgumentException. 
+;;                                     (if (seq? (first sigs))
+;;                                       (str "Parameter declaration " params
+;;                                            " should be a vector")
+;;                                       (str "Invalid signature " sig
+;;                                            " should be a list")))))
+;;                        conds (when (and (next body) (map? (first body))) 
+;;                                            (first body))
+;;                        body (if conds (next body) body)
+;;                        conds (or conds (meta params))
+;;                        pre (:pre conds)
+;;                        post (:post conds)                       
+;;                        body (if post
+;;                               `((let [~'% ~(if (< 1 (count body)) 
+;;                                             `(do ~@body) 
+;;                                             (first body))]
+;;                                  ~@(map (fn* [c] `(assert ~c)) post)
+;;                                  ~'%))
+;;                               body)
+;;                        body (if pre
+;;                               (concat (map (fn* [c] `(assert ~c)) pre) 
+;;                                       body)
+;;                               body)]
+;;                    (maybe-destructured params body)))
+;;           new-sigs (map psig sigs)]
+;;       (with-meta
+;;         (if name
+;;           (list* 'fn* name new-sigs)
+;;           (cons 'fn* new-sigs))
+;;         (meta &form))))
+;; )
+
+;;conflicts with :common-lisp
+(comment 
+ (defn nth
+     ([coll index]
+            (-nth coll index))
+   ([coll index not-found]
+          (-nth coll index not-found)))
+
+ (defn partition [n xs]))
+
+;; (defn destructure [bindings]
+;;   (let [bents (partition 2 bindings)
+;;     pb (fn pb [bvec b v]
+;;            (let [pvec
+;;              (fn [bvec b val]
+;;                  (let [gvec (gensym "vec__")
+;;                    gseq (gensym "seq__")
+;;                    gfirst (gensym "first__")
+;;                    has-rest (some #{'&} b)]
+;;                    (loop [ret (let [ret (conj bvec gvec val)]
+;;                                 (if has-rest
+;;                                     (conj ret gseq (list `seq gvec))
+;;                                     ret))
+;;                          n 0
+;;                          bs b
+;;                          seen-rest? false]
+;;                          (if (seq bs)
+;;                              (let [firstb (first bs)]
+;;                                (cond
+;;                                  (= firstb '&) (recur (pb ret (second bs) gseq)
+;;                                                       n
+;;                                                       (nnext bs)
+;;                                                       true)
+;;                                  (= firstb :as) (pb ret (second bs) gvec)
+;;                                  :else (if seen-rest?
+;;                                            (throw (new Exception "Unsupported binding form, only :as can follow & parameter"))
+;;                                            (recur (pb (if has-rest
+;;                                                           (conj ret
+;;                                                                 gfirst `(first ~gseq)
+;;                                                                 gseq `(next ~gseq))
+;;                                                           ret)
+;;                                                       firstb
+;;                                                       (if has-rest
+;;                                                           gfirst
+;;                                                           (list `nth gvec n nil)))
+;;                                                   (inc n)
+;;                                                   (next bs)
+;;                                                   seen-rest?))))
+;;                              ret))))
+;;              pmap
+;;              (fn [bvec b v]
+;;                  (let [gmap (gensym "map__")
+;;                    gmapseq (with-meta gmap {:tag 'clojure.lang.ISeq})
+;;                    defaults (:or b)]
+;;                    (loop [ret (-> bvec (conj gmap) (conj v)
+;;                                   (conj gmap) (conj `(if (seq? ~gmap) (clojure.lang.PersistentHashMap/create (seq ~gmapseq)) ~gmap))
+;;                                   ((fn [ret]
+;;                                        (if (:as b)
+;;                                            (conj ret (:as b) gmap)
+;;                                            ret))))
+;;                          bes (let [transforms
+;;                                (reduce1
+;;                                 (fn [transforms mk]
+;;                                     (if (keyword? mk)
+;;                                         (let [mkns (namespace mk)
+;;                                           mkn (name mk)]
+;;                                           (cond (= mkn "keys") (assoc transforms mk #(keyword (or mkns (namespace %)) (name %)))
+;;                                                 (= mkn "syms") (assoc transforms mk #(list `quote (symbol (or mkns (namespace %)) (name %))))
+;;                                                 (= mkn "strs") (assoc transforms mk str)
+;;                                                 :else transforms))
+;;                                         transforms))
+;;                                 {}
+;;                                 (keys b))]
+;;                                (reduce1
+;;                                 (fn [bes entry]
+;;                                     (reduce1 #(assoc %1 %2 ((val entry) %2))
+;;                                              (dissoc bes (key entry))
+;;                                              ((key entry) bes)))
+;;                                 (dissoc b :as :or)
+;;                                 transforms))]
+;;                          (if (seq bes)
+;;                              (let [bb (key (first bes))
+;;                                bk (val (first bes))
+;;                                local (if (instance? clojure.lang.Named bb) (with-meta (symbol nil (name bb)) (meta bb)) bb)
+;;                                bv (if (contains? defaults local)
+;;                                       (list `get gmap bk (defaults local))
+;;                                       (list `get gmap bk))]
+;;                                (recur (if (ident? bb)
+;;                                           (-> ret (conj local bv))
+;;                                           (pb ret bb bv))
+;;                                       (next bes)))
+;;                              ret))))]
+;;              (cond
+;;                (symbol? b) (-> bvec (conj b) (conj v))
+;;                (vector? b) (pvec bvec b v)
+;;                (map? b) (pmap bvec b v)
+;;                :else (throw (new Exception (str "Unsupported binding form: " b))))))
+;;     process-entry (fn [bvec b] (pb bvec (first b) (second b)))]
+;;     (if (every? symbol? (map first bents))
+;;         bindings
+;;         (reduce1 process-entry [] bents))))
