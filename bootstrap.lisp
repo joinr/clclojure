@@ -30,16 +30,17 @@
   (:use :common-lisp :common-utils
         :clclojure.keywordfunc :clclojure.lexical
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols :clclojure.eval)
-  (:shadow :let :deftype :loop :defmacro)
+  (:shadow :let :deftype :defmacro) ;:loop 
   (:export :def :defn :fn :meta :with-meta :str
-           :deftype :defprotocol :reify :extend-type :extend-protocol :let :loop :defmacro))
+           :deftype :defprotocol :reify :extend-type :extend-protocol :let ) ;:loop :defmacro
+  )
 (in-package clclojure.base)
 
 ;;move this later...
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
 
   (common-lisp:defmacro defmacro (name args &rest body)
-    ;;`(clclojure.eval:defmacro/literal-walker ,name ,args ,@body)
+    ;`(clclojure.eval:defmacro/literal-walker ,name ,args ,@body)
     `(common-lisp:defmacro ,name ,args ,@body)
     )
   
@@ -224,7 +225,30 @@
 ;;======================
 
 
-;;(defmacro loop [])
+;;need destructure...
+
+;; "Evaluates the exprs in a lexical context in which the symbols in
+;;   the binding-forms are bound to their respective init-exprs or parts
+;;   therein. Acts as a recur target."
+;; (defmacro loop (bindings &rest body)
+;;   ;; (assert-args
+;;   ;;  (vector? bindings) "a vector for its binding"
+;;   ;;  (even? (count bindings)) "an even number of forms in binding vector")
+;;   (let [db (destructure bindings)]
+;;     (if (= db bindings)
+;;         `(loop* ~bindings ~@body)
+;;         (let [vs (take-nth 2 (drop 1 bindings))
+;;           bs (take-nth 2 bindings)
+;;           gs (map (fn [b] (if (symbol? b) b (gensym))) bs)
+;;           bfs (reduce1 (fn [ret [b v g]]
+;;                            (if (symbol? b)
+;;                                (conj ret g v)
+;;                                (conj ret g v b g)))
+;;                        [] (map vector bs vs gs))]
+;;           `(let ~bfs
+;;              (loop* ~(vec (interleave gs gs))
+;;                     (let ~(vec (interleave bs gs))
+;;                       ~@body)))))))
 
 ;; (comment 
 
@@ -296,10 +320,11 @@
 ;;anonymous classes laying around, say evaluating
 ;;reify several times...Should we garbage collect this?
 ;;Or does that cut into dynamicity?
+
 (defmacro reify (&rest implementations)
   (let [classname (gentemp "REIFY")
-        ctor (gensym "CONSTRUCTOR") ]
-    `(let ((,ctor (clojure-deftype ,classname [] ,@implementations)))
+    ctor (gensym "CONSTRUCTOR")]
+    `(let ((,ctor (clojure-deftype ,classname ,'[] ,@implementations)))
        (funcall ,ctor))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;; core protocols ;;;;;;;;;;;;;
@@ -477,7 +502,7 @@
   (-disjoin! [tcoll v]))
 
 (defprotocol IComparable
-  (-compare [x y]))
+    (-compare [x y]))
 
 (defprotocol IChunk
   (-drop-first [coll]))
@@ -498,7 +523,10 @@
  
  ICounted
  (-count [c] (vector-count c))
-
+ IIndexed
+ (-nth  [coll n] (nth-vec coll n))
+ (-nth  [coll n not-found] (nth-vec coll n))
+ 
  IEmptyableCollection
  (-empty [c] [])
  ICollection
@@ -527,8 +555,8 @@
  (-chunked-first [coll] (error 'not-implemented))
  (-chunked-rest [coll] (error 'not-implemented))
  IChunkedNext
- (-chunked-next [coll] (error 'not-implemented))
- )
+ (-chunked-next [coll] (error 'not-implemented)))
+ 
 
 
 (extend-type  symbol 

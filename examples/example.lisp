@@ -191,6 +191,15 @@ IBlah
      (sum 1 2 3 4 5 6)
     ]))
 
+(defn test-arities-quasi []
+  (let [sum (fn ([x] x)
+                ([x y] (+ x y))
+                ([x y &rest zs] (reduce #'+ zs :initial-value (+ x y))))]
+    `[,(sum 1)
+      ,(sum 1 2)
+      ,(sum 1 2 3 4 5 6)
+       ]))
+
 ;; EXAMPLE> (test-arities-literal)
 ;; [1 3 21]
 

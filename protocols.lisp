@@ -468,7 +468,7 @@
                       (if (listp (second spec))
                           (implement-function* typename spec)
                           (implement-function typename  spec)))
-                      (rest imp))))
+                    (rest imp))))
 
 ;;this is the one choke point where we're getting
 ;;[x] -> (persistent-vector x) transforms in practice.
@@ -483,7 +483,7 @@
   (let* ((imps       (parse-implementations typespecs))
          (satisfies? (gensym))
          (emits      (mapcar  (lambda (imp) (emit-implementation name satisfies? imp))
-                               imps)))
+                              imps)))
     `(let ((,satisfies? (protocol-satisfier (get-protocol (quote ,name)))))
        ,@emits)))
 

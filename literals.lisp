@@ -16,12 +16,12 @@
   (defmethod custom-eval ((obj pvec) &optional env)
     (vector-map (lambda (x) (clclojure.eval:custom-eval-in-lexenv  x env)) obj))
 
-  ;; (defmethod let-expr   ((obj pvec))
-  ;;   `(clclojure.eval:literal
-  ;;     (clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj))))
-  
   (defmethod let-expr   ((obj pvec))
-    obj)
+    `(clclojure.eval:literal
+      (clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj))))
+  
+  ;; (defmethod let-expr   ((obj pvec))
+  ;;   obj)
 
   (defmethod clclojure.eval::literal? ((obj subvector)) t)
   (defmethod custom-eval ((obj subvector) &optional env)

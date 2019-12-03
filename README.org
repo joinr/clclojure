@@ -760,8 +760,25 @@ expand the quoted result.
 
 Initial testing with persistent vectors is promising...almost there.
 
+**** Nested Quasiquoting mostly works
+Signficant overhaul to the old (wrong) qq infrastructure.  Eliminated all
+readtime eval stuff, we now emit sexprs consistent with Clojure's implementation (slightly
+different in form though).
 
-TBD...
+We now have a cleaner quasiquotation model that's extensible as well.
+
+*** Generalized usage of sequence lib
+Ensured the sequences lib is portable enough to be used, sicne it shows up
+quite a bit in clojure.core bootstrapping (e.g. macrology).  Need to define
+additional core functions that are seq friendly or coercing.
+
+*** Destructuring
+Destructuring is pretty fundamental and shows up in a lot of places.
+So common forms like =loop=, =for=, =let=, =fn=, =defmacro= and friends
+all leverage it.  We should be able to fairly straightforwardly port it
+from clojure.core.
+
+WIP
 
 * Hurdles
 A couple of big hurdles:

@@ -3,8 +3,10 @@
 
 ;;Pending..................
 (defpackage :clclojure.reader
+  (:shadowing-import-from :sequences :first :second :cons :apply :map :filter :rest :reduce :flatten)
   (:use :common-lisp :common-utils :named-readtables :clclojure.pvector :clclojure.cowmap
-        :clclojure.eval)
+        :clclojure.eval
+        :sequences)
   (:export :*literals* :*reader-context* :quoted-children :quote-sym :literal?))
 (in-package :clclojure.reader)
 
@@ -40,15 +42,18 @@
                            (and (symbolp s) (find s *literals*))))
   
   (defmacro quoted-children (c)
-    `(,(first c)
-      ,@(mapcar (lambda (s)
-                  (cond ((literal? s) ;;we need to recursively call quoted-children..
-                         `(quoted-children ,s))
-                        ((dotted-pair? s)
-                         `(quote ,s))
-                        ((listp s)
-                         `(quoted-children ,(cons  (quote list) s)))
-                        (t (funcall #'quote-sym s))))  (rest c))))
+    (if (symbolp c)
+        `(quote ,c)
+        `(,(first c)
+          ,@ (sequences::seq->list
+              (map (lambda (s)
+                     (cond ((literal? s) ;;we need to recursively call quoted-children..
+                            `(quoted-children ,s))
+                           ((dotted-pair? s)
+                            `(quote ,s))
+                           ((listp s)
+                            `(quoted-children ,(cons  (quote list) s)))
+                           (t (funcall #'quote-sym s))))  (rest c))))))
   
   ;;Enforces quoting semantics for literal data structures..
   ;;We may not need this anymore since we hacked eval.
@@ -148,16 +153,7 @@
            (set-macro-character ldelim rdr)
            (set-syntax-from-char rdelim #\))))
 
-  (defun quoting? () (> sb-impl::*backquote-depth* 0))
-  (defparameter *prev-depth* 0)
-  (defparameter *curr-depth* 0)
-  (defmacro quoting (&rest body)
-    `(if (> sb-impl::*backquote-depth* *prev-depth*)
-         (let ((*prev-depth* *curr-depth*)
-               (*curr-depth* sb-impl::*backquote-depth*))
-           ,@body)
-         ,@body))
-             
+  (defun quoting? () (> sb-impl::*backquote-depth* 0))  
   
   ;;This now returns the actual pvector of items read from
   ;;the stream, versus a quoted form.  Should work nicely
@@ -187,23 +183,38 @@
   ;;So we just manually build the expression.
   ;;If it's not a comma, we quasiquote it and let the macroexpander
   ;;figure it out.
-  (defun quasify (xs)
-    (pprint (list :curr  *curr-depth* :prev *prev-depth* ))
-    (nreverse
-     (reduce  (lambda (acc x) x
-                (if (sb-int:comma-p x)
-                    (let ((expr (sb-int:comma-expr x)))
-                      (case (sb-int:comma-kind x) 
-                        (0  (cons expr acc))
-                        ;;I don't think we want to eval here.
-                        (2  (reduce (lambda (a b) (cons b a)) (eval expr) :initial-value acc))
-                        (1  (error "comma-dot not handled!"))))
-                    (cons  (if (not (= *curr-depth* *prev-depth*))                               
-                               x
-                               (list 'sb-int:quasiquote x)) acc))) xs :initial-value '())))
 
+  ;; (case (sb-int:comma-kind x) 
+  ;;   (0  (cons expr acc))
+  ;;   ;;I don't think we want to eval here.
+  ;;   (2  (progn (pprint expr)
+  ;;              (common-lisp:reduce (lambda (a b) (cons  b a)) expr :initial-value acc)
+  ;;              ;(nreverse (list  (list 'apply '(function concat) expr)))
+  ;;              ))
+  ;;   (1  (error "comma-dot not handled!")))
+  
+  (defun quasify (xs)
+    (list 'apply '(function concat)
+          (nreverse
+           (common-lisp:reduce
+            (lambda (acc x)
+              (if (sb-int:comma-p x)
+                  (cons   
+                   (let ((expr (sb-int:comma-expr x)))
+                     (case (sb-int:comma-kind x) 
+                       (0   (list 'list expr))
+                       ;;I don't think we want to eval here.
+                       (2   expr)
+                       (1  (error "comma-dot not handled!"))))
+                   acc)
+                  ;;              
+                  (cons  (list 'list x) acc))) xs :initial-value (list 'list)))))
+  
   (defmacro quasiquote (thing)
     (list 'sb-impl::quasiquote thing))
+
+  (defmacro data-literal (ctor &rest body)
+    (list 'literal (list 'apply ctor (list* 'sequences::seq->list body))))
   
   (defun backquote-charmacro (stream char)
     (declare (ignore char))
@@ -214,9 +225,9 @@
           ;; use RESULT rather than EXPR in the error so it pprints nicely
           (sb-impl::simple-reader-error
            stream "~S is not a well-formed backquote expression" result)
-          (scase (when (listp expr) (first expr))
+          (scase (when (listp expr) (common-lisp:first expr))
                  (literal expr)
-                 (CLCLOJURE.PVECTOR:persistent-vector  expr)
+                 (data-literal  expr)
                  (t result)))))
   
   ;;Original from Stack Overflow, with some slight modifications.
@@ -230,8 +241,9 @@
     (declare (ignore char))
     (if (not (quoting?))
         (apply #'persistent-vector (read-delimited-list #\] stream t))
-        (quoting
-         `(persistent-vector   ,@(quasify (read-delimited-list #\] stream t))))        
+        (list 'literal (list* 'data-literal
+                             (list 'function  'persistent-vector)
+                             (list  (quasify (read-delimited-list #\] stream t)))))        
         ))
 
   ;;Original from Stack Overflow, with some slight modifications.
@@ -240,8 +252,12 @@
    inline, just like Clojure."
     (declare (ignore char))
     (if (not (quoting?))
-        (apply #'persistent-map `(,@(read-delimited-list #\} stream t)))        
-        (apply #'persistent-map  (quasify (read-delimited-list #\} stream t)))))
+        (apply #'persistent-map `(,@(read-delimited-list #\} stream t))) 
+        (list 'literal
+              (list* 'data-literal
+                     (list 'function  'persistent-map)
+                     (list  (quasify (read-delimited-list #\} stream t))))) 
+        ))
   
   (set-macro-character #\{ #'|brace-reader|)
   (set-syntax-from-char #\} #\))

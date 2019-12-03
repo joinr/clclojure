@@ -1,12 +1,14 @@
 (defpackage :sequences
-  (:use :common-lisp :common-utils :clclojure.protocols)
-  (:shadow :first :rest :second :map :filter :reduce :cons)
-  (:export  
+  (:use :common-lisp :common-utils)
+  (:shadow :first :rest :second :map :filter :reduce :cons :flatten :apply)
+  (:export
+   :apply
    :first
    :second
    :rest
    :map
    :filter
+   :concat
    :reduce
    :flatten
    :take
@@ -262,7 +264,7 @@
                             (if (not (reduced? res))
                                 res
                                 (return-from early (deref res)))))
-                        obj))))
+                        obj)))
 
 (defmethod init-reduce ((obj sequence) f init)
   (block early
@@ -302,26 +304,76 @@
 
 (defun every? (pred coll)
   (reduce (lambda (acc x)
-            (if (not (funcall pred x))
-                    (reduced nil)
-                    acc)) t coll))
+            (let ((v (funcall pred x)))
+              (if (and v acc)                  
+                  t
+                  (reduced nil)))) (funcall pred (first coll)) (rest  coll)))
 
-(defun filter (pred coll))
+(defun filter (pred coll)
+  (when-let ((x  (first (seq coll))))
+    (lazy-seq (cons x (filter pred (rest coll))))))
 
-(defun map (f coll)
-  (labels ((aux (s)
-	     (if-let ((x (first s))) 
-		     (lazy-cons (funcall f x) (aux (rest s))))))
+(defun* concat
+  (() (lazy-seq nil))
+  ((x) (lazy-seq x))
+  ((x y)
+   (lazy-seq
+    (let ((s (seq x)))
+      (if s
+          (cons (first s) (concat (rest s) y))
+          y))))
+  ((x y &rest zs)
+   (labels ((cat  (xys zs)
+              (lazy-seq
+               (let ((xys (seq xys)))
+                 (if xys
+                     (cons (first xys) (cat (rest xys) zs))
+                     (when zs
+                       (cat (first zs) (next zs))))))))
+     (cat (concat x y) zs))))
 
-    (aux (seq coll))))
+;;for now...we listify this.
+;;apply is eager.
+(defun apply (f arg &rest args)
+  (let ((arg (if (seq? arg)
+                 (seq->list arg)
+                 arg)))
+    (common-lisp:apply f arg)))
 
-;; (defun map (f coll &rest colls)
-;;   (labels (step ((cs)
-;;                   (lazy-seq
-;;                    (let [ss (map seq cs)]
-;;                      (when (every? identity ss)
-;;                        (cons (map first ss) (step (map rest ss))))))))
-;;         (map #(apply f %) (step (conj colls c3 c2 c1)))))
+(defun* map
+    ((f coll)
+     (lazy-seq
+      (when-let ((s (seq coll)))
+        (cons (funcall f (first s)) (map f (rest s))))))
+  ((f c1 c2)
+      (lazy-seq
+       (let ((s1 (seq c1))
+             (s2 (seq c2)))
+         (when (and s1 s2)
+           (cons (funcall f (first s1) (first s2))
+                 (map f (rest s1) (rest s2)))))))
+  ((f c1 c2 c3)
+      (lazy-seq
+       (let ((s1 (seq c1))
+             (s2 (seq c2))
+             (s3 (seq c3)))
+         (when (and  s1 s2 s3)
+           (cons (funcall f (first s1) (first s2) (first s3))
+                 (map f (rest s1) (rest s2) (rest s3)))))))
+  ((f c1 c2 c3 &rest colls)
+   (let ((xs  (cons c1 (cons c2 (cons c3 colls)))))
+     (labels ((stp (cs)                
+                (let ((ss (seq  (map #'sequences::seq cs))))
+                  (when (every? #'identity ss)                       
+                    (lazy-seq
+                     (cons (map #'sequences:first ss) (stp (map #'sequences:rest ss))))))))
+       (map (lambda (xs) (apply f xs)) (stp xs))       
+       ))))
+
+(defun mapcat (f xs)
+  (->> xs
+       (apply #'concat)
+       (map f)))
 
 (defun filter (f coll)
   (labels ((aux (s)
