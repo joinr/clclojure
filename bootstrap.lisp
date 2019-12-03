@@ -30,9 +30,10 @@
   (:use :common-lisp :common-utils
         :clclojure.keywordfunc :clclojure.lexical
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols :clclojure.eval)
-  (:shadow :let :deftype :defmacro) ;:loop 
+  (:shadow :let :deftype :defmacro :map) ;:loop 
   (:export :def :defn :fn :meta :with-meta :str
-           :deftype :defprotocol :reify :extend-type :extend-protocol :let ) ;:loop :defmacro
+           :deftype :defprotocol :reify :extend-type
+           :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map) ;:loop :defmacro
   )
 (in-package clclojure.base)
 
@@ -55,7 +56,9 @@
          `(cl:let  ,bindings ,@body)))
 
   (defun macro?    (s) (when (macro-function s) 't))
-  (defun function? (s) (fboundp s)))
+  (defun function? (s) (fboundp s))
+  ;;weak hack around lack of read-time vector creation.
+  (defun vector-form? (expr) (or (vector? expr) (eq (first expr) 'persistent-vector))))
 
 (define-condition not-implemented (error) ())
 (define-condition uneven-arguments (error) ())
@@ -63,9 +66,10 @@
 (defgeneric destructure (bindings))
 
 ;;a single function definition
-(defstruct fn-def args body)
-;;a macro definition -- later
-(defstruct macro-def name args body)
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defstruct fn-def args body)
+  ;;a macro definition -- later
+  (defstruct macro-def name args body))
 
 ;;At compile-time, [x y] -> (persistent-vector x y).
 ;;This is upsetting us...
@@ -82,9 +86,10 @@
 ;;   `(make-fn-def :args   (quoted-vec ,arg-vec) 
 ;; 		:body   (quote ,body)))
 
-(defun read-fn (arg-vec body)
-  (make-fn-def :args   arg-vec
-               :body   body))
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defun read-fn (arg-vec body)
+    (make-fn-def :args   arg-vec
+                 :body   body)))
 
 (defgeneric arity (fd))
 (defmethod  arity ((fd clclojure.pvector::pvec))  
@@ -98,44 +103,43 @@
 ;; (defmacro fn* (&rest specs)	  
 ;;   `(list ,@(mapcar (lambda (vb) `(read-fn ,(first vb) ,(second vb))) specs)))
 
-(defun fn* (&rest specs)
-  `(,@(mapcar (lambda (vb) (read-fn (first vb) (second vb))) specs)))
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defun fn* (&rest specs)
+    `(,@(mapcar (lambda (vb) (read-fn (first vb) (second vb))) specs)))
 
-;; (defparameter test-fn
-;;   '(fn* ([x] x)
-;;         ([x y]        (+ x y))
-;;         ([x y & xs]   (common-lisp:reduce #'+ xs :initial-value (+ x y)))))
+  ;; (defparameter test-fn
+  ;;   '(fn* ([x] x)
+  ;;         ([x y]        (+ x y))
+  ;;         ([x y & xs]   (common-lisp:reduce #'+ xs :initial-value (+ x y)))))
 
-(defstruct arg-parse lambda-list outer-let)
+  (defstruct arg-parse lambda-list outer-let)
 
-(define-condition no-matching-function         (error) ())
-(define-condition multiple-variadic-functions  (error) ())
+  (define-condition no-matching-function         (error) ())
+  (define-condition multiple-variadic-functions  (error) ())
 
-;;this is going to be somewhat tricky, since we'll probably have a little state 
-;;machine that parses the args, possibly destructuring recursively.  Don't know all 
-;;the cases yet, but we'll need to be able to destructure vectors and maps into 
-;;corresponding lambda lists.
-(defun parse-args (args)
-  (make-arg-parse :lambda-list (substitute '&rest '&  (vector-to-list args))))
+  ;;this is going to be somewhat tricky, since we'll probably have a little state 
+  ;;machine that parses the args, possibly destructuring recursively.  Don't know all 
+  ;;the cases yet, but we'll need to be able to destructure vectors and maps into 
+  ;;corresponding lambda lists.
+  (defun parse-args (args)
+    (make-arg-parse :lambda-list (substitute '&rest '&  (vector-to-list args)))))
 ;;Compile a clojure fn special form into a common lisp lambda
-(defgeneric fndef->sexp (fd))
-(defmethod  fndef->sexp ((fd fn-def))
-  (with-slots (args body) fd
-    (with-slots (lambda-list outer-let) (parse-args args)           
-      (let ((interior (if outer-let `(let* ,outer-let ,body)
-			  body)))
-	`(lambda ,lambda-list ,interior)))))
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defgeneric fndef->sexp (fd))
+  (defmethod  fndef->sexp ((fd fn-def))
+    (with-slots (args body) fd
+      (with-slots (lambda-list outer-let) (parse-args args)           
+        (let ((interior (if outer-let `(let* ,outer-let ,body)
+                            body)))
+          `(lambda ,lambda-list ,interior)))))
 
-;;parse a list of function definitions into an n-lambda dispatching function.
-(defmethod fndef->sexp ((fd cons))
-  (if (= (length fd) 1)  (fndef->sexp (first fd)) ;simple case
-      ;;case with multiple function definitions.
-      `(common-utils:lambda* ,@(mapcar (lambda (body)
-                                         (rest (fndef->sexp body))) fd))))
+  ;;parse a list of function definitions into an n-lambda dispatching function.
+  (defmethod fndef->sexp ((fd cons))
+    (if (= (length fd) 1)  (fndef->sexp (first fd)) ;simple case
+        ;;case with multiple function definitions.
+        `(common-utils:lambda* ,@(mapcar (lambda (body)
+                                           (rest (fndef->sexp body))) fd)))))
   
-;;weak hack around lack of read-time vector creation.
-(defun vector-form? (expr) (or (vector? expr) (eq (first expr) 'persistent-vector)))
-
 ;;Clojure's anonymous function special form.
 ;;Todo: support destructuring in the args.
 (defmacro fn (&rest specs)
@@ -543,6 +547,9 @@
  IMapEntry
  (-key [coll] (first coll))
  (-val [coll] (second coll))
+ ISeq
+ (-first [coll]  (sequences::first coll))
+ (-rest  [coll]  (sequences::rest coll))
  )
 
 (extend-type
@@ -566,6 +573,9 @@
  IMapEntry
  (-key [coll] (sequences::first coll))
  (-val [coll] (sequences::rest coll))
+ ISeq
+ (-first [coll]  (sequences::first coll))
+ (-rest  [coll]  (sequences::rest coll))
  )
 
 (extend-type
@@ -589,6 +599,9 @@
  IMapEntry
  (-key [coll] (sequences::first coll))
  (-val [coll] (sequences::rest coll))
+ ISeq
+ (-first [coll]  (sequences::first coll))
+ (-rest  [coll]  (sequences::rest coll))
  )
 
 (extend-type
@@ -637,8 +650,8 @@
 (defmethod print-object ((obj clclojure.cowmap::cowmap) stream)
   (common-utils::print-map (cowmap-table obj) stream))
 
-(defmacro when-let [binding & args]
-  )
+;; (defmacro when-let [binding & args]
+;;   )
 ;;need to implement arrayseq...
 (defn seq [coll] (-seq coll))
 
@@ -675,6 +688,15 @@
   ;;          (transduce xform conj to from)))
   )
 
+(defmacro when-let (binding &rest body)
+  (let [binding (seq binding)        
+        arg     (-first binding)
+        expr    (-first (-rest  binding))] 
+    (clclojure.eval::recover-literals
+     `(let ,(vec  binding)
+        (when ,arg
+          ,@body)))))
+
 ;; "Returns a lazy sequence consisting of the result of applying f to
 ;;   the set of first items of each coll, followed by applying f to the
 ;;   set of second items in each coll, until any one of the colls is
@@ -683,46 +705,35 @@
 ;;   no collection is provided."
 ;; {:added "1.0"
 ;; :static true}
-;; (defn map
-;;   ([f]
-;;    (fn [rf]
-;;        (fn
-;;         ([] (rf))
-;;         ([result] (rf result))
-;;         ([result input]
-;;                  (rf result (f input)))
-;;         ([result input & inputs]
-;;                  (rf result (apply f input inputs))))))
-;;   ([f coll]
-;;       (lazy-seq
-;;        (when-let [s (seq coll)]
-;;          (if (chunked-seq? s)
-;;              (let [c (chunk-first s)
-;;                size (int (count c))
-;;                b (chunk-buffer size)]
-;;                (dotimes [i size]
-;;                  (chunk-append b (f (.nth c i))))
-;;                (chunk-cons (chunk b) (map f (chunk-rest s))))
-;;              (cons (f (first s)) (map f (rest s)))))))
-;;   ([f c1 c2]
-;;       (lazy-seq
-;;        (let [s1 (seq c1) s2 (seq c2)]
-;;          (when (and s1 s2)
-;;            (cons (f (first s1) (first s2))
-;;                  (map f (rest s1) (rest s2)))))))
-;;   ([f c1 c2 c3]
-;;       (lazy-seq
-;;        (let [s1 (seq c1) s2 (seq c2) s3 (seq c3)]
-;;          (when (and  s1 s2 s3)
-;;            (cons (f (first s1) (first s2) (first s3))
-;;                  (map f (rest s1) (rest s2) (rest s3)))))))
-;;   ([f c1 c2 c3 & colls]
-;;       (let [step (fn step [cs]
-;;                      (lazy-seq
-;;                       (let [ss (map seq cs)]
-;;                         (when (every? identity ss)
-;;                           (cons (map first ss) (step (map rest ss)))))))]
-;;         (map #(apply f %) (step (conj colls c3 c2 c1))))))
+
+(defn chunked-seq? [x] nil)
+(defn chunk-first [coll] (-chunk-first coll))
+(defn chunk-rest [coll]  (-chunk-rest coll))
+(defn chunk-buffer [coll])
+
+(defmacro lazy-seq (&rest body)
+  `(sequences::lazy-seq ,@body))
+
+(defn map
+  ([f]
+   (fn [rf]
+       (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+                 (rf result (f input)))
+        ([result input & inputs]
+                 (rf result (apply f input inputs))))))
+  ([f coll]
+      (sequences:map f (seq coll)))
+  ([f c1 c2]
+      (sequences:map f (seq c1) (seq c2)))
+  ([f c1 c2 c3]
+      (sequences:map f (seq c1) (seq c2) (seq c3)))
+  ([f c1 c2 c3 & colls]
+      (sequences:map f (seq c1) (seq c2) (seq c3) colls)
+      ))
+
 
 (defn concat
     ([] nil)
@@ -736,22 +747,22 @@
 ;; "Evaluates the exprs in a lexical context in which the symbols in
 ;;   the binding-forms are bound to their respective init-exprs or parts
 ;;   therein. Acts as a recur target."
-(defmacro loop* (bindings &rest body)
-  ;; (assert-args
-  ;;  (vector? bindings) "a vector for its binding"
-  ;;  (even? (count bindings)) "an even number of forms in binding vector")          
-  (let [vs (take 2 (drop 1 bindings))
-    bs (take-nth 2 bindings)
-    gs (map (fn [b] (if (symbol? b) b (gensym))) bs)
-    bfs (reduce1 (fn [ret [b v g]]
-                     (if (symbol? b)
-                         (conj ret g v)
-                         (conj ret g v b g)))
-                 [] (map vector bs vs gs))]
-    `(let ~bfs
-       (loop* ~(vec (interleave gs gs))
-              (let ~(vec (interleave bs gs))
-                ~@body)))))
+;; (defmacro loop* (bindings &rest body)
+;;   ;; (assert-args
+;;   ;;  (vector? bindings) "a vector for its binding"
+;;   ;;  (even? (count bindings)) "an even number of forms in binding vector")          
+;;   (let [vs (take 2 (drop 1 bindings))
+;;     bs (take-nth 2 bindings)
+;;     gs (map (fn [b] (if (symbol? b) b (gensym))) bs)
+;;     bfs (reduce1 (fn [ret [b v g]]
+;;                      (if (symbol? b)
+;;                          (conj ret g v)
+;;                          (conj ret g v b g)))
+;;                  [] (map vector bs vs gs))]
+;;     `(let ~bfs
+;;        (loop* ~(vec (interleave gs gs))
+;;               (let ~(vec (interleave bs gs))
+;;                 ~@body)))))
 
 ;; (defmacro loop* (bindings &rest body)
 ;;   ;; (assert-args
