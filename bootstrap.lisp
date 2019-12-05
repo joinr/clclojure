@@ -30,10 +30,10 @@
   (:use :common-lisp :common-utils
         :clclojure.keywordfunc :clclojure.lexical
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols :clclojure.eval)
-  (:shadow :let :deftype :defmacro :map :reduce) ;:loop 
-  (:export :def :defn :fn :meta :with-meta :str :symbol?
+  (:shadow :let :deftype :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let) ;:loop 
+  (:export :def :defn :fn :meta :with-meta :str :symbol? :first :rest :second
            :deftype :defprotocol :reify :extend-type
-           :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce) ;:loop :defmacro
+           :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count :do :get :assoc :when-let) ;:loop :defmacro
   )
 (in-package clclojure.base)
 
@@ -50,7 +50,7 @@
   ;;Let's hack let to allow us to infer vector-binds
   ;;as a clojure let definition...
   (defmacro let (bindings &body body)
-    (if   ;(eq (first bindings) 'persistent-vector)
+    (if   ;(eq (common-lisp:first bindings) 'persistent-vector)
          (vector? bindings)
          `(unified-let* (,@(partition! 2 (vector-to-list  bindings))) ,@body)
          `(cl:let  ,bindings ,@body)))
@@ -58,7 +58,7 @@
   (defun macro?    (s) (when (macro-function s) 't))
   (defun function? (s) (fboundp s))
   ;;weak hack around lack of read-time vector creation.
-  (defun vector-form? (expr) (or (vector? expr) (eq (first expr) 'persistent-vector))))
+  (defun vector-form? (expr) (or (vector? expr) (eq (common-lisp:first expr) 'persistent-vector))))
 
 (define-condition not-implemented (error) ())
 (define-condition uneven-arguments (error) ())
@@ -101,11 +101,14 @@
 ;;We should then be able to dispatch on the count of args, simply invoking 
 ;;the appropriate function matched to arity.
 ;; (defmacro fn* (&rest specs)	  
-;;   `(list ,@(mapcar (lambda (vb) `(read-fn ,(first vb) ,(second vb))) specs)))
+;;   `(list ,@(mapcar (lambda (vb) `(read-fn ,(common-lisp:first vb) ,(second vb))) specs)))
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   (defun fn* (&rest specs)
-    `(,@(mapcar (lambda (vb) (read-fn (first vb) (second vb))) specs)))
+    `(,@(mapcar (lambda (vb) (read-fn (common-lisp:first vb)
+                                      (if (cadr vb)                                          
+                                          (common-lisp:cons 'progn (common-lisp:rest vb))
+                                          (second vb)))) specs)))
 
   ;; (defparameter test-fn
   ;;   '(fn* ([x] x)
@@ -134,17 +137,17 @@
           `(lambda ,lambda-list ,interior)))))
 
   ;;parse a list of function definitions into an n-lambda dispatching function.
-  (defmethod fndef->sexp ((fd cons))
-    (if (= (length fd) 1)  (fndef->sexp (first fd)) ;simple case
+  (defmethod fndef->sexp ((fd common-lisp:cons))
+    (if (= (length fd) 1)  (fndef->sexp (common-lisp:first fd)) ;simple case
         ;;case with multiple function definitions.
         `(common-utils:lambda* ,@(mapcar (lambda (body)
-                                           (rest (fndef->sexp body))) fd)))))
+                                           (common-lisp:rest (fndef->sexp body))) fd)))))
   
 ;;Clojure's anonymous function special form.
 ;;Todo: support destructuring in the args.
 (defmacro fn (&rest specs)
   (let ((res 
-          (if (vector-form? (first specs)) 
+          (if (vector-form? (common-lisp:first specs)) 
               (fndef->sexp (fn*  specs))
               ;;TODO get rid of this eval....
               (fndef->sexp (apply #'fn* specs)))))    
@@ -197,7 +200,7 @@
 ;;(ns blah)             -> (defpackage blah)
 ;;#"some-regex"         -> (make-regex "some-regex")  ;;need to use cl-ppre probably...
 
-(defmacro doc (v) `(pprint (rest (assoc 'DOC (meta ,v)))))   
+(defmacro doc (v) `(pprint (rest (common-lisp:assoc 'DOC (meta ,v)))))   
 
 ;;Meta Data
 ;;=========
@@ -207,8 +210,8 @@
 ;;entry pointing at an assoc list for now.
 
 ;;These should be pulled out into a protocol.
-(defmacro symbol-meta (symb)        `(get (quote ,symb) 'meta))
-(defmacro with-symbol-meta (symb m) `(setf (get (quote ,symb) 'meta) ,m))
+(defmacro symbol-meta (symb)        `(common-lisp:get (quote ,symb) 'meta))
+(defmacro with-symbol-meta (symb m) `(setf (common-lisp:get (quote ,symb) 'meta) ,m))
 
 (defun meta (obj)        (-meta obj))
 (defun with-meta (obj m) (-with-meta obj m))
@@ -336,12 +339,12 @@
 
 (defprotocol IDerefWithTimeout
   (-deref-with-timeout [o msec timeout-val]))
-
+    
 (defprotocol IMeta
-  (-meta [o]))
+    (-meta [o]))
 
 (defprotocol IWithMeta
-  (-with-meta [o meta]))
+    (-with-meta [o meta]))
 
 (defprotocol IReduce
     (-reduce [coll f]
@@ -442,6 +445,62 @@
 ;;==========================================================
 
 (extend-type
+ null
+ ICounted
+ (-count [c] 0)
+ IEmptyableCollection
+ (-empty [c] nil)
+ ICollection
+ (-conj [coll itm] (cons itm nil))
+ IStack
+ (-peek [coll] nil)
+ (-pop  [coll] nil)
+ ISeqable
+ (-seq [coll] nil)
+ IHash
+ (-hash [o] (sxhash nil))
+ IEquiv
+ (-equiv [o other] (error 'not-implemented))
+ ISeq
+ (-first [o] nil)
+ (-rest  [o] nil)
+ IReversible
+ (-rseq [coll] nil))
+
+;;We got a ton of goodies from
+;;sb-sequences namespace to leverage here.
+;;good opportunity for iterator-seq...
+(extend-type
+ sequence
+ ICounted
+ (-count [c] (common-lisp:length c))
+ 
+ ;; IEmptyableCollection
+ (-empty [c] (sb-sequence:make-sequence-like c 0))
+ ;; ICollection
+ ;; (-conj [coll itm] (cons itm nil))
+ IStack
+ (-peek [coll] (elt coll 0))
+ (-pop  [coll] (error 'not-implemented))
+ ISeqable
+ (-seq [coll] (error 'not-implemented))
+ IHash
+ (-hash [o] (sxhash o))
+ 
+ ;; IEquiv
+ ;; (-equiv [o other] (error 'not-implemented))
+
+ ISeq
+ (-first [o] (elt o 0))
+ ;;TODO pull this over...
+ ;;Probably identical to array-seqs
+
+ (-rest  [o] (error 'not-implemented))
+ IReversible
+ (-rseq [coll] (reverse coll)))
+ 
+
+(extend-type
  clclojure.pvector::pvec
  
  ICounted
@@ -527,7 +586,7 @@
 
 ;;list operations.
 (extend-type
- cons
+ common-lisp:cons
  ICounted
  (-count [c] (length c))
 
@@ -536,7 +595,7 @@
  ICollection
  (-conj [coll itm] (cons itm coll))
  IStack
- (-peek [coll]  (first coll))
+ (-peek [coll]  (common-lisp:first coll))
  (-pop  [coll]  (rest coll))
  ISeqable
  (-seq [coll] (sequences::seq coll))
@@ -545,7 +604,7 @@
  IEquiv
  (-equiv [o other] (error 'not-implemented))
  IMapEntry
- (-key [coll] (first coll))
+ (-key [coll] (common-lisp:first coll))
  (-val [coll] (second coll))
  ISeq
  (-first [coll]  (sequences::first coll))
@@ -614,11 +673,16 @@
  (-empty [c] {})
 
  ICollection
- (-conj [coll itm] (map-assoc coll (first itm) (second itm)))
+ (-conj [coll itm] (map-assoc coll (common-lisp:first itm) (second itm)))
 
  ISeqable
  (-seq [coll] (map-seq coll))
  
+ ILookup
+ (-lookup [o k] (map-get o k))
+ (-lookup [o k not-found]
+    (or (map-get o k) not-found))  
+
  IAssociative
  (-contains-key? [coll k] (map-contains? coll k))
  (-entry-at [coll k]      (map-entry-at coll k))
@@ -650,10 +714,137 @@
 (defmethod print-object ((obj clclojure.cowmap::cowmap) stream)
   (common-utils::print-map (cowmap-table obj) stream))
 
-;; (defmacro when-let [binding & args]
-;;   )
-;;need to implement arrayseq...
+;;Core Lib
+;;========
+
+
 (defn seq [coll] (-seq coll))
+(defn vec [coll]
+  (if (vector? coll) coll
+      (sequences:apply #'persistent-vector (seq coll))))
+  
+(defmacro when-let (binding &rest body)
+  (let [binding (seq binding)        
+    arg     (-first binding)
+    expr    (-first (-rest  binding))] 
+    (clclojure.eval::recover-literals
+     `(let ,(vec  binding)
+        (when ,arg
+          ,@body)))))
+  ;; (defmacro when-let [binding & args]
+  ;;   )
+  ;;need to implement arrayseq...
+  ;;These are lame but easy, we really want to
+  ;;get chunked-first and friends up and running.
+  ;;Also want to bake in typecases for quick
+  ;;dispatch...
+
+(defn first  [coll]  (-first (seq coll)))
+(defn rest   [coll]  (-rest  (seq coll)))
+(defn second [coll]  (first (rest coll)))
+(defn ffirst [coll]  (first (first coll)))
+  ;;Inaccurate...
+
+(defn fnext  [coll] (first (rest coll)))
+
+(defn get
+    ([m k] (-lookup m k))
+  ([m k not-found] (-lookup m k not-found)))
+
+(defn partition
+    ([n offset coll]
+        (when-let [s (seq coll)]
+          (lazy-seq 
+           (cons (take n coll) (partition n offset (drop offset coll))))))
+  ([n coll]
+      (lazy-seq 
+       (cons (take n coll) (partition n n (drop n coll))))))
+
+  ;; "Returns a lazy sequence of lists like partition, but may include
+  ;;   partitions with fewer than n items at the end.  Returns a stateful
+  ;;   transducer when no collection is provided."
+  ;; {:added "1.2"
+  ;; :static true}
+  ;; ([^long n]
+  ;;         (fn [rf]
+  ;;             (let [a (java.util.ArrayList. n)]
+  ;;               (fn
+  ;;                ([] (rf))
+  ;;                ([result]
+  ;;                 (let [result (if (.isEmpty a)
+  ;;                                  result
+  ;;                                  (let [v (vec (.toArray a))]
+  ;;                                    ;;clear first!
+  ;;                                    (.clear a)
+  ;;                                    (unreduced (rf result v))))]
+  ;;                   (rf result)))
+  ;;                ([result input]
+  ;;                         (.add a input)
+  ;;                         (if (= n (.size a))
+  ;;                             (let [v (vec (.toArray a))]
+  ;;                               (.clear a)
+  ;;                               (rf result v))
+  ;;                             result))))))
+
+
+  ;; "When lazy sequences are produced via functions that have side
+  ;;   effects, any effects other than those needed to produce the first
+  ;;   element in the seq do not occur until the seq is consumed. dorun can
+  ;;   be used to force any effects. Walks through the successive nexts of
+  ;;   the seq, does not retain the head and returns nil."
+  ;; {:added "1.0"
+  ;; :static true}
+
+  ;; (defn dorun
+  ;;   ([coll]
+  ;;    (when-let [s (seq coll)]
+  ;;      (recur (next s))))
+  ;;   ([n coll]
+  ;;       (when (and (seq coll) (pos? n))
+  ;;         (recur (dec n) (next coll)))))
+
+  ;; "When lazy sequences are produced via functions that have side
+  ;;   effects, any effects other than those needed to produce the first
+  ;;   element in the seq do not occur until the seq is consumed. doall can
+  ;;   be used to force any effects. Walks through the successive nexts of
+  ;;   the seq, retains the head and returns it, thus causing the entire
+  ;;   seq to reside in memory at one time."
+  ;; {:added "1.0"
+  ;; :static true}
+
+  ;; (defn doall
+  ;;   ([coll]
+  ;;    (dorun coll)
+  ;;    coll)
+  ;;   ([n coll]
+  ;;       (dorun n coll)
+  ;;       coll))
+
+  ;; (defn partition-all
+  ;;   ([n coll]
+  ;;       (partition-all n n coll))
+  ;;   ([n step coll]
+  ;;       (lazy-seq
+  ;;        (when-let [s (seq coll)]
+  ;;          (let [seg (doall (take n s))]
+  ;;            (cons seg (partition-all n step (nthrest s step))))))))
+
+
+(defn assoc
+    ([m k v]       (-assoc m k v))
+  ([m k v & kvs]
+      (reduce (fn [acc kv]
+                  (-assoc acc (first kv) (second kv)))
+              (-assoc m k v) kvs))) 
+
+(defn count [coll]
+  (-count coll)) 
+
+(defn nth
+    ([coll index]
+           (-nth coll index))
+  ([coll index not-found]
+         (-nth coll index not-found)))
 
 (defn take [n coll]
   (sequences:take n (seq  coll)))
@@ -661,16 +852,56 @@
 (defn drop [n coll]
   (sequences:drop n (seq coll)))
 
-(defn vec [coll]
-  (if (vector? coll) coll
-      (sequences:apply #'persistent-vector (seq coll))))
 
 ;;a little lame...
 (defn conj [coll x]
   (-conj coll x))
 
+(defn cons [x coll]
+  (-conj coll x))
+
+(defn chunk-cons [chunk rest]
+  (error 'not-implemented))
+
+(defn chunk-append [b x]
+  (error 'not-implemented))
+
 (defn empty [coll] (-empty coll))
 
+;; An iteration state value.
+
+;; A value describing the limit of iteration, if any.
+
+;; The from-end value.
+
+;; A step function of three arguments: the sequence, the state value, the from-end value. The function should return the new state value.
+
+;; An end predicate of four arguments: the sequence, the state value, the limit value, the from-end value. The function should return a generalised boolean describing whether the iteration has reached the end of the sequence.
+
+;; An element read function of two arguments: the sequence, the state value.
+
+;; An element write function of three arguments: the new value to store, the sequence, the state value.
+
+;; An index function of two arguments: the sequence, the state value. The function should return the current iteration index, starting from zero.
+
+;; An iterator copy function of two arguments: the sequence, the state value. The function should return a "fresh" iteration value.
+
+(defn ->iterator [s]
+  (multiple-value-bind
+        (state from-end step end? read-elt write-elt index copy)
+      (sb-sequence:make-sequence-iterator s)
+    {:state state
+     :from-end from-end
+     :step step
+     :end? end?
+     :read-elt  read-elt
+     :write-elt write-elt
+     :index     index
+     :copy      copy}))
+
+;;We're doing a lot of runtime checks that
+;;may be suboptimal time-wise.  Could cache
+;;the implements? function, or move to protocol...
 (defn reduce
     ([f coll]
         (if (sequences:internal-reduce? coll)
@@ -691,22 +922,12 @@
   ([to from]
        (if nil ;(instance? clojure.lang.IEditableCollection to)
            (with-meta (persistent! (reduce conj! (transient to) from)) (meta to))
-           (sequences:reduce conj to (seq  from))))
+           (reduce conj to from)))
   ;; ([to xform from]
   ;;      (if nil ;(instance? clojure.lang.IEditableCollection to)
   ;;          (with-meta (persistent! (transduce xform conj! (transient to) from)) (meta to))
   ;;          (transduce xform conj to from)))
   )
-
-(defmacro when-let (binding &rest body)
-  (let [binding (seq binding)        
-        arg     (-first binding)
-        expr    (-first (-rest  binding))] 
-    (clclojure.eval::recover-literals
-     `(let ,(vec  binding)
-        (when ,arg
-          ,@body)))))
-
 ;; "Returns a lazy sequence consisting of the result of applying f to
 ;;   the set of first items of each coll, followed by applying f to the
 ;;   set of second items in each coll, until any one of the colls is
@@ -720,6 +941,7 @@
 (defn chunk-first [coll] (-chunk-first coll))
 (defn chunk-rest [coll]  (-chunk-rest coll))
 (defn chunk-buffer [coll])
+(defn seq->list [xs] (sequences::seq->list (seq xs)))
 
 (defmacro lazy-seq (&rest body)
   `(sequences::lazy-seq ,@body))
@@ -744,6 +966,42 @@
       (sequences:map f (seq c1) (seq c2) (seq c3) colls)
       ))
 
+;;lame, but a little exercise in bindings...
+(defmacro dotimes (binding &rest body)
+  `(common-lisp:dotimes (,(first binding) ,(second binding))
+     ,@body))
+
+;; "Returns a lazy sequence of the items in coll for which
+;;   (pred item) returns logical true. pred must be free of side-effects.
+;;   Returns a transducer when no collection is provided."
+;; {:added "1.0"
+;; :static true}
+;; (defn filter
+;;   ([pred]
+;;    (fn [rf]
+;;        (fn
+;;         ([] (rf))
+;;         ([result] (rf result))
+;;         ([result input]
+;;                  (if (pred input)
+;;                      (rf result input)
+;;                      result)))))
+;;   ([pred coll]
+;;          (lazy-seq
+;;           (when-let [s (seq coll)]
+;;             (if (chunked-seq? s)
+;;                 (let [c (chunk-first s)
+;;                   size (count c)
+;;                   b (chunk-buffer size)]
+;;                   (dotimes [i size]
+;;                     (let [v (nth c i)]
+;;                       (when (pred v)
+;;                         (chunk-append b v))))
+;;                   (chunk-cons (chunk b) (filter pred (chunk-rest s))))
+;;                 (let [f (first s) r (rest s)]
+;;                   (if (pred f)
+;;                       (cons f (filter pred r))
+;;                       (filter pred r))))))))
 
 (defn concat
     ([] nil)
@@ -758,25 +1016,29 @@
 ;; "Evaluates the exprs in a lexical context in which the symbols in
 ;;   the binding-forms are bound to their respective init-exprs or parts
 ;;   therein. Acts as a recur target."
-(defmacro loop* (bindings &rest body)
-  ;; (assert-args
-  ;;  (vector? bindings) "a vector for its binding"
-  ;;  (even? (count bindings)) "an even number of forms in binding vector")          
-  (let [vs (take 2 (drop 1 bindings))
-    bs (take 2 bindings)
-    gs (map (fn [b] (if (symbol? b) b (gensym))) bs)
-    bfs (reduce1 (fn [ret bvg]
-                     (let [b (nth bvg 0)
-                           v (nth bvg 1)
-                           g (nth bvg 2)]
-                       (if (symbol? b)
-                           (conj ret g v)
-                           (conj ret g v b g))))
-                 [] (map vector bs vs gs))]
-    `(let ~bfs
-       (loop* ~(vec (interleave gs gs))
-              (let ~(vec (interleave bs gs))
-                ~@body)))))
+
+;; (defmacro loop* (bindings &rest body)
+;;   ;; (assert-args
+;;   ;;  (vector? bindings) "a vector for its binding"
+;;   ;;  (even? (count bindings)) "an even number of forms in binding vector")          
+;;   (let [vs (take 2 (drop 1 bindings))
+;;     bs (take 2 bindings)
+;;     gs (map (fn [b] (if (symbol? b) b (gensym))) bs)
+;;     bfs (reduce1 (fn [ret bvg]
+;;                      (let [b (nth bvg 0)
+;;                            v (nth bvg 1)
+;;                            g (nth bvg 2)]
+;;                        (if (symbol? b)
+;;                            (conj ret g v)
+;;                            (conj ret g v b g))))
+;;                  [] (map vector bs vs gs))]
+;;     `(let ~bfs
+;;        (loop* ~(vec (interleave gs gs))
+;;               (let ~(vec (interleave bs gs))
+;;                 ~@body)))))
+
+
+
 
 ;; (defmacro loop* (bindings &rest body)
 ;;   ;; (assert-args
@@ -854,14 +1116,6 @@
 ;; )
 
 ;;conflicts with :common-lisp
-(comment 
- (defn nth
-     ([coll index]
-            (-nth coll index))
-   ([coll index not-found]
-          (-nth coll index not-found)))
-
- (defn partition [n xs]))
 
 ;; (defn destructure [bindings]
 ;;   (let [bents (partition 2 bindings)

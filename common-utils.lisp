@@ -56,6 +56,8 @@
    :categorize-tails
    :summary-tails
    :with-env
+   :named-fn
+   :named-fn*
    ))
 (in-package :common-utils)
 
@@ -882,7 +884,7 @@
     ((x y) (+ x y))
     ((&rest xs) (reduce #'+ xs))))
 
-
+)
  
 
 ;; COMMON-UTILS> (funcall the-func 2)
@@ -929,28 +931,17 @@
 
 ;;a simple macro here is then 
 (defmacro named-fn (name args body)
-  (multiple-value-bind (arity variadic) (args-type args)
-    (declare (ignore arity))
-    (if (not variadic) 
-	`(labels ((,name ,args ,body)
-		  (recur ,args (,name ,@args)))
-	   (lambda ,args (,name ,@args))))))
-	;; `(labels ((,name ,args ,body)
-	;; 	  (recur (&rest xs) (apply ,name xs)))
-	;;    (lambda (&rest xs) (apply ,name xs))))))
+  (let  ((recur-sym (intern "RECUR")))
+    (multiple-value-bind (arity variadic) (args-type args)
+      (declare (ignore arity))
+      (if (not variadic) 
+          `(labels ((,name ,args ,body)
+                    (,recur-sym ,args (,name ,@args)))
+             (lambda ,args (,name ,@args)))
+          `(labels ((,name ,args ,body)
+                    (,recur-sym (&rest xs) (apply (function,name) xs)))
+             (lambda (&rest xs) (apply (function,name) xs)))))))
        
-;;base case works....
-(defparameter test-fn2
-  (named-fn test-fn (x) 
-	    (if (< x 2) x 
-		(progn (print `(:calling ,x))
-		       (test-fn (- x 2))))))
-;;recur works just fine....
-(defparameter test-fn3
-  (named-fn test-fn (x) 
-	    (if (< x 2) x 
-		(progn (print `(:calling ,x))
-		       (recur (- x 2))))))
 ;;If we want to compose a named function from a set of cooperating 
 ;;named functions, then we can build a dispatching name, which is 
 ;;shared amongst the different implementations.
@@ -972,13 +963,15 @@
 ;;        (otherwise (apply test-fn-var args)))))
 
 
+;;smarter way to do this is with macrolet.
 (defun func-name (name arity)    (read-from-string (format nil "~A-~A" name arity)))
 (defmacro named-fn* (name &rest args-bodies)
   (if (= (length args-bodies) 1)
       (let ((args-body (first args-bodies)))
  	`(named-fn ,name ,(first args-body) ,(second args-body))) ;regular named-fn, no dispatch.
       (destructuring-bind (cases var) (parse-dispatch-specs args-bodies)
-        (let* ((args (gensym "args"))
+        (let* ((recur-sym  (intern "RECUR"))
+               (args (gensym "args"))
                (funcspecs (mapcar (lambda (xs)
 				    (destructuring-bind (n (args body)) xs
 				      (let* ((fname (func-name name n))
@@ -990,24 +983,33 @@
                             (let* ((fname (func-name name :variadic))
                                    (fbody  `(named-fn ,fname ,(first var) ,(second var))))
                               `(:variadic ,fname ,fbody))))
-               (specs     (if var (append funcspecs (list varspec)) funcspecs)))
-          `(named-fn ,name (,'&rest ,args) 
-                     (let ,(mapcar (lambda (xs) `(,(second xs) ,(third xs))) specs)
-                       (case (length ,args)
-                         ,@(mapcar (lambda (xs)  (let ((n (first xs))
-                                                       (name (second xs)))
-                                                   (if (= n 0) 
-                                                       `(,n (funcall ,name))
-                                                       `(,n (apply ,name ,args))))) funcspecs)
-                         (otherwise ,(if var  `(apply ,(second varspec) ,args)
-                                         `(error 'no-matching-args))))))))))
+               (specs     (if var (append funcspecs (list varspec)) funcspecs))
+               (aux       (gensym "aux")))
+          `(let ((,name))
+             (macrolet ((,name (,'&rest ,args)
+                          (list* 'funcall ',name ,args)))
+               (let* (,@(mapcar (lambda (xs) `(,(second xs) ,(third xs))) specs))
+                 (labels ((,aux (,'&rest ,args) 
+                            (case (length ,args)
+                              ,@(mapcar (lambda (xs)  (let ((n (first xs))
+                                                            (name (second xs)))
+                                                        (if (= n 0) 
+                                                            `(,n (funcall ,name))
+                                                            `(,n (apply  ,name ,args))))) funcspecs)
+                              (otherwise ,(if var  `(apply  ,(second varspec) ,args)
+                                              `(error 'no-matching-args))))))
+                   (setf ,name (lambda (&rest ,args) (apply (function ,aux) ,args)))
+                   (labels ((,name (,'&rest ,args) (apply ,name ,args)))
+                     (function ,aux))))))))))
 
 ;;testing
-;; (named-fn* test-fn 
-;; 	   ((x)    (+ x 1))
-;; 	   ((x y)  (+ x y)))
-;	   ((& xs) (reduce #'+ xs)))
+(comment
+ (named-fn* test-fn 
+            ((x)    (+ x 1))
+            ((x y)  (+ x y))                    
+            ((& xs) (reduce #'+ xs))))
 
+(comment
 (defun flatten-1 (coll)
   (reduce (lambda (acc xs)
                  (reduce #'cons xs :initial-value acc))

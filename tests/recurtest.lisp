@@ -90,3 +90,29 @@
           (progn (when (< 2 3)
                    (print 44))
                  2)))))
+
+
+;;base case works....
+(defparameter test-fn2
+  (named-fn test-fn (x) 
+	    (if (< x 2) x 
+		(progn (print `(:calling ,x))
+		       (test-fn (- x 2))))))
+;;recur works just fine....
+(defparameter test-fn3
+  (named-fn test-fn (x) 
+	    (if (< x 2) x 
+		(progn (print `(:calling ,x))
+		       (recur (- x 2))))))
+
+
+(defparameter nftest  (named-fn* test-fn 
+                                 ((x)    (+ x 1))
+                                 ((x y)  (+ x y))                    
+                                 ((&rest xs) (reduce #'+ xs))))
+
+
+(defparameter nf (named-fn* test-fn 
+                            ((coll) (when-let ((x (first coll)))
+                                      (progn (pprint x) (recur (rest coll)))))
+                            ((c1 c2) (test-fn c2))))

@@ -220,8 +220,12 @@
 (defgeneric internal-reduce (obj f))
 (defgeneric init-reduce     (obj f init))
 
-(defun init-reduce?     (obj) (implements? #'init-reduce obj))
-(defun internal-reduce? (obj) (implements? #'internal-reduce obj))
+(defun init-reduce?     (obj)
+  (or (sb-kernel::sequencep  obj)
+      (implements? #'init-reduce obj)))
+(defun internal-reduce? (obj)
+  (or (sb-kernel::sequencep  obj)
+      (implements? #'internal-reduce obj)))
 
 ;;This will likely be superceded or buttress clojure protocol.
 (defgeneric -deref (obj))
@@ -281,6 +285,12 @@
   (seq-int-reduce obj f))
 
 (defmethod init-reduce ((obj common-lisp:array) f init)
+  (seq-init-reduce obj f init))
+
+(defmethod internal-reduce ((obj string) f)
+  (seq-int-reduce obj f))
+
+(defmethod init-reduce ((obj string) f init)
   (seq-init-reduce obj f init))
 
 (defmethod internal-reduce ((obj LazySeq) f)
