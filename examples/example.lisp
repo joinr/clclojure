@@ -234,3 +234,8 @@ IBlah
              ([x] (list :end x))
              ([x & xs] (reduce conj (persistent-vector :end x) xs) ))
          1 2 3 4)
+
+(funcall (fn accf
+             ([x] (list :end x))
+             ([x & xs] (reduce conj [:end x] xs) ))
+         1 2 3 4)

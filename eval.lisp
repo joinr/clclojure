@@ -185,7 +185,11 @@
         ((labels flet macrolet)
          (destructuring-bind (name args &rest body) expr
            ;;this is wrong for labels and flet
-           (let* ((new-body (mapcar (lambda (v)
+           (let* ((new-args (mapcar (lambda (binding)
+                                      (destructuring-bind (name args &rest body) binding
+                                        `(,name ,args
+                                                ,@(custom-eval-bindings body lexenv)))) args))
+                  (new-body (mapcar (lambda (v)
                                       (cond ((let-expr? v)
                                              (clclojure.eval:let-expr v))
                                             ((listp v)
@@ -193,7 +197,7 @@
                                               (custom-eval-bindings v lexenv)))
                                             (t v))) body)))
              (noisy-log :labels-flet-macrolet)
-             `(,name ,args ,@new-body))))
+             `(,name ,new-args ,@new-body))))
         (otherwise
          (if (listp (cdr expr))             
              (progn (noisy-log :list-expr)                    
