@@ -473,11 +473,12 @@
 ;;this is the one choke point where we're getting
 ;;[x] -> (persistent-vector x) transforms in practice.
 (defun emit-implementation (name satvar imp)
-  (let ((quoted-imp (gensym "quotedimp")))
+  (let* ((quoted-imp (gensym "quotedimp"))
+         (msg        (str `(,name  ,imp))))
     `(let ((,quoted-imp (quote ,imp)))
        (if (funcall ,satvar ,quoted-imp)
            (emit-method ,name ,(first imp) ,imp)
-           (error 'missing-implementations (str `(,,name ,,quoted-imp)))))))
+           (error 'missing-implementations ,msg)))))
   
 (defmacro/literal-walker extend-protocol (name &rest typespecs)
   (let* ((imps       (parse-implementations typespecs))

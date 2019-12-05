@@ -5,7 +5,6 @@
 (defpackage :clclojure.reader
   (:shadowing-import-from :sequences :first :second :cons :apply :map :filter :rest :reduce :flatten)
   (:use :common-lisp :common-utils :named-readtables :clclojure.pvector :clclojure.cowmap
-        :clclojure.eval
         :sequences)
   (:export :*literals* :*reader-context* :quoted-children :quote-sym :literal?))
 (in-package :clclojure.reader)
@@ -40,6 +39,8 @@
   
   (defun literal? (s) (or  (and (listp s)   (find (first s) *literals*))
                            (and (symbolp s) (find s *literals*))))
+
+  (defun literal   (obj) obj)
   
   (defmacro quoted-children (c)
     (if (symbolp c)

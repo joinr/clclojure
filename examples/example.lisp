@@ -5,7 +5,7 @@
 (defpackage :clclojure.example
   (:use  :common-lisp :clclojure.base)
   (:shadowing-import-from :clclojure.base
-   :deftype :let))
+   :deftype :let :map))
 (in-package :clclojure.example)
 
 ;;we have persistent vectors, which will
@@ -206,5 +206,8 @@ IBlah
 (let [x 2] [x])
 ;;[2]
 
+(let [x 2  y `[,x]] `[,y])
 
-
+;;not passing:
+(let [x 2  y `[,x]]
+  `[,y `[,,y] ])

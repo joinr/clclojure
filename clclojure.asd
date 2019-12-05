@@ -11,12 +11,12 @@
                 :depends-on ("common-utils"))
                (:file "sequences"
                 :depends-on  ("common-utils"))
-               (:file "eval"
-                :depends-on ("common-utils" "walk"))
-               (:file "literals"
-                :depends-on ("eval" "pvector" "cowmap"))
                (:file "reader"
                 :depends-on ("pvector" "cowmap" "sequences"))
+               (:file "eval"
+                :depends-on ("common-utils" "walk" "reader"))
+               (:file "literals"
+                :depends-on ("eval" "pvector" "cowmap"))
                (:file "keywordfunc")
                (:file "pvector")
                (:file "cowmap")
