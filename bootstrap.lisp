@@ -67,7 +67,7 @@
 
 ;;a single function definition
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  (defstruct fn-def args body)
+  (defstruct fn-def  name args body)
   ;;a macro definition -- later
   (defstruct macro-def name args body))
 
@@ -87,8 +87,9 @@
 ;; 		:body   (quote ,body)))
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  (defun read-fn (arg-vec body)
-    (make-fn-def :args   arg-vec
+  (defun read-fn (arg-vec body &optional name)
+    (make-fn-def :name   name 
+                 :args   arg-vec
                  :body   body)))
 
 (defgeneric arity (fd))
@@ -104,12 +105,31 @@
 ;;   `(list ,@(mapcar (lambda (vb) `(read-fn ,(common-lisp:first vb) ,(second vb))) specs)))
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  (defun fn* (&rest specs)
+  ;; (defun fn* (&rest specs)
+  ;;   (let* ((fst (car specs))
+  ;;          (named? nil)
+  ;;          (name (if (symbolp (common-lisp:first fst))                     
+  ;;                    (progn (setf named? t)
+  ;;                           (common-lisp:first fst) )
+  ;;                    (symb (symbol-name (gensym "fn_")))))
+  ;;          (specs (if named? (common-lisp:rest (common-lisp:first  specs)) specs)))
+  ;;     (pprint (list fst named? name specs))
+  ;;     `(,@(mapcar (lambda (vb)
+  ;;                   (pprint vb)
+  ;;                   (read-fn (common-lisp:first vb)
+  ;;                            (if (cadr vb)                                          
+  ;;                                (common-lisp:cons 'progn (common-lisp:rest vb))
+  ;;                                (second vb))
+  ;;                            name))
+  ;;                 specs
+  ;;                 ))))
+  
+  (defun fn* (name &rest specs)
     `(,@(mapcar (lambda (vb) (read-fn (common-lisp:first vb)
                                       (if (cadr vb)                                          
                                           (common-lisp:cons 'progn (common-lisp:rest vb))
-                                          (second vb)))) specs)))
-
+                                          (second vb)) name)) specs)))
+  
   ;; (defparameter test-fn
   ;;   '(fn* ([x] x)
   ;;         ([x y]        (+ x y))
@@ -129,37 +149,69 @@
 ;;Compile a clojure fn special form into a common lisp lambda
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   (defgeneric fndef->sexp (fd))
+  ;; (defmethod  fndef->sexp ((fd fn-def))
+  ;;   (with-slots (args body) fd
+  ;;     (with-slots (lambda-list outer-let) (parse-args args)           
+  ;;       (let ((interior (if outer-let `(let* ,outer-let ,body)
+  ;;                           body)))
+  ;;         `(lambda ,lambda-list ,interior)))))
+
   (defmethod  fndef->sexp ((fd fn-def))
-    (with-slots (args body) fd
+    (with-slots (args body name) fd
       (with-slots (lambda-list outer-let) (parse-args args)           
         (let ((interior (if outer-let `(let* ,outer-let ,body)
                             body)))
-          `(lambda ,lambda-list ,interior)))))
+          `(named-fn ,name ,lambda-list ,interior)))))
 
   ;;parse a list of function definitions into an n-lambda dispatching function.
+  ;; (defmethod fndef->sexp ((fd common-lisp:cons))
+  ;;   (if (= (length fd) 1)  (fndef->sexp (common-lisp:first fd)) ;simple case
+  ;;       ;;case with multiple function definitions.
+  ;;       (progn  (pprint fd)
+  ;;               `(common-utils:lambda* ,@(mapcar (lambda (body)
+  ;;                                                  (common-lisp:rest (fndef->sexp body))) fd)))))
+
+  ;; (defmethod fndef->sexp ((fd common-lisp:cons))
+  ;;   (if (= (length fd) 1)  (fndef->sexp (common-lisp:first fd)) ;simple case
+  ;;       ;;case with multiple function definitions.
+  ;;       (let ((name (fn-def-name (common-lisp:first fd))))
+  ;;         `(common-utils:lambda* ,@(mapcar (lambda (body)
+  ;;                                            (common-lisp:rest (common-lisp:rest (fndef->sexp body)))) fd)))))
+
   (defmethod fndef->sexp ((fd common-lisp:cons))
     (if (= (length fd) 1)  (fndef->sexp (common-lisp:first fd)) ;simple case
         ;;case with multiple function definitions.
-        `(common-utils:lambda* ,@(mapcar (lambda (body)
-                                           (common-lisp:rest (fndef->sexp body))) fd)))))
+        (let ((name (fn-def-name (common-lisp:first fd))))
+          `(common-utils:named-fn* ,name ,@(mapcar (lambda (body)
+                                             (common-lisp:rest (common-lisp:rest (fndef->sexp body)))) fd)))))
+
+
+  )
   
 ;;Clojure's anonymous function special form.
 ;;Todo: support destructuring in the args.
-(defmacro fn (&rest specs)
-  (let ((res 
-          (if (vector-form? (common-lisp:first specs)) 
-              (fndef->sexp (fn*  specs))
-              ;;TODO get rid of this eval....
-              (fndef->sexp (apply #'fn* specs)))))    
-    `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
-
 ;; (defmacro fn (&rest specs)
-;;   (let ((res 
-;;           (if (vector-form? (common-lisp:first specs)) 
-;;               (fndef->sexp (fn*  specs))
-;;               ;;TODO get rid of this eval....
-;;               (fndef->sexp (apply #'fn* specs)))))    
+;;   (pprint specs)
+;;   (let* ((res 
+;;            (cond  ((symbolp (common-lisp:first specs))
+;;                    (fndef->sexp (fn*  (cons  (first specs) (list  (rest  specs))))))
+;;                   ((vector-form? (common-lisp:first specs))
+;;                   (fndef->sexp (fn*  specs)))
+                
+;;                  ;;TODO get rid of this eval....
+;;                  (t
+;;                   (fndef->sexp (apply #'fn* specs))))))    
 ;;     `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
+
+(defmacro fn (&rest specs)
+  (let* ((name  (symb (symbol-name (gensym "fn_"))))
+         (res 
+           (if (vector-form? (common-lisp:first specs)) 
+               (fndef->sexp (fn* name specs))
+               ;;TODO get rid of this eval....
+               (let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
+                 (fndef->sexp bodies)))))
+    `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
 
 ;;def 
 ;;===
