@@ -1002,20 +1002,6 @@
                    (labels ((,name (,'&rest ,args) (apply ,name ,args)))
                      (function ,aux))))))))))
 
-;;testing
-(comment
- (named-fn* test-fn 
-            ((x)    (+ x 1))
-            ((x y)  (+ x y))                    
-            ((& xs) (reduce #'+ xs))))
-
-(comment
-(defun flatten-1 (coll)
-  (reduce (lambda (acc xs)
-                 (reduce #'cons xs :initial-value acc))
-          coll :initial-value '()))
-
-)
 
 ;;printers
 ;;This is janky.  TBD: beter implementation (e.g. lazy seq...)
@@ -1026,34 +1012,3 @@
      (reduce (lambda (acc kv)
                (cons  (cadr kv) (cons (car kv) acc)))  (hash-table->entries m) :initial-value '()))))
 
-;;we can modify our named fns...
-;;the recur name is used
-
-
-
-
-;;this is the expression that matters for fn.
-;;(fn name? [params* ] condition-map? exprs*)
-;;(fn name? ([params* ] condition-map? exprs*)+)
-
-;;what we'll do is implement a lower-level fn* that works on lists.
-;;fn's job will be to enforce that clojure vectors are properly list-ified 
-
-;;so a named function...
-
-;;we want to do the same thing with macros...
-  
-	 
-
-;;proof of concept.
-;; (defun list-eater (xs) 
-;;   (labels ((list-eater (x) (if (null (cdr x)) (first x) (list-eater (cdr x)))))
-;;     (list-eater xs)))	 
-
-;; (defun random-list (n)
-;;   (loop for i from 1 to n
-;;        collect i))
-
-
-
-;End eval-when

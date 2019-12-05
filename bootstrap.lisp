@@ -153,6 +153,14 @@
               (fndef->sexp (apply #'fn* specs)))))    
     `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
 
+;; (defmacro fn (&rest specs)
+;;   (let ((res 
+;;           (if (vector-form? (common-lisp:first specs)) 
+;;               (fndef->sexp (fn*  specs))
+;;               ;;TODO get rid of this eval....
+;;               (fndef->sexp (apply #'fn* specs)))))    
+;;     `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
+
 ;;def 
 ;;===
 
