@@ -1,5 +1,5 @@
 (defpackage :clclojure.eval
-  (:use :common-lisp :cl-package-locks)
+  (:use :common-lisp :cl-package-locks :common-utils :clclojure.walk)
   (:export :custom-eval :custom-eval-in-lexenv :let-expr :let-expr? :noisy-expand :custom-eval-bindings
    :custom-eval? :enable-custom-eval :disable-custom-eval :literal :symbolic
    :simple-eval-in-lexenv :defmacro/literal-walker))
@@ -48,21 +48,46 @@
 ;;fn :: subform -> context -> env -> subform
 (defun literal-walker (subform context env)
   (declare (ignore context env))
+  (pprint (list :walking subform))
   (typecase subform
     (cons  (cond ((listp (first subform))
-                  (if (eql (first (first subform)) 'clclojure.eval:literal)
-                      (cons (symbolic (first  subform)) (rest subform))                            
+                  (if (seql (first (first subform)) 'literal)
+                      (progn (pprint :literal-list)
+                             (cons (symbolic (first  subform)) (rest subform)))                            
                       subform))
-                 ((eql (first subform) 'clclojure.eval:literal)         
-                  (symbolic subform))
-                 ((literal? (first subform))  (values subform t))
-                 (t subform)))
+                 ((seql (first subform) 'literal)
+                  (progn (pprint :literal)
+                         (symbolic subform)))
+                 ((literal? (first subform))
+                  (progn (pprint :literal?)
+                         (values subform t)))
+                 (t  subform)))
+    (t (progn (pprint :blah) subform))))
+
+(defun clj-literal-walker (subform)
+  (pprint (list :walking subform))
+  (typecase subform
+    (cons  (cond ((listp (first subform))
+                  (if (seql (first (first subform)) 'literal)
+                      (progn (pprint :literal-list)
+                             (cons (clclojure.eval::symbolic (first  subform)) (rest subform)))                            
+                      subform))
+                 ((seql (first subform) 'literal)
+                  (progn (pprint :literal)
+                         (eval (cadr subform))))
+                 ((clclojure.eval::literal? (first subform))
+                  (progn (pprint :literal?)
+                         (values subform t)))
+                 (t  subform)))
     (t subform)))
+
 
 ;;helper function that walks a form and recovers
 ;;symbolic data literals.
 (defun recover-literals (form)
-  (sb-walker:walk-form form nil #'literal-walker))
+  (sb-walker:walk-form form nil #'literal-walker)
+  ;(prewalk-replace #'clj-literal-walker form)
+  )
 ;;we can alternately use macrolet...
 
 (defun normal-arg? (arg)

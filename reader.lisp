@@ -192,6 +192,11 @@
   ;;              ;(nreverse (list  (list 'apply '(function concat) expr)))
   ;;              ))
   ;;   (1  (error "comma-dot not handled!")))
+
+  (defun quoted (x)
+    (cond ((symbolp x) (list 'quote x))
+          ((listp x)   (mapcar #'quoted x))
+          (t    x)))
   
   (defun quasify (xs)
     (list 'apply '(function concat)

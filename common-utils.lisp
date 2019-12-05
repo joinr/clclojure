@@ -263,7 +263,17 @@
 		   (if (atom x) 
 		       (aux (push (funcall f x) acc) (rest xs))
 		       (aux (push (aux (list) x) acc) (rest xs)))))))
-  (aux (list) tree)))   
+    (aux (list) tree)))
+
+(defun walk-tree (f tree)
+  (labels ((aux (acc xs)
+	     (if (null xs) (nreverse acc)
+		 (let ((x (first xs)))
+		   (if (atom x) 
+		       (aux (push (funcall f x) acc) (rest xs))
+		       (aux (push (aux (list) x) acc) (rest xs)))))))
+    (aux (list) tree))
+  )
 ;;filters the leaves of a tree according to f.  An optional branching function
 ;;may be supplied, which given a list, returns a list of children.
 (defun filter-tree (filter tree &key (branch-func #'identity))
