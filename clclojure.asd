@@ -7,13 +7,16 @@
 (asdf:defsystem :clclojure
   :depends-on (:named-readtables :cl-package-locks) ;copied from example.
   :components ((:file "common-utils")
+               (:file "walk"
+                :depends-on ("common-utils"))
                (:file "sequences"
                 :depends-on  ("common-utils"))
-               (:file "eval")
-               (:file "literals"
-                :depends-on ("eval" "pvector" "cowmap"))
                (:file "reader"
                 :depends-on ("pvector" "cowmap" "sequences"))
+               (:file "eval"
+                :depends-on ("common-utils" "walk" "reader"))
+               (:file "literals"
+                :depends-on ("eval" "pvector" "cowmap"))
                (:file "keywordfunc")
                (:file "pvector")
                (:file "cowmap")

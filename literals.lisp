@@ -17,8 +17,13 @@
     (vector-map (lambda (x) (clclojure.eval:custom-eval-in-lexenv  x env)) obj))
 
   (defmethod let-expr   ((obj pvec))
-    `(clclojure.eval:literal
-      (clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj))))
+    ;; `(clclojure.eval:literal
+    ;;   (clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj)))
+    (list 'clclojure.reader::literal
+          (list* 'clclojure.reader::data-literal
+                 (list 'function  'persistent-vector)
+                 `((list ,@(vector-to-list obj)))))
+    )
   
   ;; (defmethod let-expr   ((obj pvec))
   ;;   obj)
@@ -28,8 +33,13 @@
     (vector-map (lambda (x) (clclojure.eval:custom-eval-in-lexenv  x env)) obj))
   
   (defmethod let-expr   ((obj subvector))
-    `(clclojure.eval:literal
-      (clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj))))
+    ;; `(clclojure.eval:literal
+    ;;   (clclojure.pvector:persistent-vector ,@(clclojure.pvector:vector-to-list obj)))
+    (list 'clclojure.reader::literal
+          (list* 'clclojure.reader::data-literal
+                 (list 'function  'persistent-vector)
+                 `((list ,@(vector-to-list obj)))))
+    )
 
   (defmethod clclojure.eval::literal? ((obj cowmap)) t)
   ;;(map {x y j k} => (persistent-map
@@ -46,11 +56,17 @@
             (map-seq obj) :initial-value (empty-map)))
 
   (defmethod let-expr   ((obj cowmap))
-    `(clclojure.eval:literal
-      (clclojure.cowmap:persistent-map
-       ,@(reduce (lambda (acc kv)
-                   (cons (first kv) (cons (second kv) acc)))
-                 (clclojure.cowmap:map-seq obj) :initial-value '()))))
+    ;; `(clclojure.eval:literal
+    ;;   (clclojure.cowmap:persistent-map
+    ;;    ,@(reduce (lambda (acc kv)
+    ;;                (cons (first kv) (cons (second kv) acc)))
+    ;;              (clclojure.cowmap:map-seq obj) :initial-value '())))
+    (list 'clclojure.reader::literal
+          (list* 'clclojure.reader::data-literal
+                 (list 'function  'persistent-map)
+                 `((list ,@(reduce (lambda (acc kv)
+                                     (cons (first kv) (cons (second kv) acc)))
+                                   (clclojure.cowmap:map-seq obj) :initial-value '()))))))
 
   
 )
