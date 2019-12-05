@@ -65,7 +65,7 @@
     (t (progn (pprint :blah) subform))))
 
 (defun clj-literal-walker (subform)
-  (pprint (list :walking subform))
+  ;(pprint (list :walking subform))
   (typecase subform
     (cons  (cond ((listp (first subform))
                   (if (seql (first (first subform)) 'literal)
@@ -73,8 +73,9 @@
                              (cons (clclojure.eval::symbolic (first  subform)) (rest subform)))                            
                       subform))
                  ((seql (first subform) 'literal)
-                  (progn (pprint :literal)
-                         (eval (cadr subform))))
+                  (let ((litexpr (cadr subform)))
+                    (progn (pprint :literal)
+                           (eval (cons 'clclojure.reader::quoted-data-literal (rest litexpr))))))
                  ((clclojure.eval::literal? (first subform))
                   (progn (pprint :literal?)
                          (values subform t)))
@@ -85,9 +86,11 @@
 ;;helper function that walks a form and recovers
 ;;symbolic data literals.
 (defun recover-literals (form)
-  (sb-walker:walk-form form nil #'literal-walker)
-  ;(prewalk-replace #'clj-literal-walker form)
-  )
+  ;(sb-walker:walk-form form nil #'literal-walker)
+  (pprint (list  :recovering form))
+  (let ((res (postwalk-replace #'clj-literal-walker form)))
+    (pprint (list :recovered res))
+    res))
 ;;we can alternately use macrolet...
 
 (defun normal-arg? (arg)

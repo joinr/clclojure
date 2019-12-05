@@ -194,9 +194,17 @@
   ;;   (1  (error "comma-dot not handled!")))
 
   (defun quoted (x)
-    (cond ((symbolp x) (list 'quote x))
-          ((listp x)   (mapcar #'quoted x))
+    (cond ((symbolp x)
+           (scase x
+                  ((function list cons apply sequences::seq->list)  x)
+                  (t (list 'quote x))))
+          ((listp x)  (scase (first x)
+                             ((function quote clj-quote) x)
+                             (t  (mapcar #'quoted x))))
           (t    x)))
+
+  (defmacro quoted-body (x)
+    (list 'quote  (quoted x)))
   
   (defun quasify (xs)
     (list 'apply '(function concat)
@@ -220,6 +228,11 @@
 
   (defmacro data-literal (ctor &rest body)
     (list 'literal (list 'apply ctor (list* 'sequences::seq->list body))))
+
+  (defmacro quoted-data-literal (ctor &rest body)
+    (list 'literal
+          (list 'apply ctor
+                (list* 'sequences::seq->list (eval `(quoted-body ,body))))))
   
   (defun backquote-charmacro (stream char)
     (declare (ignore char))
