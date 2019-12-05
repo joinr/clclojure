@@ -204,13 +204,14 @@
 ;;     `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
 
 (defmacro fn (&rest specs)
-  (let* ((name  (symb (symbol-name (gensym "fn_"))))
-         (res 
-           (if (vector-form? (common-lisp:first specs)) 
-               (fndef->sexp (fn* name specs))
-               ;;TODO get rid of this eval....
-               (let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
-                 (fndef->sexp bodies)))))
+  (let* ((hd    (common-lisp:first specs))
+         (name  (if (symbolp hd) hd (symb (symbol-name (gensym "fn_")))))
+         (specs (if (symbolp hd) (common-lisp:rest specs) specs))
+         (res   (if (vector-form? (common-lisp:first specs)) 
+                    (fndef->sexp (fn* name specs))
+                    ;;TODO get rid of this eval....
+                    (let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
+                      (fndef->sexp bodies)))))
     `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
 
 ;;def 

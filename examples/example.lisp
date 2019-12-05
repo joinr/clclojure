@@ -211,3 +211,26 @@ IBlah
 ;;not passing:
 (let [x 2  y `[,x]]
   `[,y `[,,y] ])
+
+
+;;Function recur
+(reduce (fn [acc x]
+            (if (odd? x) (recur acc (1+ x)) (+ acc x)))
+        -55 '(1 2 3 4))
+
+;;Named function (e.g. recur)
+(reduce (fn accf [acc x]
+            (if (odd? x)
+                (accf acc (1+ x))
+                (+ acc x)))
+        -55 '(1 2 3 4))
+
+(funcall (fn accf
+             ([x] (list :end x))
+             ([x & xs] (reduce conj (persistent-vector x) xs) ))
+         :beans)
+
+(funcall (fn accf
+             ([x] (list :end x))
+             ([x & xs] (reduce conj (persistent-vector :end x) xs) ))
+         1 2 3 4)
