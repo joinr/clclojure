@@ -30,10 +30,10 @@
   (:use :common-lisp :common-utils
         :clclojure.keywordfunc :clclojure.lexical
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols :clclojure.eval)
-  (:shadow :let :deftype :defmacro :map) ;:loop 
-  (:export :def :defn :fn :meta :with-meta :str
+  (:shadow :let :deftype :defmacro :map :reduce) ;:loop 
+  (:export :def :defn :fn :meta :with-meta :str :symbol?
            :deftype :defprotocol :reify :extend-type
-           :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map) ;:loop :defmacro
+           :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce) ;:loop :defmacro
   )
 (in-package clclojure.base)
 
@@ -671,6 +671,16 @@
 
 (defn empty [coll] (-empty coll))
 
+(defn reduce
+    ([f coll]
+        (if (sequences:internal-reduce? coll)
+            (sequences:reduce f coll)
+            (sequences:reduce f (seq coll))))
+  ([f init coll]
+      (if (sequences:init-reduce? coll)
+          (sequences:reduce f init coll)
+          (sequences:reduce f (seq coll)))))
+
 ;; "Returns a new coll consisting of to-coll with all of the items of
 ;;   from-coll conjoined. A transducer may be supplied."
 ;; {:added "1.0"
@@ -744,25 +754,29 @@
         (sequences:map #'seq (list* x y zs)))))
 ;;need destructure...
 
+(def symbol? #'symbolp)
 ;; "Evaluates the exprs in a lexical context in which the symbols in
 ;;   the binding-forms are bound to their respective init-exprs or parts
 ;;   therein. Acts as a recur target."
-;; (defmacro loop* (bindings &rest body)
-;;   ;; (assert-args
-;;   ;;  (vector? bindings) "a vector for its binding"
-;;   ;;  (even? (count bindings)) "an even number of forms in binding vector")          
-;;   (let [vs (take 2 (drop 1 bindings))
-;;     bs (take-nth 2 bindings)
-;;     gs (map (fn [b] (if (symbol? b) b (gensym))) bs)
-;;     bfs (reduce1 (fn [ret [b v g]]
-;;                      (if (symbol? b)
-;;                          (conj ret g v)
-;;                          (conj ret g v b g)))
-;;                  [] (map vector bs vs gs))]
-;;     `(let ~bfs
-;;        (loop* ~(vec (interleave gs gs))
-;;               (let ~(vec (interleave bs gs))
-;;                 ~@body)))))
+(defmacro loop* (bindings &rest body)
+  ;; (assert-args
+  ;;  (vector? bindings) "a vector for its binding"
+  ;;  (even? (count bindings)) "an even number of forms in binding vector")          
+  (let [vs (take 2 (drop 1 bindings))
+    bs (take 2 bindings)
+    gs (map (fn [b] (if (symbol? b) b (gensym))) bs)
+    bfs (reduce1 (fn [ret bvg]
+                     (let [b (nth bvg 0)
+                           v (nth bvg 1)
+                           g (nth bvg 2)]
+                       (if (symbol? b)
+                           (conj ret g v)
+                           (conj ret g v b g))))
+                 [] (map vector bs vs gs))]
+    `(let ~bfs
+       (loop* ~(vec (interleave gs gs))
+              (let ~(vec (interleave bs gs))
+                ~@body)))))
 
 ;; (defmacro loop* (bindings &rest body)
 ;;   ;; (assert-args

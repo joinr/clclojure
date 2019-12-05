@@ -20,7 +20,9 @@
    :partition
    :partition-offset
    :interleave
-   :iterate))
+   :iterate
+   :init-reduce?
+   :internal-reduce?))
 
 (in-package :sequences)
 ;;an abstract lazy sequence.  
@@ -105,9 +107,16 @@
 (defmethod seq-rest ((obj FuncSeq))
   (seq-rest (seq obj)))
 
+(defun method-args (method)
+  (length (sb-mop::generic-function-lambda-list method)))
+
+(defun ts (n)
+  (loop for i from 1 to n
+        collect (quote  t)))
+
 ;;this only works for single-arity stuff....
 (defun implements? (method x)
-  (find-method method '() (list  (class-of x)) nil))
+  (find-method method '() (list*  (class-of x) (ts (1- (method-args method)))) nil))
 
 ;;general lazy sequence constructors.
 ;;Coerce a thing into a LazySeq
@@ -211,6 +220,9 @@
 (defgeneric internal-reduce (obj f))
 (defgeneric init-reduce     (obj f init))
 
+(defun init-reduce?     (obj) (implements? #'init-reduce obj))
+(defun internal-reduce? (obj) (implements? #'internal-reduce obj))
+
 ;;This will likely be superceded or buttress clojure protocol.
 (defgeneric -deref (obj))
 (defmethod  -deref  (obj) obj)
@@ -228,6 +240,48 @@
 
 (defun reduced? (obj)
   (eq (type-of obj) 'reduced-value))
+
+(defun seq-int-reduce (obj f)
+  (block early
+    (common-lisp:reduce (lambda (acc x)
+                          (let ((res (funcall f acc x)))
+                            (if (not (reduced? res))
+                                res
+                                (return-from early (deref res)))))
+                        obj)))
+
+(defun seq-init-reduce (obj f init)
+  (block early
+    (common-lisp:reduce (lambda (acc x)
+                          (let ((res (funcall f acc x)))
+                            (if (not (reduced? res))
+                                res
+                                (return-from early (deref res)))))
+                        obj :initial-value init)))
+
+(defmethod internal-reduce ((obj sequence) f)
+  (seq-int-reduce obj f))
+
+(defmethod init-reduce ((obj sequence) f init)
+  (seq-init-reduce obj f init))
+
+(defmethod internal-reduce ((obj common-lisp:cons) f)
+  (seq-int-reduce obj f))
+
+(defmethod init-reduce ((obj common-lisp:cons) f init)
+  (seq-init-reduce obj f init))
+
+(defmethod internal-reduce ((obj common-lisp:simple-vector) f)
+  (seq-int-reduce obj f))
+
+(defmethod init-reduce ((obj common-lisp:simple-vector) f init)
+  (seq-init-reduce obj f init))
+
+(defmethod internal-reduce ((obj common-lisp:array) f)
+  (seq-int-reduce obj f))
+
+(defmethod init-reduce ((obj common-lisp:array) f init)
+  (seq-init-reduce obj f init))
 
 (defmethod internal-reduce ((obj LazySeq) f)
   (let ((init (first obj)))
@@ -257,23 +311,6 @@
 (defmethod init-reduce  (obj f init)
   (init-reduce (seq obj) f init))
 
-(defmethod internal-reduce ((obj sequence) f)
-  (block early
-    (common-lisp:reduce (lambda (acc x)
-                          (let ((res (funcall f acc x)))
-                            (if (not (reduced? res))
-                                res
-                                (return-from early (deref res)))))
-                        obj)))
-
-(defmethod init-reduce ((obj sequence) f init)
-  (block early
-    (common-lisp:reduce (lambda (acc x)
-                          (let ((res (funcall f acc x)))
-                            (if (not (reduced? res))
-                                res
-                                (return-from early (deref res)))))
-                        obj :initial-value init)))
 
 ;;Some useful core functions.
 ;;this will get replaced by the clojure.core stuff,
