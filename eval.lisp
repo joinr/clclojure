@@ -141,12 +141,15 @@
   `(let ((,'clclojure.eval::*noisy-depth* (1+ ,'clclojure.eval::*noisy-depth*)))
      ,@body))
 
+
+;;TIL '#:blah => uninterned symbol
 (defun symbol-key (s)
   (cond ((and (symbolp s)
-               (string= (string-upcase (package-name  (symbol-package s)))
-                        "CLCLOJURE.BASE")
-               (string= (string-upcase (symbol-name s))
-                        "LET"))
+              (symbol-package s)
+              (string= (string-upcase (package-name  (symbol-package s)))
+                       "CLCLOJURE.BASE")
+              (string= (string-upcase (symbol-name s))
+                       "LET"))
          :clj-let)
         ;((macro? s) :macro) ;;not in use.
         (t    s)))
@@ -173,7 +176,7 @@
                                     (rhs (second kv)))
                                 (if (let-expr? rhs)
                                     `(,lhs ,(clclojure.eval:let-expr rhs))
-                                    `(,lhs ,(macroexpand rhs))))) args))
+                                    `(,lhs ,(bump-depth  (custom-eval-bindings (macroexpand rhs) lexenv) ))))) args))
                   (new-body (mapcar (lambda (v)
                                       (cond ((let-expr? v)
                                              (clclojure.eval:let-expr v))

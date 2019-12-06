@@ -1,13 +1,10 @@
 (ql:quickload :clclojure)
 
-;;we'll eventually morph this
-;;into an ns call somehow....
-(defpackage :clclojure.example
-  (:use  :common-lisp :clclojure.base)
-  (:shadowing-import-from :clclojure.base
-   :deftype :let :map))
-(in-package :clclojure.example)
-
+;;Lame ns call (for now just a
+;;wrapper around defpackage)
+(clclojure.base:ns
+ :clclojure.example)
+x
 ;;we have persistent vectors, which will
 ;;be replaced by bootstrapped variants from
 ;;clclojure.base...
@@ -173,7 +170,7 @@ IBlah
 (defn test-arities []
   (let [sum (fn ([x] x)
                 ([x y] (+ x y))
-                ([x y &rest zs] (reduce #'+ zs :initial-value (+ x y))))]
+                ([x y &rest zs] (reduce #'+ (+ x y) zs)))]
     (clclojure.pvector:persistent-vector
      (sum 1)
      (sum 1 2)
@@ -185,7 +182,7 @@ IBlah
 (defn test-arities-literal []
   (let [sum (fn ([x] x)
                 ([x y] (+ x y))
-                ([x y &rest zs] (reduce #'+ zs :initial-value (+ x y))))]
+                ([x y &rest zs] (reduce #'+ (+ x y) zs)))]
     [(sum 1)
      (sum 1 2)
      (sum 1 2 3 4 5 6)
@@ -194,11 +191,16 @@ IBlah
 (defn test-arities-quasi []
   (let [sum (fn ([x] x)
                 ([x y] (+ x y))
-                ([x y &rest zs] (reduce #'+ zs :initial-value (+ x y))))]
+                ([x y &rest zs] (reduce #'+  (+ x y) zs)))]
     `[,(sum 1)
       ,(sum 1 2)
       ,(sum 1 2 3 4 5 6)
-       ]))
+    ]))
+
+(test-my-scope)
+(test-arities)
+(test-arities-literal)
+(test-arities-quasi)
 
 ;; EXAMPLE> (test-arities-literal)
 ;; [1 3 21]
@@ -225,17 +227,36 @@ IBlah
                 (+ acc x)))
         -55 '(1 2 3 4))
 
+;;these are cool, but we should be able to
+;;eliminate the funcall need.
 (funcall (fn accf
              ([x] (list :end x))
-             ([x & xs] (reduce conj (persistent-vector x) xs) ))
+             ([x & xs] (reduce conj (vector x) xs) ))
          :beans)
 
 (funcall (fn accf
              ([x] (list :end x))
-             ([x & xs] (reduce conj (persistent-vector :end x) xs) ))
+             ([x & xs] (reduce conj (vector :end x) xs) ))
          1 2 3 4)
 
 (funcall (fn accf
              ([x] (list :end x))
              ([x & xs] (reduce conj [:end x] xs) ))
          1 2 3 4)
+
+(defn count-to-ten [x]
+  (if (< x 10)
+      (recur (+ x 1))
+      x))
+
+(count-to-ten 0)
+
+(defn count-to-ten-r [x]
+  (if (< x 10)
+      (count-to-ten-r (+ x 1))
+      x))
+
+(defn lazy-count [init]
+  (when (pos? init)
+    (lazy-seq
+     (cons init (lazy-count (- init 1))))))

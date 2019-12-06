@@ -939,7 +939,7 @@
                     (,recur-sym ,args (,name ,@args)))
              (lambda ,args (,name ,@args)))
           `(labels ((,name ,args ,body)
-                    (,recur-sym (&rest xs) (apply (function,name) xs)))
+                    (,recur-sym (&rest xs) (apply (function ,name) xs)))
              (lambda (&rest xs) (apply (function,name) xs)))))))
        
 ;;If we want to compose a named function from a set of cooperating 
