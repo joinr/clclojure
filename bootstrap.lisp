@@ -684,7 +684,7 @@
    (-peek [coll]  (common-lisp:first coll))
    (-pop  [coll]  (common-lisp:rest coll))
    ISeqable
-   (-seq [coll] (sequences::seq coll))
+   (-seq [coll] coll)
    IHash
    (-hash [o]   (sxhash o))
    IEquiv
@@ -693,8 +693,8 @@
    (-key [coll] (common-lisp:first coll))
    (-val [coll] (common-lisp:second coll))
    ISeq
-   (-first [coll]  (sequences::first coll))
-   (-rest  [coll]  (sequences::rest coll))
+   (-first [coll]  (common-lisp:first coll))
+   (-rest  [coll]  (cdr coll))
    )
 
   (extend-type
@@ -885,14 +885,29 @@
 
 
 (defn conj
-    ([] [])
+  ([] [])
   ([coll] coll)
   ([coll x] (-conj coll x))
   ([coll x & xs]
-         (if (seq xs)           
-             (apply #'recur `(,(-conj  coll x) ,(first xs) ,@(cdr xs)))
+         (if (seq xs)
+             (recur  (-conj  coll x) (first xs) (rest xs))
              (conj coll x))))
 
+;; (defn konj
+;;   ([coll x] (-conj coll x))
+;;   ([coll x & xs]
+;;          (if (seq xs)
+;;              (recur  (-conj  coll x) (first xs) (rest xs))
+;;              (konj coll x))))
+
+;; (defn conj
+;;     ([] [])
+;;   ([coll] coll)
+;;   ([coll x] (-conj coll x))
+;;   ([coll x & xs]
+;;          (if (seq xs)           
+;;              (apply #'recur `(,(-conj  coll x) ,(first xs) ,@(cdr xs)))
+;;              (conj coll x))))
 ;;(recur coll (first xs) (next xs)) 
 ;;(apply #'conj '(coll (first xs) (next xs)))
 ;; (macrolet ((recur (&rest args)
