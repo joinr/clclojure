@@ -90,3 +90,19 @@
           (progn (when (< 2 3)
                    (print 44))
                  2)))))
+
+
+;;test function for sussing out the correct way to
+;;handle recur forms with varargs...
+(defun tst ()
+  (flet ((blah (&rest args) (pprint :hobart) nil))
+    (macrolet ((recur (&whole whole-form &rest args)
+                 (let* ((frm (list* 'apply (list 'function 'blah) args)))
+                   (progn (pprint (list :expanding whole-form :to frm))
+                          frm))))
+      (labels ((blah (x &rest xs)
+                 (pprint (list x xs))
+                 (if (null xs) x
+                     (progn (pprint (macroexpand-1 `(recur (+ ,x (first ,xs)) (rest ,xs))))
+                            (recur (+ x (first xs)) (rest xs))))))
+        #'blah))))

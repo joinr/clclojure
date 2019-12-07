@@ -883,7 +883,6 @@
 (defn drop [n coll]
   (sequences:drop n (seq coll)))
 
-
 (defn conj
   ([] [])
   ([coll] coll)
