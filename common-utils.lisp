@@ -1100,25 +1100,19 @@
                             (let* ((fname (func-name name :variadic))
                                    (fbody  `(named-fn ,fname ,(first var) ,(second var))))
                               `(:variadic ,fname ,fbody))))
-               (specs     (if var (append funcspecs (list varspec)) funcspecs))
-               (aux       (gensym "aux"))
-               (dummy     (gensym "stupid-var")))     
-          `(flet ((,aux () (error 'not-used)))
-             (declare (ignore ,dummy))             
-             (macrolet ((,name (,'&rest ,'args)
-                          (list 'apply (list 'function  ',aux)  (list* 'list ,'args))))
-               (let (,@(mapcar (lambda (xs) `(,(second xs) ,(third xs)))
-                               specs))
-                 (labels ((,aux (,'&rest ,args)
-                            (case (length ,args)
-                              ,@(mapcar (lambda (xs)  (let ((n (first xs))
-                                                            (name (second xs)))
-                                                        (if (= n 0) 
-                                                            `(,n (funcall ,name))
-                                                            `(,n (apply  ,name  ,args))))) funcspecs)
-                              (otherwise ,(if var  `(apply  ,(second varspec) ,args)
-                                              `(error 'no-matching-args))))))
-                   (function ,aux)))))))))
+               (specs     (if var (append funcspecs (list varspec)) funcspecs)))     
+          `(let* (,@(mapcar (lambda (xs) `(,(second xs) ,(third xs)))
+                            specs))
+             (labels ((,name (,'&rest ,args)
+                        (case (length ,args)
+                          ,@(mapcar (lambda (xs)  (let ((n (first xs))
+                                                        (name (second xs)))
+                                                    (if (= n 0) 
+                                                        `(,n (funcall ,name))
+                                                        `(,n (apply  ,name  ,args))))) funcspecs)
+                          (otherwise ,(if var  `(apply  ,(second varspec) ,args)
+                                          `(error 'no-matching-args))))))
+               (function ,name)))))))
 
 ;;let's construct one from scratch..
 
@@ -1152,6 +1146,13 @@
        (2          (funcall blah-2 (first xs) (second xs)))
        (otherwise  (apply blah-variadic xs) ))))
 
+ )
+
+(comment
+ ;;testing -this works.
+ (defparameter f (named-fn* blah
+                      ((x)           (pprint (list x)) x)
+                      ((x &rest xs)  (if (null xs) (blah x) (recur (+ x (first xs)) (rest xs))))))
  )
 
 
