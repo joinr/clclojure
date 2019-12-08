@@ -2,6 +2,95 @@
   (:use :common-lisp :common-utils))
 (in-package :common-utils.recurtest)
 
+;;can we implement (recur ...) ?
+
+;; (block some-name
+;;   (tagbody some-point 
+;;     :dostuff
+;;      (when :recur
+;;        (progn  (update-vars)
+;;                (go some-point))
+;;        )
+;;       )
+;;   result)
+
+;; (defun custom-loop (x)
+;;   (let ((res))
+;;     (macrolet ((recur (xnew)
+;;                  `(progn (setf ,'x ,xnew)
+;;                          (pprint ,'x)
+;;                          (go ,'recur-from))))
+;;       (tagbody recur-from
+;;          (setf res
+;;                (if (= x 10)
+;;                    x
+;;                    (recur (1+  x)))))
+;;       res)))
+
+;; (defmacro with-recur (args &rest body)
+;;   (let* ((recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
+;;          (local-args (mapcar (lambda (x)
+;;                                (intern (symbol-name x))) args))
+;;          (res        (gensym "res"))
+;;          (recur-from (gentemp "recur-from"))
+;;          (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) local-args
+;;                              ))
+;;          (bindings   (mapcar (lambda (xy)
+;;                                `(setf ,(car xy) ,(cdr xy))) (pairlis local-args recur-args))))
+;;     `(let ((,res))
+;;        (tagbody ,recur-from
+;;           (flet ((,recur-sym ,recur-args
+;;                    (progn ,@bindings
+;;                           (go ,recur-from))
+;;                    ))
+;;             (setf ,res ,@body)))
+;;        ,res)))
+
+
+;; (defmacro with-recur (args &rest body)
+;;   (let* ((recur-sym  (intern "RECUR")) ;HAVE TO CAPITALIZE!
+;;          (local-args (mapcar (lambda (x)
+;;                                (intern (symbol-name x))) args))
+;;          (res        (gensym "res"))
+;;          (recur-from (gentemp "recur-from"))
+;;          (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) local-args
+;;                              ))
+;;          (update-binds (gentemp "update-binds"))
+;;          (bindings   (mapcar (lambda (xy)
+;;                                `(setf ,(car xy) ,(cdr xy))) (pairlis local-args recur-args))))
+;;     `(let ((,res))
+;;        (flet ((,update-binds ,recur-args
+;;                 (progn ,@bindings)))
+;;          (macrolet ((,recur-sym ,args
+;;                       `(progn (,,update-binds ,,@args)
+;;                               (go ,,recur-from)))))
+;;          (tagbody ,recur-from
+;;             (setf ,res ,@body)))
+;;        ,res)))
+
+;; (with-recur (x 2)
+;;   (if (< x 4)
+;;       (recur (1+ x))
+;;       x))
+
+;; (let ((continue? t)
+;;       (x 2)
+;;       (res)
+;;       (continue? nil))
+;;   (flet ((recur (x)
+;;            (setf x x)
+;;            (setf continue? t)))   
+;;     (tagbody recur-from
+;;        (progn
+;;          (setf res
+;;                (if (< x 4)
+;;                    (recur (1+ x))
+;;                    x))
+;;          (when continue?
+;;            (setf continue? nil)
+;;            (go recur-from))))
+;;     res))
+
 (comment
  ;;we can call simmary-tails on all these and get nil,
  ;;or some combination of (t, nil), (t, some-list-of illegal callsites)
@@ -168,3 +257,174 @@
 ;;                      X))
 ;;            (WHEN #:|continuex764| (SETF #:|continuex764| NIL) (GO |recur-fromvar|))))
 ;;       #:|res763|)))
+
+
+;;let's construct one from scratch..
+
+(comment
+ (defun blah (&rest xs)
+   (let* ((blah-1         (named-fn blah-1 (x)
+                                    (pprint x)))
+          (blah-2         (named-fn blah-2 (acc bound)
+                                    (if (< acc bound)
+                                        (blah (+ acc 3) bound)
+                                        acc)))
+          (blah-variadic  (named-fn blah-variadic (x y &rest zs)
+                                    (+ x y (apply #'+ zs)))))
+     (case (length xs)
+       (1          (funcall blah-1 (first xs)))
+       (2          (funcall blah-2 (first xs) (second xs)))
+       (otherwise  (apply blah-variadic xs) ))))
+ 
+ ;;shouldn't blow the stack..but it does unless compiled.
+ (defun blah (&rest xs)
+   (let* ((blah-1         (named-fn blah-1 (x)
+                                    (pprint x)))
+          (blah-2         (named-fn blah-2 (acc bound)
+                                    (if (< acc bound)
+                                        (recur (+ acc 3) bound)
+                                        acc)))
+          (blah-variadic  (named-fn blah-variadic (x y &rest zs)
+                                    (+ x y (apply #'+ zs)))))
+     (case (length xs)
+       (1          (funcall blah-1 (first xs)))
+       (2          (funcall blah-2 (first xs) (second xs)))
+       (otherwise  (apply blah-variadic xs) ))))
+
+ )
+
+(comment
+ ;;testing -this works.
+ (defparameter f (named-fn* blah
+                            ((x)           (pprint (list x)) x)
+                            ((x &rest xs)  (if (null xs) (blah x) (recur (+ x (first xs)) (rest xs))))))
+ )
+
+
+;; (defmacro named-fn* (name &rest args-bodies)
+;;   (if (= (length args-bodies) 1)
+;;       (let ((args-body (first args-bodies)))
+;;  	`(named-fn ,name ,(first args-body) ,(second args-body))) ;regular named-fn, no dispatch.
+;;       (destructuring-bind (cases var) (parse-dispatch-specs args-bodies)
+;;         (let* ((args (gensym "args"))
+;;                (funcspecs (mapcar (lambda (xs)
+;; 				    (destructuring-bind (n (args body)) xs
+;; 				      (let* ((fname (func-name name n))
+;; 					     (fbody  `(named-fn ,fname ,args ,body)))
+;; 					(if (= n 0)					    
+;; 					    `(,n ,fname  ,fbody)
+;; 					    `(,n ,fname  ,fbody))))) cases))
+;;                (varspec   (when var 
+;;                             (let* ((fname (func-name name :variadic))
+;;                                    (fbody  `(named-fn ,fname ,(first var) ,(second var))))
+;;                               `(:variadic ,fname ,fbody))))
+;;                (specs     (if var (append funcspecs (list varspec)) funcspecs))
+;;                (aux       (gensym "aux"))
+;;                (dummy     (gensym "stupid-var")))     
+;;           `(let ((,dummy nil) )
+;;              (declare (ignore ,dummy))             
+;;              (macrolet ((,name (,'&rest ,'args)
+;;                           (list 'apply (list 'function (quote ,aux))  (list* 'list ,'args))))
+;;                (let (,@(mapcar (lambda (xs) `(,(second xs) ,(third xs)))
+;;                                specs))
+;;                  (labels ((,aux (,'&rest ,args)
+;;                             (case (length ,args)
+;;                               ,@(mapcar (lambda (xs)  (let ((n (first xs))
+;;                                                             (name (second xs)))
+;;                                                         (if (= n 0) 
+;;                                                             `(,n (funcall ,name))
+;;                                                             `(,n (apply  ,name  ,args))))) funcspecs)
+;;                               (otherwise ,(if var  `(apply  ,(second varspec) ,args)
+;;                                               `(error 'no-matching-args))))))
+;;                    (function ,aux)))))))))
+
+;;testing
+(comment
+ (defparameter e
+   (named-fn* blah
+              ((acc bound)   (if (< acc bound) (recur (+ acc 3) bound) acc))
+              ))
+ (defparameter f
+   (named-fn* blah
+              ((acc bound)   (if (< acc bound) (recur (+ acc 3) bound) acc))
+              ((x &rest xs)  (if (null xs) x (recur (+ x (first xs)) (rest xs))))
+              ))
+
+ ;;we shouldn't need progn...
+ (defparameter g
+   (named-fn* blah
+              ((x)
+               (progn 
+                 (pprint (list :blah-1 :result x))
+                 x))
+              ((acc bound)
+               (progn (pprint (list :blah-2 :counting acc :to bound))
+                      (if (< acc bound) (recur (+ acc 3) bound) acc)))
+              ((x &rest xs)
+               (progn (pprint (list :blah-variadic :adding x :to xs))
+                      (if (null xs) x   (recur (+ x (first xs)) (rest xs)))))))
+
+ (defparameter h
+   (named-fn* blah
+              ((x)
+               (progn 
+                 (pprint (list :blah-1 :result x))
+                 x))
+              ((acc bound)
+               (progn (pprint (list :blah-2 :counting acc :to bound))
+                      (if (< acc bound) (blah (+ acc 3) bound) acc)))
+              ;; ((x &rest xs)
+              ;;  (progn (pprint (list :blah-variadic :adding x :to xs))
+              ;;         (if (null xs) x   (recur (+ x (first xs)) (rest xs)))))
+              ))
+ 
+ )
+
+;; (defmacro named-fn* (name &rest args-bodies)
+;;   (if (= (length args-bodies) 1)
+;;       (let ((args-body (first args-bodies)))
+;;  	`(named-fn ,name ,(first args-body) ,(second args-body))) ;regular named-fn, no dispatch.
+;;       (destructuring-bind (cases var) (parse-dispatch-specs args-bodies)
+;;         (let* ((recur-sym  (intern "RECUR"))
+;;                (args (gensym "args"))
+;;                (funcspecs (mapcar (lambda (xs)
+;; 				    (destructuring-bind (n (args body)) xs
+;; 				      (let* ((fname (func-name name n))
+;; 					     (fbody  `(named-fn ,fname ,args ,body)))
+;; 					(if (= n 0)					    
+;; 					    `(,n ,fname  ,fbody)
+;; 					    `(,n ,fname  ,fbody))))) cases))
+;;                (varspec   (when var 
+;;                             (let* ((fname (func-name name :variadic))
+;;                                    (fbody  `(named-fn ,fname ,(first var) ,(second var))))
+;;                               `(:variadic ,fname ,fbody))))
+;;                (specs     (if var (append funcspecs (list varspec)) funcspecs))
+;;                (aux       (gensym "aux")))
+;;           `(let ((,name))
+;;              (macrolet ((,name (,'&rest ,args)
+;;                           (list* 'funcall ',name ,args)
+;;                           ))
+;;                (let* (,@(mapcar (lambda (xs) `(,(second xs) ,(third xs))) specs))
+;;                  (labels ((,aux (,'&rest ,args) 
+;;                             (case (length ,args)
+;;                               ,@(mapcar (lambda (xs)  (let ((n (first xs))
+;;                                                             (name (second xs)))
+;;                                                         (if (= n 0) 
+;;                                                             `(,n (funcall ,name))
+;;                                                             `(,n (apply  ,name ,args))))) funcspecs)
+;;                               (otherwise ,(if var  `(apply  ,(second varspec) ,args)
+;;                                               `(error 'no-matching-args))))))
+;;                    (setf ,name (lambda (&rest ,args) (apply ,aux ,args)))
+;;                    (labels ((,name (,'&rest ,args) (apply ,name ,args)))
+;;                      (function ,aux))))))))))
+
+;;testing
+(comment 
+ (defparameter the-func
+   (lambda* 
+    (() 2)
+    ((x) (+ x 1))
+    ((x y) (+ x y))
+    ((&rest xs) (reduce #'+ xs))))
+
+ )
