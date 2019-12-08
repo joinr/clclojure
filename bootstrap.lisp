@@ -892,31 +892,6 @@
              (recur  (-conj  coll x) (first xs) (rest xs))
              (conj coll x))))
 
-;; (defn konj
-;;   ([coll x] (-conj coll x))
-;;   ([coll x & xs]
-;;          (if (seq xs)
-;;              (recur  (-conj  coll x) (first xs) (rest xs))
-;;              (konj coll x))))
-
-;; (defn conj
-;;     ([] [])
-;;   ([coll] coll)
-;;   ([coll x] (-conj coll x))
-;;   ([coll x & xs]
-;;          (if (seq xs)           
-;;              (apply #'recur `(,(-conj  coll x) ,(first xs) ,@(cdr xs)))
-;;              (conj coll x))))
-;;(recur coll (first xs) (next xs)) 
-;;(apply #'conj '(coll (first xs) (next xs)))
-;; (macrolet ((recur (&rest args)
-;;              `(apply #'conj ,args)))
-;;   (LABELS ((CONJ (COLL X &REST XS)
-;;              (PROGN
-;;                (IF (SEQ XS)
-;;                    (PROGN (PPRINT X) (RECUR COLL (FIRST XS) (NEXT XS)))))))
-;;     (LAMBDA (&REST COMMON-UTILS::XS) (APPLY #'CONJ COMMON-UTILS::XS))))
-
 (defn cons [x coll]
   (-conj coll x))
 
@@ -936,10 +911,21 @@
 ;; {:added "1.0"
 ;; :static true}
 
+;; (defn dorun
+;;     ([coll]
+;;      (when-let [s (seq coll)]
+;;        (recur (next s))))
+;;   ([n coll]
+;;       (when (and (seq coll) (pos? n))
+;;         (recur (dec n) (next coll)))))
+
+;;temporary work around while I patch tail cail detection
+;;so we stop getting false positives.
 (defn dorun
     ([coll]
-     (when-let [s (seq coll)]
-       (recur (next s))))
+     (let [s (seq coll)]
+       (when s
+         (recur (next s)))))
   ([n coll]
       (when (and (seq coll) (pos? n))
         (recur (dec n) (next coll)))))
@@ -1119,15 +1105,16 @@
   `(sequences::lazy-seq ,@body))
 
 (defn map
-  ([f]
-   (fn [rf]
-       (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-                 (rf result (f input)))
-        ([result input & inputs]
-                 (rf result (apply f input inputs))))))
+  ;;temporarily on hold while we fix tail recur detection.
+  ;; ([f]
+  ;;  (fn [rf]
+  ;;      (fn
+  ;;       ([] (rf))
+  ;;       ([result] (rf result))
+  ;;       ([result input]
+  ;;                (rf result (f input)))
+  ;;       ([result input & inputs]
+  ;;                (rf result (apply f input inputs))))))
   ([f coll]
       (sequences:map f (seq coll)))
   ([f c1 c2]
@@ -1183,7 +1170,7 @@
 ;;    (when-let [s (seq coll)]
 ;;      (let [f  (first s)
 ;;             r (rest s)]
-;;        (if (predicate f)
+;;        (if (funcall predicate f)
 ;;            (cons f (filter predicate r))
 ;;            (filter predicate r))))))
 
