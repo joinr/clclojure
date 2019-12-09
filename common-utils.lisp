@@ -19,7 +19,7 @@
    :reduce-tree
    :filter
    :group-by
-
+   
    :hash-table->entries
    :hash-table->keys
    :hash-table->vals
@@ -58,6 +58,8 @@
    :with-env
    :named-fn
    :named-fn*
+   :exception-info
+
    ))
 (in-package :common-utils)
 
@@ -520,6 +522,12 @@
 		,(append  sorted-cases 
 			 `((otherwise ,(or variadic-case '(error 'no-matching-args))))))))	      
 
+
+(define-condition exception-info (error)
+  ((message :initarg :message :reader exception-info-message)
+   (data    :initarg :data    :reader exception-info-data)
+   (cause   :initarg :cause   :reader exception-info-cause)))
+
 ;;our specs for a mult-bodied lambda are like this:
 ;; (lambda*
 ;;    (()    :no-args)
@@ -910,35 +918,6 @@
                     ,(recur-fn-body args body)))
            (function ,name)))))
 
-;;this version doesn't blow the stack.
-;; (defmacro named-fn (name args body)
-;;   (let  ((recur-sym (intern "RECUR")))
-;;     (multiple-value-bind (arity variadic) (args-type args)
-;;       (declare (ignore arity))
-;;       (if (not variadic) 
-;;           `(labels ((,name ,args
-;;                       (with-recur ,(flatten (mapcar (lambda (arg) `(,arg ,arg)) args))
-;;                         ,body)))
-;;              (function ,name))
-;;           `(labels ((,name ,args
-;;                       (let ((,'init (list* ,@(strip-rest args))))
-;;                         (with-rest-recur (,args ,'init)
-;;                           ,body))))
-;;              (function ,name))))))
-
-
-
-;;So, our labels version of recur won't TCO for us....
-;; (defmacro named-fn (name args body)
-;;   (let  ((recur-sym (intern "RECUR")))
-;;     (multiple-value-bind (arity variadic) (args-type args)
-;;       (declare (ignore arity))
-;;       (if (not variadic) 
-;;           `(labels ((,name ,args ,body)
-;;                     (,recur-sym ,args (,name ,@args)))
-;;              (function ,name))
-;;           `(name-var-fn ,name ,args ,body)))))
-
 ;;If we want to compose a named function from a set of cooperating 
 ;;named functions, then we can build a dispatching name, which is 
 ;;shared amongst the different implementations.
@@ -994,37 +973,6 @@
                        (otherwise ,(if var (second varspec)
                                        `(error 'no-matching-args))))))
             (function ,name))))))
-
-;; (defmacro named-fn* (name &rest args-bodies)
-;;   (if (= (length args-bodies) 1)
-;;       (let ((args-body (first args-bodies)))
-;;  	`(named-fn ,name ,(first args-body) ,(second args-body))) ;regular named-fn, no dispatch.
-;;       (destructuring-bind (cases var) (parse-dispatch-specs args-bodies)
-;;         (let* ((args (gensym "args"))
-;;                (funcspecs (mapcar (lambda (xs)
-;; 				    (destructuring-bind (n (args body)) xs
-;; 				      (let* ((fname (func-name name n))
-;; 					     (fbody  `(named-fn ,fname ,args ,body)))
-;; 					(if (= n 0)					    
-;; 					    `(,n ,fname  ,fbody)
-;; 					    `(,n ,fname  ,fbody))))) cases))
-;;                (varspec   (when var 
-;;                             (let* ((fname (func-name name :variadic))
-;;                                    (fbody  `(named-fn ,fname ,(first var) ,(second var))))
-;;                               `(:variadic ,fname ,fbody))))
-;;                (specs     (if var (append funcspecs (list varspec)) funcspecs)))     
-;;           `(let* (,@(mapcar (lambda (xs) `(,(second xs) ,(third xs)))
-;;                             specs))
-;;              (labels ((,name (,'&rest ,args)
-;;                         (case (length ,args)
-;;                           ,@(mapcar (lambda (xs)  (let ((n (first xs))
-;;                                                         (name (second xs)))
-;;                                                     (if (= n 0) 
-;;                                                         `(,n (funcall ,name))
-;;                                                         `(,n (apply  ,name  ,args))))) funcspecs)
-;;                           (otherwise ,(if var  `(apply  ,(second varspec) ,args)
-;;                                           `(error 'no-matching-args))))))
-;;                (function ,name)))))))
 
 ;;printers
 ;;This is janky.  TBD: beter implementation (e.g. lazy seq...)

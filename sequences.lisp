@@ -22,7 +22,8 @@
    :interleave
    :iterate
    :init-reduce?
-   :internal-reduce?))
+   :internal-reduce?
+   :seq-count))
 
 (in-package :sequences)
 ;;an abstract lazy sequence.  
@@ -495,6 +496,9 @@
   ((n coll)
     (lazy-seq 
        (cons (take n coll) (partition n n (drop n coll))))))
+
+(defun seq-count (s)
+  (reduce #'+ (map (lambda (x) (declare (ignore x)) 1) s)))
 
 ;;Eager Sequence Functions, may be OBE
 ;;====================================

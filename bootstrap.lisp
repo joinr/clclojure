@@ -31,13 +31,13 @@
         :clclojure.keywordfunc :clclojure.lexical
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols :clclojure.eval)
   (:shadow :let :deftype :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
-   :odd? :even? :zero? :identity :filter :loop :if-let) 
+   :odd? :even? :zero? :identity :filter :loop :if-let :throw) 
   (:export :def :defn :fn :meta :with-meta :str :symbol? :first :rest :second :next
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count :do :get :assoc :when-let
    :if-let :ns :even? :pos? :zero? :odd? :vector :hash-map :inc :dec :identity :loop  :chunk-first
    :doall  :chunk-buffer :every? :chunk-rest :interleave :ffirst :partition :seq->list :fnext :chunk-cons :nthrest
-   :dorun  :chunked-seq? :->iterator :chunk-append )              ; :defmacro
+   :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data)              ; :defmacro
   )
 (in-package clclojure.base)
 
@@ -654,7 +654,7 @@
         (when (not (zerop (-count coll) )) (nth-vec coll 0)))
  (-pop  [coll]  (subvec coll 1))
  ISeqable
- (-seq [coll] (vector-to-list )) ;poorly implemented.  should be arrayseq
+ (-seq [coll] (vector-to-list coll)) ;poorly implemented.  should be arrayseq
  IHash
  (-hash [o]   (error 'not-implemented))
  IEquiv
@@ -704,7 +704,7 @@
   (extend-type
    sequences::lazyseq
    ICounted
-   (-count [c] (length c))
+   (-count [c] (sequences:seq-count c))
 
    IEmptyableCollection
    (-empty [c] '())
@@ -730,7 +730,7 @@
   (extend-type
    sequences::funcseq
    ICounted
-   (-count [c] (length c))
+   (-count [c] (sequences:seq-count c))
 
    IEmptyableCollection
    (-empty [c] '())
@@ -1298,6 +1298,24 @@
 ;;need destructure...
 
 (def symbol? #'symbolp)
+
+(defn throw [e]
+  (error e))
+
+;;try-catch-finally...
+
+(defn ex-info
+    ([msg map]
+          (make-instance 'exception-info :data map :cause msg  :message msg))
+  ([msg map cause]
+        (make-instance 'exception-info  :data map :cause cause  :message msg)))
+
+(defn ex-data [e]
+  (common-utils::exception-info-data e))
+(defn ex-cause [e]
+  (common-utils::exception-info-cause e))
+(defn ex-message [e]
+  (common-utils::exception-info-message e))
 
 ;; (comment 
 
