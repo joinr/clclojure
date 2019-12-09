@@ -79,12 +79,15 @@
 ;;fn (bear in mind, this is setfable).
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   (defun keyword-accessors (bindings)
-    (let ((arg (gensym "lookup")))
-      (mapcar (lambda (lr)
-                (destructuring-bind (l r) lr
-                  (let ((f (keyaccess-func  (->keyaccess r))))
-                    (list r `(,l (,arg) (funcall (->keyaccess ,r) ,arg))))))
-              (filter (lambda (lr) (keywordp (second lr))) bindings))))
+    (let ((arg (gensym "lookup"))
+          (xs  (common-utils:filter (lambda (lr) (keywordp (second lr))) bindings)))
+      (when-not (null xs)
+                (mapcar (lambda (lr)
+                          (pprint lr)
+                          (destructuring-bind (l r) lr
+                            (let ((f (keyaccess-func  (->keyaccess r))))
+                              (list r `(,l (,arg) (funcall (->keyaccess ,r) ,arg))))))
+                        xs))))
 
   ;;we use a generic apply here...  collect all the args into a list and
   ;;apply.  In clojure, there's some cost to that.  Dunno what the
