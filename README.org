@@ -778,7 +778,41 @@ So common forms like =loop=, =for=, =let=, =fn=, =defmacro= and friends
 all leverage it.  We should be able to fairly straightforwardly port it
 from clojure.core.
 
-WIP
+**** Revisited Loop/Recur and variadic version
+During porting of more core library functions over, I exposed bugs
+in the extant labels/macrolet based version of function implementation.
+
+Did some experimenting and switched to the earlier loop-focused
+=with-recur= macro.  Did some more testing and experimentation,
+and switch over to inlining arity bodies for multiple-arity
+function definitions.  So named functions work, recur works,
+=loop= (without destructuring) is implemented (over =loop*=).
+
+Our functions now work fine with =lazy-seq= where before
+they were creating infinite loops and later not
+recognizing function symbols for self recur.
+
+
+*** ex-info
+En route to =destructure=, I implemented exception handling
+via =ex-info= and friends.  =try-catch-finally= is a macro
+away.  
+
+*** TCO detecting false positives
+Need to revisit the tail cail detection code that compiles
+=with-recur= invocations, since we seem to be mistaking
+simple =with-let= and =if-let= forms for non-tail
+calls for some reason.  For now, I've got warnings
+rendering, where in reality we want an error to signal (prior
+behavior).
+
+*** Rudimentary Parity
+We're approaching basic functionality where I can just
+copy/paste source from clojure.core and have it work without
+issue. It turns out, this is a great way to explore the
+range of language features from the ground up and implement
+as needed.  It might be possible to demo some advent of code
+solutions in clojure in common lisp before too long...
 
 * Hurdles
 A couple of big hurdles:
