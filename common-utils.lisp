@@ -59,7 +59,7 @@
    :named-fn
    :named-fn*
    :exception-info
-
+   :try 
    ))
 (in-package :common-utils)
 
@@ -982,4 +982,55 @@
     (nreverse
      (reduce (lambda (acc kv)
                (cons  (cadr kv) (cons (car kv) acc)))  (hash-table->entries m) :initial-value '()))))
+
+;;Courtesy of Doug Hoyte, Let Over Lambda.
+(defmacro defmacro/g! (name args &rest body)
+  (let ((syms (remove-duplicates
+               (remove-if-not #'g!-symbol-p
+                              (flatten body)))))
+    `(defmacro ,name ,args
+       (let ,(mapcar
+              (lambda (s)
+                `(,s (gensym ,(subseq
+                               (symbol-name s)
+                               2))))
+              syms)
+         ,@body))))
+
+;; try
+;; (try expr* catch-clause* finally-clause?)
+;; Special Form
+;; catch-clause => (catch classname name expr*)
+;; finally-clause => (finally expr*)
+
+;; Catches and handles Java exceptions.
+
+;; Please see http://clojure.org/special_forms#try
+;; catch-clause => (catch classname name expr*)
+;; finally-clause => (finally expr*)
+
+;; Catches and handles Java exceptions.
+(defmacro try (expr* catch-clause* &rest finally-clause?)
+  (destructuring-bind (some-exception se recover) (rest  catch-clause*)
+    (if finally-clause?
+        (destructuring-bind ((f fbody)) finally-clause?
+          (declare (ignore f))
+          (let ((finally (gensym "finally"))
+                (res     (gensym "res"))
+                (err     (gensym "err")))
+            `(let ((,res))
+              (restart-case
+                  (handler-case
+                      ,expr*
+                    (,some-exception (,se) (progn  (try ,recover
+                                                        (catch t ,err (setf ,res ,err)))
+                                                   (invoke-restart (quote ,finally)))))
+                (,finally ()
+                  (if ,res
+                      (progn ,fbody
+                             (error ,res))
+                      ,fbody))))))
+        `(handler-case
+             ,expr*
+           (,some-exception (,se) ,recover)))))
 

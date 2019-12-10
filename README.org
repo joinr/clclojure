@@ -814,6 +814,22 @@ range of language features from the ground up and implement
 as needed.  It might be possible to demo some advent of code
 solutions in clojure in common lisp before too long...
 
+
+*** try 
+Defined try-catch-finally semantics from clojure.core/try in common-utils:try, which
+clclojure.base exports.  Trivial to implement using =handler-case= and =restart-case=.
+
+*** ~ and ~@
+Realized that =sb-impl::comma-charmacro= handles this and splicing (@ form), so all 
+you have to do is add another reader macro binding for =~= using the same as =,=.
+
+*** cond
+Implemented clojure's cleaner version of =cond=.  Found a subtle error regarding
+the definition and use of =cons=.  Since we shadow =common-lisp:cons=, we ended up
+with an infinite pingpong of the protocol extension of =-conj= for =cons= types.
+Fix was to ensure we use =common-lisp:cons= for all necessary non-seq cons cell
+methods.
+
 * Hurdles
 A couple of big hurdles:
  

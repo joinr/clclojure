@@ -281,14 +281,11 @@
   (set-macro-character #\{ #'|brace-reader|)
   (set-syntax-from-char #\} #\))
 
-  
-  (set-macro-character #\` 'backquote-charmacro nil)
-  
-  ;;TODO move to named-readtable
-  (push-reader! 'persistent-vector  #\[ #\] #'|bracket-reader|)
-  ;;TODO move to named-readtable
-
   (push-reader! 'clclojure.pvector:persistent-vector  #\[ #\] #'|bracket-reader|))
+
+  (set-macro-character #\` 'backquote-charmacro nil)
+  (set-macro-character #\~ 'sb-impl::comma-charmacro nil)
+
 
 
 (comment

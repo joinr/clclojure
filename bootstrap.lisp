@@ -31,13 +31,13 @@
         :clclojure.keywordfunc :clclojure.lexical
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols :clclojure.eval)
   (:shadow :let :deftype :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
-   :odd? :even? :zero? :identity :filter :loop :if-let :throw) 
+   :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond) 
   (:export :def :defn :fn :meta :with-meta :str :symbol? :first :rest :second :next
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count :do :get :assoc :when-let
    :if-let :ns :even? :pos? :zero? :odd? :vector :hash-map :inc :dec :identity :loop  :chunk-first
    :doall  :chunk-buffer :every? :chunk-rest :interleave :ffirst :partition :seq->list :fnext :chunk-cons :nthrest
-   :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data)              ; :defmacro
+   :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try)              ; :defmacro
   )
 (in-package clclojure.base)
 
@@ -538,7 +538,7 @@
  IEmptyableCollection
  (-empty [c] nil)
  ICollection
- (-conj [coll itm] (cons itm nil))
+ (-conj [coll itm] (common-lisp:cons itm nil))
  IStack
  (-peek [coll] nil)
  (-pop  [coll] nil)
@@ -683,7 +683,7 @@
    IEmptyableCollection
    (-empty [c] '())
    ICollection
-   (-conj [coll itm] (cons itm coll))
+   (-conj [coll itm] (common-lisp:cons itm coll))
    IStack
    (-peek [coll]  (common-lisp:first coll))
    (-pop  [coll]  (common-lisp:rest coll))
@@ -804,26 +804,6 @@
 (defmethod print-object ((obj clclojure.cowmap::cowmap) stream)
   (common-utils::print-map (cowmap-table obj) stream))
 
-
-;; (defmacro throw (e)
-;;   (error 'IllegalArgumentException ))
-
-;; "Takes a set of test/expr pairs. It evaluates each test one at a
-;;   time.  If a test returns logical true, cond evaluates and returns
-;;   the value of the corresponding expr and doesn't evaluate any of the
-;;   other tests or exprs. (cond) returns nil."
-;; {:added "1.0"}
-
-;;need to implement throw for most of the stdlib.
-;; (defmacro clj-cond  (&rest clauses)
-;;   (when clauses
-;;     (list 'if (first clauses)
-;;           (if (next clauses)
-;;               (second clauses)
-;;               (throw (IllegalArgumentException.
-;;                       "cond requires an even number of forms")))
-;;           (cons 'clclojure.base::clj-cond (next (next clauses))))))
-
 ;;Core Lib
 ;;========
 
@@ -840,6 +820,11 @@
   (defn hash-map [& xs]
     (sequences:apply #'persistent-map (seq xs))
     )
+  (defn identical? [l r]
+    (common-lisp:eq l r))
+
+  (defn nil? [x]
+    (identical? x nil))
   ;;need to implement arrayseq...
   ;;These are lame but easy, we really want to
   ;;get chunked-first and friends up and running.
@@ -849,7 +834,22 @@
   (defn first  [coll]  (-first (seq coll)))
   (defn rest   [coll]  (-rest  (seq coll)))
   ;;TBD fix this for an actual -next implementation.
-  (defn next   [coll]  (rest coll))
+  ;; "Returns a seq of the items after the first. Calls seq on its
+  ;; argument.  If there are no more items, returns nil"
+
+  ;;this isn't great....
+  (defn implements? [p obj]
+    (satisfies? p obj))
+
+  ;;tbd : get metadata reader working...
+  ;^seq
+  (defn next
+    [coll]
+    (when-not (nil? coll)
+              (if (implements? INext coll)
+                  (-next coll)
+                  (seq (rest coll)))))
+  
   (defn second [coll]  (first (rest coll)))
   (defn ffirst [coll]  (first (first coll)))
   ;;Inaccurate...
@@ -889,12 +889,40 @@
             ,body)
           ,@false-body)))))
 
+(defn throw [e]
+  (error e))
+
+;;try-catch-finally...
+
+(defn ex-info
+    ([msg map]
+          (make-instance 'exception-info :data map :cause msg  :message msg))
+  ([msg map cause]
+        (make-instance 'exception-info  :data map :cause cause  :message msg)))
+
+(defn ex-data [e]
+  (common-utils::exception-info-data e))
+(defn ex-cause [e]
+  (common-utils::exception-info-cause e))
+(defn ex-message [e]
+  (common-utils::exception-info-message e))
+
+;;using cl macros for now to get behavior in place..
+;; "defs name to have the root value of the expr iff the named var has no root value,
+;;   else expr is unevaluated"
+;; {:added "1.0"}
+;;Slight deviation from clojure.core implementation, which uses def
+;;internally...may revisit.
+(defmacro defonce (name expr)
+  `(when-not (boundp (quote ,name))
+             (def ~name ~expr)))
+
 (defn assoc
     ([m k v]       (-assoc m k v))
   ([m k v & kvs]
       (reduce (fn [acc kv]
                   (-assoc acc (first kv) (second kv)))
-              (-assoc m k v) kvs))) 
+              (-assoc m k v) kvs)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute) 
   (defn count [coll]
@@ -927,16 +955,25 @@
   (defn chunk-first [coll] (-chunk-first coll))
   (defn chunk-rest [coll]  (-chunk-rest coll))
   (defn chunk-buffer [coll])
-  (defn seq->list [xs] (sequences::seq->list (seq xs))))
+  (defn seq->list [xs] (sequences::seq->list (seq xs)))
 
-(defn cons [x coll]
-  (-conj coll x))
+  (defn cons [x coll]
+    (-conj coll x))
 
-(defn identical? [l r]
-  (common-lisp:eq l r))
+  ;; "Takes a set of test/expr pairs. It evaluates each test one at a
+  ;;   time.  If a test returns logical true, cond evaluates and returns
+  ;;   the value of the corresponding expr and doesn't evaluate any of the
+  ;;   other tests or exprs. (cond) returns nil."
+  ;; {:added "1.0"}
 
-(defn nil? [x]
-  (identical? x nil))
+  ;;need to implement throw for most of the stdlib.
+  (defmacro cond  (&rest clauses)
+    (when (seq  clauses)
+      (list 'if (first clauses)
+            (if (next clauses)
+                (second clauses)
+                (throw (ex-info "cond requires an even number of forms" {})))
+            (cons 'clclojure.base:cond (next (next clauses)))))))
 
 (defn chunk-cons [chunk rest]
   (error 'not-implemented))
@@ -948,12 +985,24 @@
 
 ;; {:private true
 ;; :static true}
-;; (defn spread
-;;   [arglist]
-;;   (cond
-;;     (nil? arglist) nil
-;;     (nil? (next arglist)) (seq (first arglist))
-;;     :else (cons (first arglist) (spread (next arglist)))))
+(defn spread
+  [arglist]
+  (cond
+    (nil? arglist) nil
+    (nil? (next arglist)) (seq (first arglist))
+    :else (cons (first arglist) (spread (next arglist)))))
+
+;; "Creates a new seq containing the items prepended to the rest, the
+;;   last of which will be treated as a sequence."
+;; {:added "1.0"
+;; :static true}
+(defn list*
+  ([args] (seq args))
+  ([a args] (cons a args))
+  ([a b args] (cons a (cons b args)))
+  ([a b c args] (cons a (cons b (cons c args))))
+  ([a b c d & more]
+      (cons a (cons b (cons c (cons d (spread more)))))))
 
 (defmacro loop* (bindings &rest body)
   (assert (vector? bindings))
@@ -1120,8 +1169,6 @@
   ;;            (cons seg (partition-all n step (nthrest s step))))))))
 
 
-
-
 ;; An iteration state value.
 
 ;; A value describing the limit of iteration, if any.
@@ -1270,7 +1317,8 @@
     ([x y] (sequences:concat (seq x) (seq y)))
   ([x y & zs]
       (sequences:apply #'sequences:concat
-                       (sequences:map #'seq (list* x y zs)))))
+        (sequences:map #'seq
+            (common-lisp:list* x y zs)))))
 
 (defn every? [pred xs]
   (sequences::every? pred xs))
@@ -1299,23 +1347,6 @@
 
 (def symbol? #'symbolp)
 
-(defn throw [e]
-  (error e))
-
-;;try-catch-finally...
-
-(defn ex-info
-    ([msg map]
-          (make-instance 'exception-info :data map :cause msg  :message msg))
-  ([msg map cause]
-        (make-instance 'exception-info  :data map :cause cause  :message msg)))
-
-(defn ex-data [e]
-  (common-utils::exception-info-data e))
-(defn ex-cause [e]
-  (common-utils::exception-info-cause e))
-(defn ex-message [e]
-  (common-utils::exception-info-message e))
 
 ;; (comment 
 
