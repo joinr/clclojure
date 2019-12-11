@@ -1,7 +1,7 @@
 ;;A package for useful library utilities that come up during the course
 ;;of implementing clclojure.
 (defpackage :common-utils
-  (:use :common-lisp)
+  (:use :common-lisp :cl-murmurhash)
   (:export  
    :comment
    :symbol?
@@ -19,6 +19,7 @@
    :reduce-tree
    :filter
    :group-by
+   :hash-code
    
    :hash-table->entries
    :hash-table->keys
@@ -66,6 +67,7 @@
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
 
+  (defun hash-code (obj) (cl-murmurhash:murmurhash obj))
 (defun quote-sym (sym) `(quote ,sym))
 
 
@@ -148,10 +150,9 @@
 ;; keyword string representation includes :
 (defgeneric to-string (obj))
 (defmethod to-string (obj)
-  (prin1-to-string obj))
+  (princ-to-string obj))
 (defmethod to-string ((obj string))
   obj)
-
 
 (defun filter (pred xs) (remove-if-not pred xs))
 ;;some hack functions to help us validate bodies.
@@ -984,18 +985,19 @@
                (cons  (cadr kv) (cons (car kv) acc)))  (hash-table->entries m) :initial-value '()))))
 
 ;;Courtesy of Doug Hoyte, Let Over Lambda.
-(defmacro defmacro/g! (name args &rest body)
-  (let ((syms (remove-duplicates
-               (remove-if-not #'g!-symbol-p
-                              (flatten body)))))
-    `(defmacro ,name ,args
-       (let ,(mapcar
-              (lambda (s)
-                `(,s (gensym ,(subseq
-                               (symbol-name s)
-                               2))))
-              syms)
-         ,@body))))
+;;Precursor to custom gensyms..
+;; (defmacro defmacro/g! (name args &rest body)
+;;   (let ((syms (remove-duplicates
+;;                (remove-if-not #'g!-symbol-p
+;;                               (flatten body)))))
+;;     `(defmacro ,name ,args
+;;        (let ,(mapcar
+;;               (lambda (s)
+;;                 `(,s (gensym ,(subseq
+;;                                (symbol-name s)
+;;                                2))))
+;;               syms)
+;;          ,@body))))
 
 ;; try
 ;; (try expr* catch-clause* finally-clause?)

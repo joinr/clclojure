@@ -63,7 +63,9 @@
           cm))))
 
 (defun map-contains? (m k)
-  (second (values (gethash k (cowmap-table m)))))
+  (multiple-value-bind (v present) (gethash k (cowmap-table m))
+      (declare (ignore v))      
+    present))
 
 (defun map-get (m k &optional default)
   (gethash  k (cowmap-table m) default))

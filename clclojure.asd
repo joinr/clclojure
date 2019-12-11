@@ -5,7 +5,7 @@
 ;;easy...
 ;;(ql:quickload :clclojure)
 (asdf:defsystem :clclojure
-  :depends-on (:named-readtables :cl-package-locks) ;copied from example.
+  :depends-on (:named-readtables :cl-package-locks :cl-murmurhash) ;copied from example. debate using :cl-hamt
   :components ((:file "common-utils")
                (:file "walk"
                 :depends-on ("common-utils"))

@@ -31,19 +31,23 @@
         :clclojure.keywordfunc :clclojure.lexical
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols :clclojure.eval)
   (:shadow :let :deftype :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
-   :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond) 
+   :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond
+   :=) 
   (:export :def :defn :fn :meta :with-meta :str :symbol? :first :rest :second :next
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count :do :get :assoc :when-let
    :if-let :ns :even? :pos? :zero? :odd? :vector :hash-map :inc :dec :identity :loop  :chunk-first
    :doall  :chunk-buffer :every? :chunk-rest :interleave :ffirst :partition :seq->list :fnext :chunk-cons :nthrest
-   :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try)              ; :defmacro
+   :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try := :true :false)              ; :defmacro
   )
 (in-package clclojure.base)
 
 
 ;;move this later...
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  ;;temporary hacks...
+  (define-symbol-macro true 't)
+  (define-symbol-macro false nil)
 
   ;;convenient placeholder
   (defun ns (name &rest opts)    
@@ -196,7 +200,7 @@
   ;;                                            (common-lisp:rest (common-lisp:rest (fndef->sexp body)))) fd)))))
 
   (defmethod fndef->sexp ((fd common-lisp:cons))
-    (if (= (length fd) 1)  (fndef->sexp (common-lisp:first fd)) ;simple case
+    (if (common-lisp:= (length fd) 1)  (fndef->sexp (common-lisp:first fd)) ;simple case
         ;;case with multiple function definitions.
         (let ((name (fn-def-name (common-lisp:first fd))))
           `(common-utils:named-fn* ,name
@@ -524,70 +528,73 @@
     (-chunked-rest [coll]))
 
   (defprotocol IChunkedNext
-      (-chunked-next [coll])))
+      (-chunked-next [coll]))
+
+  (defprotocol INamed
+      (-name [thing]))
+
+  )
    
 
 
 ;;Extending types to native structures and clojure literals:
 ;;==========================================================
-
-(extend-type
- null
- ICounted
- (-count [c] 0)
- IEmptyableCollection
- (-empty [c] nil)
- ICollection
- (-conj [coll itm] (common-lisp:cons itm nil))
- IStack
- (-peek [coll] nil)
- (-pop  [coll] nil)
- ISeqable
- (-seq [coll] nil)
- IHash
- (-hash [o] (sxhash nil))
- IEquiv
- (-equiv [o other] (error 'not-implemented))
- ISeq
- (-first [o] nil)
- (-rest  [o] nil)
- IReversible
- (-rseq [coll] nil))
-
-;;We got a ton of goodies from
-;;sb-sequences namespace to leverage here.
-;;good opportunity for iterator-seq...
-(extend-type
- sequence
- ICounted
- (-count [c] (common-lisp:length c))
- 
- ;; IEmptyableCollection
- (-empty [c] (sb-sequence:make-sequence-like c 0))
- ;; ICollection
- ;; (-conj [coll itm] (cons itm nil))
- IStack
- (-peek [coll] (elt coll 0))
- (-pop  [coll] (error 'not-implemented))
- ISeqable
- (-seq [coll] (error 'not-implemented))
- IHash
- (-hash [o] (sxhash o))
- 
- ;; IEquiv
- ;; (-equiv [o other] (error 'not-implemented))
-
- ISeq
- (-first [o] (elt o 0))
- ;;TODO pull this over...
- ;;Probably identical to array-seqs
-
- (-rest  [o] (error 'not-implemented))
- IReversible
- (-rseq [coll] (reverse coll)))
- 
-
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  (extend-type
+   null
+   ICounted
+   (-count [c] 0)
+   IEmptyableCollection
+   (-empty [c] nil)
+   ICollection
+   (-conj [coll itm] (common-lisp:cons itm nil))
+   IStack
+   (-peek [coll] nil)
+   (-pop  [coll] nil)
+   ISeqable
+   (-seq [coll] nil)
+   IHash
+   (-hash [o] (sxhash nil))
+   IEquiv
+   (-equiv [o other] (error 'not-implemented))
+   ISeq
+   (-first [o] nil)
+   (-rest  [o] nil)
+   IReversible
+   (-rseq [coll] nil))
+
+  ;;We got a ton of goodies from
+  ;;sb-sequences namespace to leverage here.
+  ;;good opportunity for iterator-seq...
+  (extend-type
+   sequence
+   ICounted
+   (-count [c] (common-lisp:length c))
+   
+   ;; IEmptyableCollection
+   (-empty [c] (sb-sequence:make-sequence-like c 0))
+   ;; ICollection
+   ;; (-conj [coll itm] (cons itm nil))
+   IStack
+   (-peek [coll] (elt coll 0))
+   (-pop  [coll] (error 'not-implemented))
+   ISeqable
+   (-seq [coll] (error 'not-implemented))
+   IHash
+   (-hash [o] (sxhash o))
+   
+   ;; IEquiv
+   ;; (-equiv [o other] (error 'not-implemented))
+
+   ISeq
+   (-first [o] (elt o 0))
+   ;;TODO pull this over...
+   ;;Probably identical to array-seqs
+
+   (-rest  [o] (error 'not-implemented))
+   IReversible
+   (-rseq [coll] (reverse coll)))
+
   (extend-type
    clclojure.pvector::pvec
    
@@ -611,6 +618,9 @@
    (-seq [coll] (vector-to-list coll ))
    IHash
    (-hash [o]   (error 'not-implemented))
+   IMapEntry
+   (-key [coll] (-nth coll 0))
+   (-val [coll] (-nth coll 1))
    IEquiv
    (-equiv [o other] (error 'not-implemented))
 
@@ -634,44 +644,91 @@
                 IMeta
                 (-meta [obj] (symbol-meta obj))
                 IWithMeta
-                (-with-meta [obj m] (with-symbol-meta obj m) obj)))
+                (-with-meta [obj m] (with-symbol-meta obj m) obj)
+                IEquiv
+                ;;dirty implementation....
+                ;;We need to unify qualified and unqualified symbols..
+                ;;in clojure, symbol equality is a bit more complex
+                ;;since they're equiv iff unqualified.
+                ;;unless we hack the reader to reader qualified
+                ;;symbols as unqual, the preponderance of clojure
+                ;;symbol comparisons will not be strict, so
+                ;;we end up with a lot of unqualified symbols.
+                ;;This is just to paper over the bootstrapping
+                ;;process....
+                (-equiv [l r]
+                        (or (eq l r)
+                            (when  (not (or (keywordp l) (keywordp r)))
+                              (common-lisp:= (sxhash l) (sxhash r)))
+                            ))
+                INamed
+                (-name [this] (symbol-name this))
+                )
 
-;;subvector impls...
-(extend-type
- clclojure.pvector::subvector
- 
- ICounted
- (-count [c] (vector-count c))
+  ;;not applicable.
+  ;; (extend-type keyword
+  ;;              IEquiv
+  ;;              ;;dirty implementation....
+  ;;              ;;We need to unify qualified and unqualified symbols..
+  ;;              ;;in clojure, symbol equality is a bit more complex
+  ;;              ;;since they're equiv iff unqualified.
+  ;;              ;;unless we hack the reader to reader qualified
+  ;;              ;;symbols as unqual, the preponderance of clojure
+  ;;              ;;symbol comparisons will not be strict, so
+  ;;              ;;we end up with a lot of unqualified symbols.
+  ;;              ;;This is just to paper over the bootstrapping
+  ;;              ;;process....              
+  ;;              (-equiv [l r]
+  ;;                      (or (eq l r)
+  ;;                          ;;I don't even know if this is possible...
+  ;;                          ;;I think keywords are always interned
+  ;;                          ;;in the keyword package.
+  ;;                          ;; (when (keywordp r)
+  ;;                          ;;   (common-lisp:= (sxhash l) (sxhash r)))
+  ;;                          ))
+  ;;              IHash
+  ;;              (-hash [k] (hash-code k))
+  ;;              )
 
- IEmptyableCollection
- (-empty [c] [])
- ICollection
- (-conj [coll itm] (vector-conj coll itm))
- IVector
- (-assoc-n [coll n val] (vector-assoc coll n val))
- IStack
- (-peek [coll]
-        (when (not (zerop (-count coll) )) (nth-vec coll 0)))
- (-pop  [coll]  (subvec coll 1))
- ISeqable
- (-seq [coll] (vector-to-list coll)) ;poorly implemented.  should be arrayseq
- IHash
- (-hash [o]   (error 'not-implemented))
- IEquiv
- (-equiv [o other] (error 'not-implemented))
- IKVReduce
- (-kv-reduce [coll f init] (error 'not-implemented))
+  ;;subvector impls...
+  (extend-type
+   clclojure.pvector::subvector
+   
+   ICounted
+   (-count [c] (vector-count c))
 
- IReversible
- (-rseq [coll] (error 'not-implemented))
- IChunk
- (-drop-first [coll] (error 'not-implemented))
- IChunkedSeq
- (-chunked-first [coll] (error 'not-implemented))
- (-chunked-rest [coll] (error 'not-implemented))
- IChunkedNext
- (-chunked-next [coll] (error 'not-implemented))
- )
+   IEmptyableCollection
+   (-empty [c] [])
+   ICollection
+   (-conj [coll itm] (vector-conj coll itm))
+   IVector
+   (-assoc-n [coll n val] (vector-assoc coll n val))
+   IStack
+   (-peek [coll]
+          (when (not (zerop (-count coll) )) (nth-vec coll 0)))
+   (-pop  [coll]  (subvec coll 1))
+   ISeqable
+   (-seq [coll] (vector-to-list coll)) ;poorly implemented.  should be arrayseq
+   IHash
+   (-hash [o]   (error 'not-implemented))
+   IMapEntry
+   (-key [coll] (-nth coll 0))
+   (-val [coll] (-nth coll 1))
+   IEquiv
+   (-equiv [o other] (error 'not-implemented))
+   IKVReduce
+   (-kv-reduce [coll f init] (error 'not-implemented))
+
+   IReversible
+   (-rseq [coll] (error 'not-implemented))
+   IChunk
+   (-drop-first [coll] (error 'not-implemented))
+   IChunkedSeq
+   (-chunked-first [coll] (error 'not-implemented))
+   (-chunked-rest [coll] (error 'not-implemented))
+   IChunkedNext
+   (-chunked-next [coll] (error 'not-implemented))
+   ))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   ;;list operations.
@@ -787,7 +844,17 @@
    IEquiv
    (-equiv [o other] (error 'not-implemented))
    IKVReduce
-   (-kv-reduce [coll f init] (error 'not-implemented))))
+   (-kv-reduce [coll f init] (error 'not-implemented)))
+
+  (extend-type  number
+   IEquiv
+   (-equiv [l r]  (when (numberp r) (common-lisp:= l r)))
+   IHash
+   (-hash [n] (hash-code n)))
+
+  (extend-type string
+    INamed (-name [x] x))
+  )
  ;; IChunk
  ;; (-drop-first [coll] (error 'not-implemented))
  ;; IChunkedSeq
@@ -808,7 +875,7 @@
 ;;========
 
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
+(eval-when (:compile-toplevel :load-toplevel :execute)  
   (defn seq [coll] (-seq coll))
   (defn vec [coll]
     (if (vector? coll) coll
@@ -849,6 +916,9 @@
               (if (implements? INext coll)
                   (-next coll)
                   (seq (rest coll)))))
+  (defn nnext
+    [coll]
+    (next (next coll)))
   
   (defn second [coll]  (first (rest coll)))
   (defn ffirst [coll]  (first (first coll)))
@@ -864,7 +934,25 @@
   (def even? #'common-utils:even?)
   (def zero? #'common-utils:zero?)
   (defn inc [x] (1+ x))
-  (defn dec [x] (1- x)))
+  (defn dec [x] (1- x))
+  (defn =
+    ([x]   true)
+    ([x y]
+        (if (and (numberp x) (numberp y))
+            (common-lisp:= x y)
+            (-equiv x y)))
+      ([x y & more]
+          (if (-equiv x y)
+              (if (next more)
+                  (recur y (first more) (next more))
+                  (- y (first more)))
+              nil)))
+
+  (defn key [e] (-key e))
+  (defn val [e] (-val e))
+  (defn name [x] (-name x))
+  )
+
 
 (defmacro when-let (binding &rest body)
   (let [binding (seq binding)        
@@ -924,6 +1012,13 @@
                   (-assoc acc (first kv) (second kv)))
               (-assoc m k v) kvs)))
 
+(defn dissoc
+    ([m k]       (-dissoc m k))
+    ([m k & ks]
+        (reduce (fn [acc k]
+                    (-dissoc acc k))
+                (-dissoc m k) ks)))
+
 (eval-when (:compile-toplevel :load-toplevel :execute) 
   (defn count [coll]
     (-count coll))) 
@@ -952,8 +1047,8 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
   (defn chunked-seq? [x] nil)
-  (defn chunk-first [coll] (-chunk-first coll))
-  (defn chunk-rest [coll]  (-chunk-rest coll))
+  (defn chunk-first [coll] (-chunked-first coll))
+  (defn chunk-rest [coll]  (-chunked-rest coll))
   (defn chunk-buffer [coll])
   (defn seq->list [xs] (sequences::seq->list (seq xs)))
 
@@ -1346,6 +1441,19 @@
 ;;need destructure...
 
 (def symbol? #'symbolp)
+(def keyword? #'keywordp)
+
+;;for now, we don't have qualified keywords...
+;;we "could" encode that information in the
+;;keyword name somewhere (like a central db),
+;;but it seems better to implement the actual
+;;clojure qualified keywords...
+;;wonder if we can inherit from symbol..(nope!).
+(defn namespace [s]
+  (when (symbol? s)
+    (when-let [p (symbol-package s)]
+      (package-name p))
+    ))
 
 
 ;; (comment 
@@ -1409,92 +1517,99 @@
 (defn rest-arg? [x]
   (seql x '&))
 
-(comment 
- (defn ds-pvec [bvec b val]
-   (let [gvec (gensym "vec__")
-     gseq (gensym "seq__")
-     gfirst (gensym "first__")
-     has-rest (some rest-arg? b)]
-     (loop [ret (let [ret (conj bvec gvec val)]
-                  (if has-rest
-                      (conj ret gseq (list `seq gvec))
-                      ret))
-           n 0
-           bs b
-           seen-rest? false]
-           (if (seq bs)
-               (let [firstb (first bs)]
-                 (cond
-                   (= firstb '&) (recur (pb ret (second bs) gseq)
-                                        n
-                                        (nnext bs)
-                                        true)
-                   (= firstb :as) (pb ret (second bs) gvec)
-                   :else (if seen-rest?
-                             (throw (new Exception "Unsupported binding form, only :as can follow & parameter"))
-                             (recur (pb (if has-rest
-                                            (conj ret
-                                                  gfirst `(first ~gseq)
-                                                  gseq `(next ~gseq))
-                                            ret)
-                                        firstb
-                                        (if has-rest
-                                            gfirst
-                                            (list `nth gvec n nil)))
-                                    (inc n)
-                                    (next bs)
-                                    seen-rest?))))
-               ret))))
- 
+;;need to implement "new" eventually
+;;it's a low-level interop construct.
 
+(defmacro new (klass &rest args)
+  `(make-instance (quote ~klass) ~@args))
+
+
+(defn ds-pvec [bvec b val]
+  (let [gvec (gensym "vec__")
+    gseq (gensym "seq__")
+    gfirst (gensym "first__")
+    has-rest (some rest-arg? b)]
+    (loop [ret (let [ret (conj bvec gvec val)]
+                 (if has-rest
+                     (conj ret gseq (list `seq gvec))
+                     ret))
+          n 0
+          bs b
+          seen-rest? false]
+          (if (seq bs)
+              (let [firstb (first bs)]
+                (cond
+                  (= firstb '&) (recur (ds-pvec ret (second bs) gseq)
+                                       n
+                                       (nnext bs)
+                                       true)
+                  (= firstb :as) (ds-pvec ret (second bs) gvec)
+                  :else (if seen-rest?
+                            (throw (ex-info "Unsupported binding form, only :as can follow & parameter" nil))
+                            (recur (ds-pvec (if has-rest
+                                                (conj ret
+                                                 gfirst `(first ~gseq)
+                                                 gseq `(next ~gseq))
+                                                ret)
+                                            firstb
+                                            (if has-rest
+                                                gfirst
+                                                (list `nth gvec n nil)))
+                                   (inc n)
+                                   (next bs)
+                                   seen-rest?))))
+              ret))))
+
+(defn ds-pmap  [bvec b v]
+  (let [gmap (gensym "map__")
+        gmapseq (with-meta gmap {:tag 'clojure.lang.ISeq})
+        defaults (get b :or)]
+    (loop [ret (-> bvec (conj gmap) (conj v)
+                   (conj gmap) (conj `(if (seq? ~gmap) (clojure.lang.PersistentHashMap/create (seq ~gmapseq)) ~gmap))
+                   ((fn [ret]
+                        (if (get b :as)
+                            (conj ret (get b :as) gmap)
+                            ret))))
+          bes (let [transforms
+                (reduce1
+                 (fn [transforms mk]
+                     (if (keyword? mk)
+                         (let [mkns (namespace mk)
+                           mkn (name mk)]
+                           (cond (= mkn "keys") (assoc transforms mk #(keyword (or mkns (namespace %)) (name %)))
+                                 (= mkn "syms") (assoc transforms mk #(list `quote (symbol (or mkns (namespace %)) (name %))))
+                                 (= mkn "strs") (assoc transforms mk str)
+                                 :else transforms))
+                         transforms))
+                 {}
+                 (keys b))]
+                (reduce
+                 (fn [bes entry]
+                     (reduce  #(assoc %1 %2 ((val entry) %2))
+                              (dissoc bes (key entry))
+                              ((key entry) bes)))
+                 (dissoc b :as :or)
+                 transforms))]
+          (if (seq bes)
+              (let [bb (key (first bes))
+                bk (val (first bes))
+                local (if (instance? clojure.lang.Named bb) (with-meta (symbol nil (name bb)) (meta bb)) bb)
+                bv (if (contains? defaults local)
+                       (list `get gmap bk (defaults local))
+                       (list `get gmap bk))]
+                (recur (if (ident? bb)
+                           (-> ret (conj local bv))
+                           (pb ret bb bv))
+                       (next bes)))
+              ret))))
+
+(comment 
  (defn destructure [bindings]
    (let [bents (partition 2 bindings)
      pb (fn pb [bvec b v]
-            (let [pvec
-              
+            (let [pvec (fn [bvec b val] (ds-pvec pvec b val))
               pmap
-              (fn [bvec b v]
-                  (let [gmap (gensym "map__")
-                    gmapseq (with-meta gmap {:tag 'clojure.lang.ISeq})
-                    defaults (:or b)]
-                    (loop [ret (-> bvec (conj gmap) (conj v)
-                                   (conj gmap) (conj `(if (seq? ~gmap) (clojure.lang.PersistentHashMap/create (seq ~gmapseq)) ~gmap))
-                                   ((fn [ret]
-                                        (if (:as b)
-                                            (conj ret (:as b) gmap)
-                                            ret))))
-                          bes (let [transforms
-                                (reduce1
-                                 (fn [transforms mk]
-                                     (if (keyword? mk)
-                                         (let [mkns (namespace mk)
-                                           mkn (name mk)]
-                                           (cond (= mkn "keys") (assoc transforms mk #(keyword (or mkns (namespace %)) (name %)))
-                                                 (= mkn "syms") (assoc transforms mk #(list `quote (symbol (or mkns (namespace %)) (name %))))
-                                                 (= mkn "strs") (assoc transforms mk str)
-                                                 :else transforms))
-                                         transforms))
-                                 {}
-                                 (keys b))]
-                                (reduce1
-                                 (fn [bes entry]
-                                     (reduce1 #(assoc %1 %2 ((val entry) %2))
-                                              (dissoc bes (key entry))
-                                              ((key entry) bes)))
-                                 (dissoc b :as :or)
-                                 transforms))]
-                          (if (seq bes)
-                              (let [bb (key (first bes))
-                                bk (val (first bes))
-                                local (if (instance? clojure.lang.Named bb) (with-meta (symbol nil (name bb)) (meta bb)) bb)
-                                bv (if (contains? defaults local)
-                                       (list `get gmap bk (defaults local))
-                                       (list `get gmap bk))]
-                                (recur (if (ident? bb)
-                                           (-> ret (conj local bv))
-                                           (pb ret bb bv))
-                                       (next bes)))
-                              ret))))]
+             ]
               (cond
                 (symbol? b) (-> bvec (conj b) (conj v))
                 (vector? b) (pvec bvec b v)
@@ -1503,4 +1618,6 @@
      process-entry (fn [bvec b] (pb bvec (first b) (second b)))]
      (if (every? symbol? (map first bents))
          bindings
-         (reduce1 process-entry [] bents)))))
+         (reduce1 process-entry [] bents))))
+
+ )
