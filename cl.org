@@ -1,0 +1,192 @@
+* Notes on CL Embedding
+
+So we have some basic tensions that follow when trying
+to go the embedded reader route.  Failing that (and
+not targeting seamless interop from the start), can
+we provide a projection of clojure source code to
+common lisp code that works?
+
+What is necessary on the CL side to enable?
+
+** Symbols
+- clojure has unqualified symbols
+- symbols can have meta
+- applicative (e.g. get semantics)
+** Keywords
+- keywords can be unqualified
+- applicative (e.g. get semantics)
+** Namespaces
+- Clojure persistent map of clojure symbols -> stuff
+** Data Literals
+- Reader has to be aware that constructing
+  a literal also means evaluating its contents
+  - e.g. codegen for (eval '[x x]) -> [(eval x) (eval y)]
+- applicative (Ifn)
+** evaluation semantics
+- keywords, symbols, maps, vecs are applicative
+- Anything implementing IFn can be applied.
+
+** Reader / Analyzer / RT
+Ideally, we could have a reader and an analyzer.
+The reader will produce clojure symbols/keys/data structures.
+The analyzer will take clojure symbols/keys/data structures and
+emit common lisp code (possibly).
+
+So instead of dicking around with reader macros, we can just
+leverage the clojure reader.
+
+We can provide print method support for clojure symbols/keys/objects
+since they will be foreign (for now).
+
+Treat them as an embedding in CL.
+
+Our CL runtime will provide minimal support for evaluating clojure
+forms in the clojure environment.
+- Compiled forms will live in clojure namespaces
+- We can expose comparable symbols in CL packages to clojure namespaces
+
+Having the emission phase allows us to get around problems with lexical
+analysis and oddities we were baking into macros/reader junk.
+
+We can just define analyzer passes to convert clojure forms
+with different lexical semantics, e.g.
+#+BEGIN_SRC clojure
+  (let [[x y] [1 2]]
+    (+ x y))
+#+END_SRC
+
+into common lisp-friendly data structures
+
+#+BEGIN_SRC lisp
+  `(clj:let (clj:persistent-vector (clj:persistent-vector 'x 'y) (clj:persistent-vector 1 2))
+            (clj:+ x y))
+#+END_SRC
+
+#+BEGIN_SRC clojure
+  (let [m {:a 2}]
+    (:a m))
+#+END_SRC
+
+#+BEGIN_SRC lisp
+  `(clj:let (clj:persistent-vector (clj:symbol "m") (clj:persistent-map (clj:clj-keyword "a") 2))
+            (clj:invoke (clj:clj-keyword "a") (clj:symbol "m")))
+#+END_SRC
+
+This starts to open up our ability to handle the different semantics much better.
+Start thinking more like a compiler.
+
+If we have print methods for these forms, then we should be fine.
+Don't hijack the read table, but allow print-methods to tie us back into clojure readable output.
+
+Allow a #CL interop form so we can splice in common lisp forms in the lexical environment.
+#+BEGIN_SRC clojure
+      (let [x 2
+            y 3
+            xs #CL(mapcar (lambda (x) (1+ x)) (list x y))]
+        (first xs))
+#+END_SRC
+
+#+BEGIN_SRC lisp
+  `(clj:let (clj:persistent-vector (clj:symbol "x") 2
+                                   (clj:symbol "y") 3
+                                   (clj:symbol "xs") (clj:in-clj (mapcar (lambda (x) (1+ x)) (list (clj:symbol "x") (clj:symbol "y")))))
+            (clj:invoke (clj:symbol "first") (clj:symbol "xs")))
+#+END_SRC
+
+should become
+#+BEGIN_SRC lisp
+  `(clj:let [(clj:symbol "x")  2
+             (clj:symbol "y")  3
+             (clj:symbol "xs") (clj:in-clj (mapcar (lambda (x) (1+ x)) (list (clj:symbol "x") (clj:symbol "y"))))]
+     (clj:invoke (clj:symbol "first") (clj:symbol "xs")))
+#+END_SRC
+We can probably do the converse with a reader macro in common lisp.
+
+Since we want to embed meta all over, we have to read clojure seqs too.
+I think we have the basis for a lot though, from variadic lambdas, loop/recur, and other stuff.
+
+Keywords get interned in their own namespace.
+Symbols are eval'd as stand alone objects at readtime since they can have meta.
+We "can" extend evaluation semantics to allow clojure symbols to be eval'd too....(since we know how to
+do it with sbcl).
+
+So a really naive implementation is this:
+
+* So we have a clj package, which exposes
+
+** namespaces (a hashtable of name->namespaces)
+
+** keywords (a cache of string->keyword)
+
+** *ns* the current namespace
+Probably a bunch of other dynvars we care about.
+
+* clojure runtime macros/functions
+
+** clj-read
+** clj-print
+** clj-eval
+** clj-load
+** clj-load-file
+** clj-require
+** clj-import
+
+** in-clj
+embed a CL expression in lexical scope
+
+** clj-keyword
+clj-keyword is a destructive keyword ctor,
+which either looks up a string in a table if known,
+or creates a new clj-keyword and stores it there, returning the key.
+
+** clj-deftype
+** clj-defprotocol
+
+* reader
+Either port tools.reader directly (for completeness would be good),
+or implement your own subset.
+
+Bottom line is we need to have datatypes defined as reader will construct them:
+
+** Namespaces
+Mapping of symbols to vars.
+
+- direct mappings
+- aliases
+- references
+
+Manage concurrent access.
+Can be idiomatically created if not found.
+
+** Vars
+Need to revisit how clojure vars are special.  They are used to establish
+bindings inside of namespaces. They can be dereferenced.  They support IFn.
+They can be macros (with a special marker).  They also implemnt assoc/dissoc
+directly funny enough.  They carry public/private/tag/bound information as well.
+
+There is a bunch of stuff around threadlocality and root bindings and the like.
+I think CL handles all the dynamic var stuff. Unclear how this maps onto clojure's
+root binding and binding frame stuff though....I think there's some context for
+thread local binds that vars maintain via the `binding` form.
+
+The clojure.lang.Var package has a bunch of static methods for messing with
+namespaces and interning as well.  It's the primary api for that stuff.
+
+As a simple start, we can probably just assume single threaded is fine.
+** Keywords
+Keywords are just objects (like symbols) with an ns and a name field.
+They get interned on construction.
+
+** Symbols
+Symbols are objects with an ns, name, and meta field.
+They are not interned, since meta can vary per instance.
+In theory, the base symbol with no meta could/should be interned.
+Unclear on whether clojure does this out of the box.
+
+** persistent lists
+** sets
+** seqs
+** vectors
+** maps
+** strings
+** numbers

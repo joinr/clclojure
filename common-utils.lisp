@@ -626,33 +626,73 @@
 ;; case                             | (case const const tail ... default tail)                          | No
 
 
+;;sbcl 2.0 freaks out on this now, trying to generalize it.
+;; (defun tail-children (expr)
+;;   (when (listp expr)
+;;     (scase (first expr)
+;;       ((lambda let let* flet labels with-recur)         
+;;          (destructuring-bind (l binds &rest body) expr                
+;;            (destructuring-bind (tail &rest xs) (reverse body)
+;;              (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+;;       (progn   (destructuring-bind (l &rest body) expr                
+;;                  (destructuring-bind (tail &rest xs) (reverse body)
+;;                    (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+;;       (if       (destructuring-bind (i pred l &optional r) expr
+;;                   (cons (list :tail l) (when r (list (list :tail r))))))
+;;       (when     (destructuring-bind (i pred l) expr
+;;                   (list (list :tail l))))
+;;       ((case ecase ccase)    (destructuring-bind (l binds) expr                
+;;                                (mapcar (lambda (lr)
+;;                                          (list :tail (second lr))) binds)))
+;;       ((or and) (destructuring-bind (l &rest body) expr                
+;;                   (destructuring-bind (tail &rest xs) (reverse body)
+;;                     (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))) )
+;;       (defun      (destructuring-bind (l nm binds  &rest body)
+;;                       (if (and  (stringp (fourth expr)) (listp (fifth expr)))
+;;                           `(,@(take! 3 expr) ,@(drop! 4 expr))
+;;                           expr)
+;;                     (destructuring-bind (tail &rest xs) (reverse body)
+;;                       (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+;;       ;;(loop) ;;a lot like let....
+;;       (otherwise  (mapcar (lambda (x) (list :non-tail x)) (rest expr))))))
+
+(defun some-symbol (x xs)
+  (some (lambda (y)  (seql x y)) xs))
+
 (defun tail-children (expr)
   (when (listp expr)
-    (scase (first expr)
-      ((lambda let let* flet labels with-recur)         
-         (destructuring-bind (l binds &rest body) expr                
-           (destructuring-bind (tail &rest xs) (reverse body)
-             (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
-      (progn   (destructuring-bind (l &rest body) expr                
-                 (destructuring-bind (tail &rest xs) (reverse body)
-                   (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
-      (if       (destructuring-bind (i pred l &optional r) expr
-                  (cons (list :tail l) (when r (list (list :tail r))))))
-      (when     (destructuring-bind (i pred l) expr
-                  (list (list :tail l))))
-      ((case ecase ccase)    (destructuring-bind (l binds) expr                
-                               (mapcar (lambda (lr)
-                                         (list :tail (second lr))) binds)))
-      ((or and) (destructuring-bind (l &rest body) expr                
-                  (destructuring-bind (tail &rest xs) (reverse body)
-                    (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))) )
-      (defun      (destructuring-bind (l nm binds  &rest body)
-                      (if (and  (stringp (fourth expr)) (listp (fifth expr)))
-                          `(,@(take! 3 expr) ,@(drop! 4 expr)) expr)                      
-                    (destructuring-bind (tail &rest xs) (reverse body)
-                      (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
-      ;;(loop) ;;a lot like let....
-      (otherwise  (mapcar (lambda (x) (list :non-tail x)) (rest expr))))))
+    (let ((x (first expr)))
+      (cond  ((some-symbol x '(lambda let let* flet labels with-recur))
+              (destructuring-bind (l binds &rest body) expr                
+                (destructuring-bind (tail &rest xs) (reverse body)
+                  (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+             ((seql x 'progn)
+              (destructuring-bind (l &rest body) expr                
+                (destructuring-bind (tail &rest xs) (reverse body)
+                  (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+             ((seql x 'if)
+              (destructuring-bind (i pred l &optional r) expr
+                (cons (list :tail l) (when r (list (list :tail r))))))
+             ((seql x 'when)
+              (destructuring-bind (i pred l) expr
+                (list (list :tail l))))
+             ((some-symbol x '(case ecase ccase))
+              (destructuring-bind (l binds) expr                
+                (mapcar (lambda (lr)
+                          (list :tail (second lr))) binds)))
+             ((some-symbol x  '(or and))
+              (destructuring-bind (l &rest body) expr                
+                (destructuring-bind (tail &rest xs) (reverse body)
+                  (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+             ((seql x 'defun)
+              (destructuring-bind (l nm binds  &rest body)
+                  (if (and  (stringp (fourth expr)) (listp (fifth expr)))
+                      `(,@(take! 3 expr) ,@(drop! 4 expr))
+                      expr)                      
+                (destructuring-bind (tail &rest xs) (reverse body)
+                  (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
+            ;;(loop) ;;a lot like let....
+             (t  (mapcar (lambda (x) (list :non-tail x)) (rest expr)))))))
 
       
       ;;probably need a default case where all children are non-tail.

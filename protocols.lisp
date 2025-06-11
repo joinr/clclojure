@@ -6,8 +6,7 @@
 ;;advantage of the bulk of the excellent bootstrapped clojure 
 ;;defined in the clojurescript compiler.  
 (defpackage :clclojure.protocols  
-  (:use :common-lisp :common-utils :clclojure.reader :clclojure.pvector
-        :clclojure.eval)
+  (:use :common-lisp :common-utils :clclojure.pvector)
   (:export :defprotocol
            :extend-protocol
            :extend-type
@@ -23,6 +22,9 @@
 (defun vector? (x) (typep x 'clclojure.pvector::pvec))
 (defun vector-expr (x)
   (and (listp x) (eq (first x) 'persistent-vector)))
+
+;;We bring this in now since we're ignoring literals.
+(defun literal? (x) nil)
 
 ;;this keeps args in order....we nreverse all over the place.
 ;;Since we prototyped using lists, and now the vector
@@ -462,13 +464,22 @@
        (defmethod ,name ((,'obj ,typename) ,'&rest ,'args)
          (apply ,dispatch ,'obj ,'args)))))
 
-(defmacro/literal-walker emit-method (protoname typename imp)
+;; (defmacro/literal-walker emit-method (protoname typename imp)
+;;   `(progn (add-protocol-member (quote ,protoname)  (quote ,typename))
+;;           ,@(mapcar (lambda (spec)
+;;                       (if (listp (second spec))
+;;                           (implement-function* typename spec)
+;;                           (implement-function typename  spec)))
+;;                     (rest imp))))
+
+(defmacro emit-method (protoname typename imp)
   `(progn (add-protocol-member (quote ,protoname)  (quote ,typename))
           ,@(mapcar (lambda (spec)
                       (if (listp (second spec))
                           (implement-function* typename spec)
                           (implement-function typename  spec)))
                     (rest imp))))
+
 
 ;;this is the one choke point where we're getting
 ;;[x] -> (persistent-vector x) transforms in practice.
@@ -480,7 +491,15 @@
            (emit-method ,name ,(first imp) ,imp)
            (error 'missing-implementations ,msg)))))
   
-(defmacro/literal-walker extend-protocol (name &rest typespecs)
+;; (defmacro/literal-walker extend-protocol (name &rest typespecs)
+;;   (let* ((imps       (parse-implementations typespecs))
+;;          (satisfies? (gensym))
+;;          (emits      (mapcar  (lambda (imp) (emit-implementation name satisfies? imp))
+;;                               imps)))
+;;     `(let ((,satisfies? (protocol-satisfier (get-protocol (quote ,name)))))
+;;        ,@emits)))
+
+(defmacro extend-protocol (name &rest typespecs)
   (let* ((imps       (parse-implementations typespecs))
          (satisfies? (gensym))
          (emits      (mapcar  (lambda (imp) (emit-implementation name satisfies? imp))
