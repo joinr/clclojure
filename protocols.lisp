@@ -26,6 +26,10 @@
 ;;We bring this in now since we're ignoring literals.
 (defun literal? (x) nil)
 
+(defun nested-list? (x)
+  (and (listp x)
+       (listp (first x))))
+
 ;;this keeps args in order....we nreverse all over the place.
 ;;Since we prototyped using lists, and now the vector
 ;;reader is working well, we're in the middle of migrating
@@ -421,7 +425,7 @@
 
 (defun implement-function (typename spec)
   (let* ((args    (cond ((vector? (second  spec))
-                         (vector-to-list (second spec)))
+                         (as-list (second spec)))
                                         ;this is a crappy hack.
                         ((vector-expr (second spec))
                          (rest (second spec)))
@@ -450,7 +454,7 @@
 
 (defun emit-dispatch (specs)
   `(lambda* ,@(mapcar (lambda (spec)
-                        (let* ((args (replace-ampersand (vector-to-list (first spec))))
+                        (let* ((args (replace-ampersand (as-list (first spec))))
                               (body (rest spec)))
                          `(,args ,@body)))
                      specs)))
@@ -475,7 +479,7 @@
 (defmacro emit-method (protoname typename imp)
   `(progn (add-protocol-member (quote ,protoname)  (quote ,typename))
           ,@(mapcar (lambda (spec)
-                      (if (listp (second spec))
+                      (if (nested-list? (second spec))
                           (implement-function* typename spec)
                           (implement-function typename  spec)))
                     (rest imp))))
