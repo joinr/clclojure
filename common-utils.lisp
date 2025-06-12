@@ -60,16 +60,38 @@
    :named-fn
    :named-fn*
    :exception-info
-   :try 
+   :try
+   :nested-list?
+   :vector-expr
    ))
 (in-package :common-utils)
 
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
 
-  (defun hash-code (obj) (cl-murmurhash:murmurhash obj))
-(defun quote-sym (sym) `(quote ,sym))
+  ;;aux
+  ;;bootstrapping hack!
+ 
+  (defun vector-expr (x)
+    (and (listp x) (eq (first x) 'persistent-vector)))
 
+  ;;We bring this in now since we're ignoring literals.
+  (defun literal? (x) nil)
+
+  (defun nested-list? (x)
+    (and (listp x)
+         (listp (first x))))
+
+  (defun hash-code (obj) (cl-murmurhash:murmurhash obj))
+  (defun quote-sym (sym) `(quote ,sym))
+  ;;this keeps args in order....we nreverse all over the place.
+  ;;Since we prototyped using lists, and now the vector
+  ;;reader is working well, we're in the middle of migrating
+  ;;to vectors.  For now, we allow backwards compat with both
+  ;;(perhaps allowing CL to define protocols in their native
+  ;;tongue, I dunno).  In the future, we'll enforce
+  ;;vectors....
+  ;;TBD replace with seq
 
 (defun symbol= (l r)
   "Unqualified symbol equality based on symbol-name
@@ -350,7 +372,7 @@
 (defun even? (n)  (evenp n))
 (defun zero? (n)  (zerop n))
 
-)
+
 
 ;;Eager Sequence Functions, may be OBE
 ;;====================================
@@ -362,7 +384,7 @@
                                         (let ((res (nreverse (aux (list) x))))
                                           (mapcar (lambda (x) (push x acc)) res))))
                                   acc))))
-              (nreverse (aux (list) expr)))))
+              (nreverse (aux (list) expr))))))
 
 (defgeneric take! (n l))
 (defmethod  take! (n (l cons))

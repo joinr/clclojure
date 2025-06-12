@@ -17,32 +17,8 @@
 
 (in-package :clclojure.protocols)
 
-;;aux
-;;bootstrapping hack!
-(defun vector? (x) (typep x 'clclojure.pvector::pvec))
-(defun vector-expr (x)
-  (and (listp x) (eq (first x) 'persistent-vector)))
-
 ;;We bring this in now since we're ignoring literals.
 (defun literal? (x) nil)
-
-(defun nested-list? (x)
-  (and (listp x)
-       (listp (first x))))
-
-;;this keeps args in order....we nreverse all over the place.
-;;Since we prototyped using lists, and now the vector
-;;reader is working well, we're in the middle of migrating
-;;to vectors.  For now, we allow backwards compat with both
-;;(perhaps allowing CL to define protocols in their native
-;;tongue, I dunno).  In the future, we'll enforce
-;;vectors....
-;;TBD replace with seq
-(defun as-list (xs)
-  (if (vector? xs)  (vector-to-list xs)
-      (if (vector-expr xs) (rest xs)
-          xs)))
-
 ;;changed this since we have lists now...
 (defun drop-literals (xs)
    (filter (lambda (x) (not  (or (literal? x) (stringp x)))) (as-list  xs)))

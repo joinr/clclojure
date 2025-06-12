@@ -15,6 +15,7 @@
            :map-contains?
            :map-seq
            :empty-map
+           :+empty-cowmap+
            :map-get
    :cowmap-table
    :cowmap)

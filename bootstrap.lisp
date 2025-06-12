@@ -533,202 +533,202 @@
   (defprotocol INamed
       (-name [thing]))
 
-  )
-   
+  
+  
 
 
-;;Extending types to native structures and clojure literals:
-;;==========================================================
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (extend-type
-   null
-   ICounted
-   (-count [c] 0)
-   IEmptyableCollection
-   (-empty [c] nil)
-   ICollection
-   (-conj [coll itm] (common-lisp:cons itm nil))
-   IStack
-   (-peek [coll] nil)
-   (-pop  [coll] nil)
-   ISeqable
-   (-seq [coll] nil)
-   IHash
-   (-hash [o] (sxhash nil))
-   IEquiv
-   (-equiv [o other] (error 'not-implemented))
-   ISeq
-   (-first [o] nil)
-   (-rest  [o] nil)
-   IReversible
-   (-rseq [coll] nil))
+  ;;Extending types to native structures and clojure literals:
+  ;;==========================================================
+  (eval-when (:compile-toplevel :load-toplevel :execute)
+    (extend-type
+     null
+     ICounted
+     (-count [c] 0)
+     IEmptyableCollection
+     (-empty [c] nil)
+     ICollection
+     (-conj [coll itm] (common-lisp:cons itm nil))
+     IStack
+     (-peek [coll] nil)
+     (-pop  [coll] nil)
+     ISeqable
+     (-seq [coll] nil)
+     IHash
+     (-hash [o] (sxhash nil))
+     IEquiv
+     (-equiv [o other] (error 'not-implemented))
+     ISeq
+     (-first [o] nil)
+     (-rest  [o] nil)
+     IReversible
+     (-rseq [coll] nil))
 
-  ;;We got a ton of goodies from
-  ;;sb-sequences namespace to leverage here.
-  ;;good opportunity for iterator-seq...
-  (extend-type
-   sequence
-   ICounted
-   (-count [c] (common-lisp:length c))
-   
-   ;; IEmptyableCollection
-   (-empty [c] (sb-sequence:make-sequence-like c 0))
-   ;; ICollection
-   ;; (-conj [coll itm] (cons itm nil))
-   IStack
-   (-peek [coll] (elt coll 0))
-   (-pop  [coll] (error 'not-implemented))
-   ISeqable
-   (-seq [coll] (error 'not-implemented))
-   IHash
-   (-hash [o] (sxhash o))
-   
-   ;; IEquiv
-   ;; (-equiv [o other] (error 'not-implemented))
+    ;;We got a ton of goodies from
+    ;;sb-sequences namespace to leverage here.
+    ;;good opportunity for iterator-seq...
+    (extend-type
+     sequence
+     ICounted
+     (-count [c] (common-lisp:length c))
+     
+     ;; IEmptyableCollection
+     (-empty [c] (sb-sequence:make-sequence-like c 0))
+     ;; ICollection
+     ;; (-conj [coll itm] (cons itm nil))
+     IStack
+     (-peek [coll] (elt coll 0))
+     (-pop  [coll] (error 'not-implemented))
+     ISeqable
+     (-seq [coll] (error 'not-implemented))
+     IHash
+     (-hash [o] (sxhash o))
+     
+     ;; IEquiv
+     ;; (-equiv [o other] (error 'not-implemented))
 
-   ISeq
-   (-first [o] (elt o 0))
-   ;;TODO pull this over...
-   ;;Probably identical to array-seqs
+     ISeq
+     (-first [o] (elt o 0))
+     ;;TODO pull this over...
+     ;;Probably identical to array-seqs
 
-   (-rest  [o] (error 'not-implemented))
-   IReversible
-   (-rseq [coll] (reverse coll)))
+     (-rest  [o] (error 'not-implemented))
+     IReversible
+     (-rseq [coll] (reverse coll)))
 
-  (extend-type
-   clclojure.pvector::pvec
-   
-   ICounted
-   (-count [c] (vector-count c))
-   IIndexed
-   (-nth  [coll n] (nth-vec coll n))
-   (-nth  [coll n not-found] (nth-vec coll n))
-   
-   IEmptyableCollection
-   (-empty [c] [])
-   ICollection
-   (-conj [coll itm] (vector-conj coll itm))
-   IVector
-   (-assoc-n [coll n val] (vector-assoc coll n val))
-   IStack
-   (-peek [coll]
-          (when (not (zerop (-count coll) )) (nth-vec coll 0)))
-   (-pop  [coll]  (subvec coll 1))
-   ISeqable
-   (-seq [coll] (vector-to-list coll ))
-   IHash
-   (-hash [o]   (error 'not-implemented))
-   IMapEntry
-   (-key [coll] (-nth coll 0))
-   (-val [coll] (-nth coll 1))
-   IEquiv
-   (-equiv [o other] (error 'not-implemented))
+    (extend-type
+     clclojure.pvector::pvec
+     
+     ICounted
+     (-count [c] (vector-count c))
+     IIndexed
+     (-nth  [coll n] (nth-vec coll n))
+     (-nth  [coll n not-found] (nth-vec coll n))
+     
+     IEmptyableCollection
+     (-empty [c] [])
+     ICollection
+     (-conj [coll itm] (vector-conj coll itm))
+     IVector
+     (-assoc-n [coll n val] (vector-assoc coll n val))
+     IStack
+     (-peek [coll]
+            (when (not (zerop (-count coll) )) (nth-vec coll 0)))
+     (-pop  [coll]  (subvec coll 1))
+     ISeqable
+     (-seq [coll] (vector-to-list coll ))
+     IHash
+     (-hash [o]   (error 'not-implemented))
+     IMapEntry
+     (-key [coll] (-nth coll 0))
+     (-val [coll] (-nth coll 1))
+     IEquiv
+     (-equiv [o other] (error 'not-implemented))
 
-   IKVReduce
-   (-kv-reduce [coll f init] (error 'not-implemented))
-   
-   IReversible
-   (-rseq [coll] (error 'not-implemented))
-   IChunk
-   (-drop-first [coll] (error 'not-implemented))
-   IChunkedSeq
-   (-chunked-first [coll] (error 'not-implemented))
-   (-chunked-rest [coll] (error 'not-implemented))
-   IChunkedNext
-   (-chunked-next [coll] (error 'not-implemented))))
- 
+     IKVReduce
+     (-kv-reduce [coll f init] (error 'not-implemented))
+     
+     IReversible
+     (-rseq [coll] (error 'not-implemented))
+     IChunk
+     (-drop-first [coll] (error 'not-implemented))
+     IChunkedSeq
+     (-chunked-first [coll] (error 'not-implemented))
+     (-chunked-rest [coll] (error 'not-implemented))
+     IChunkedNext
+     (-chunked-next [coll] (error 'not-implemented))))
+  
 
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (extend-type  symbol 
-                IMeta
-                (-meta [obj] (symbol-meta obj))
-                IWithMeta
-                (-with-meta [obj m] (with-symbol-meta obj m) obj)
-                IEquiv
-                ;;dirty implementation....
-                ;;We need to unify qualified and unqualified symbols..
-                ;;in clojure, symbol equality is a bit more complex
-                ;;since they're equiv iff unqualified.
-                ;;unless we hack the reader to reader qualified
-                ;;symbols as unqual, the preponderance of clojure
-                ;;symbol comparisons will not be strict, so
-                ;;we end up with a lot of unqualified symbols.
-                ;;This is just to paper over the bootstrapping
-                ;;process....
-                (-equiv [l r]
-                        (or (eq l r)
-                            (when  (not (or (keywordp l) (keywordp r)))
-                              (common-lisp:= (sxhash l) (sxhash r)))
-                            ))
-                INamed
-                (-name [this] (symbol-name this))
-                )
+  (eval-when (:compile-toplevel :load-toplevel :execute)
+    (extend-type  symbol 
+                  IMeta
+                  (-meta [obj] (symbol-meta obj))
+                  IWithMeta
+                  (-with-meta [obj m] (with-symbol-meta obj m) obj)
+                  IEquiv
+                  ;;dirty implementation....
+                  ;;We need to unify qualified and unqualified symbols..
+                  ;;in clojure, symbol equality is a bit more complex
+                  ;;since they're equiv iff unqualified.
+                  ;;unless we hack the reader to reader qualified
+                  ;;symbols as unqual, the preponderance of clojure
+                  ;;symbol comparisons will not be strict, so
+                  ;;we end up with a lot of unqualified symbols.
+                  ;;This is just to paper over the bootstrapping
+                  ;;process....
+                  (-equiv [l r]
+                          (or (eq l r)
+                              (when  (not (or (keywordp l) (keywordp r)))
+                                (common-lisp:= (sxhash l) (sxhash r)))
+                              ))
+                  INamed
+                  (-name [this] (symbol-name this))
+                  )
 
-  ;;not applicable.
-  ;; (extend-type keyword
-  ;;              IEquiv
-  ;;              ;;dirty implementation....
-  ;;              ;;We need to unify qualified and unqualified symbols..
-  ;;              ;;in clojure, symbol equality is a bit more complex
-  ;;              ;;since they're equiv iff unqualified.
-  ;;              ;;unless we hack the reader to reader qualified
-  ;;              ;;symbols as unqual, the preponderance of clojure
-  ;;              ;;symbol comparisons will not be strict, so
-  ;;              ;;we end up with a lot of unqualified symbols.
-  ;;              ;;This is just to paper over the bootstrapping
-  ;;              ;;process....              
-  ;;              (-equiv [l r]
-  ;;                      (or (eq l r)
-  ;;                          ;;I don't even know if this is possible...
-  ;;                          ;;I think keywords are always interned
-  ;;                          ;;in the keyword package.
-  ;;                          ;; (when (keywordp r)
-  ;;                          ;;   (common-lisp:= (sxhash l) (sxhash r)))
-  ;;                          ))
-  ;;              IHash
-  ;;              (-hash [k] (hash-code k))
-  ;;              )
+    ;;not applicable.
+    ;; (extend-type keyword
+    ;;              IEquiv
+    ;;              ;;dirty implementation....
+    ;;              ;;We need to unify qualified and unqualified symbols..
+    ;;              ;;in clojure, symbol equality is a bit more complex
+    ;;              ;;since they're equiv iff unqualified.
+    ;;              ;;unless we hack the reader to reader qualified
+    ;;              ;;symbols as unqual, the preponderance of clojure
+    ;;              ;;symbol comparisons will not be strict, so
+    ;;              ;;we end up with a lot of unqualified symbols.
+    ;;              ;;This is just to paper over the bootstrapping
+    ;;              ;;process....              
+    ;;              (-equiv [l r]
+    ;;                      (or (eq l r)
+    ;;                          ;;I don't even know if this is possible...
+    ;;                          ;;I think keywords are always interned
+    ;;                          ;;in the keyword package.
+    ;;                          ;; (when (keywordp r)
+    ;;                          ;;   (common-lisp:= (sxhash l) (sxhash r)))
+    ;;                          ))
+    ;;              IHash
+    ;;              (-hash [k] (hash-code k))
+    ;;              )
 
-  ;;subvector impls...
-  (extend-type
-   clclojure.pvector::subvector
-   
-   ICounted
-   (-count [c] (vector-count c))
+    ;;subvector impls...
+    (extend-type
+     clclojure.pvector::subvector
+     
+     ICounted
+     (-count [c] (vector-count c))
 
-   IEmptyableCollection
-   (-empty [c] [])
-   ICollection
-   (-conj [coll itm] (vector-conj coll itm))
-   IVector
-   (-assoc-n [coll n val] (vector-assoc coll n val))
-   IStack
-   (-peek [coll]
-          (when (not (zerop (-count coll) )) (nth-vec coll 0)))
-   (-pop  [coll]  (subvec coll 1))
-   ISeqable
-   (-seq [coll] (vector-to-list coll)) ;poorly implemented.  should be arrayseq
-   IHash
-   (-hash [o]   (error 'not-implemented))
-   IMapEntry
-   (-key [coll] (-nth coll 0))
-   (-val [coll] (-nth coll 1))
-   IEquiv
-   (-equiv [o other] (error 'not-implemented))
-   IKVReduce
-   (-kv-reduce [coll f init] (error 'not-implemented))
+     IEmptyableCollection
+     (-empty [c] [])
+     ICollection
+     (-conj [coll itm] (vector-conj coll itm))
+     IVector
+     (-assoc-n [coll n val] (vector-assoc coll n val))
+     IStack
+     (-peek [coll]
+            (when (not (zerop (-count coll) )) (nth-vec coll 0)))
+     (-pop  [coll]  (subvec coll 1))
+     ISeqable
+     (-seq [coll] (vector-to-list coll)) ;poorly implemented.  should be arrayseq
+     IHash
+     (-hash [o]   (error 'not-implemented))
+     IMapEntry
+     (-key [coll] (-nth coll 0))
+     (-val [coll] (-nth coll 1))
+     IEquiv
+     (-equiv [o other] (error 'not-implemented))
+     IKVReduce
+     (-kv-reduce [coll f init] (error 'not-implemented))
 
-   IReversible
-   (-rseq [coll] (error 'not-implemented))
-   IChunk
-   (-drop-first [coll] (error 'not-implemented))
-   IChunkedSeq
-   (-chunked-first [coll] (error 'not-implemented))
-   (-chunked-rest [coll] (error 'not-implemented))
-   IChunkedNext
-   (-chunked-next [coll] (error 'not-implemented))
-   ))
+     IReversible
+     (-rseq [coll] (error 'not-implemented))
+     IChunk
+     (-drop-first [coll] (error 'not-implemented))
+     IChunkedSeq
+     (-chunked-first [coll] (error 'not-implemented))
+     (-chunked-rest [coll] (error 'not-implemented))
+     IChunkedNext
+     (-chunked-next [coll] (error 'not-implemented))
+     )))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   ;;list operations.
