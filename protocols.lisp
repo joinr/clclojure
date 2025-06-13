@@ -13,7 +13,9 @@
 	   :satisfies?
 	   :protocol-exists?
            :list-protocols
-           :clojure-deftype))
+           :clojure-deftype
+           :protocol-members
+           :protocol))
 
 (in-package :clclojure.protocols)
 

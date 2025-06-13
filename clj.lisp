@@ -5,13 +5,13 @@
         :clj-con)
   (:shadow :deftype :keyword :atom :realized? :deref
    :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
-   :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond :=)
+   :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := :defmethod)
   (:export :def :defn :fn :meta :with-meta :str :symbol? :first :rest :second :next
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count :do :get :assoc :when-let
            :if-let :ns :even? :pos? :zero? :odd? :vector :hash-map :inc :dec :identity :loop  :chunk-first
    :doall  :chunk-buffer :every? :chunk-rest :interleave :ffirst :partition :seq->list :fnext :chunk-cons :nthrest
-           :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try := :true :false))
+           :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try := :true :false :defmulti :defmethod))
 (in-package clclojure.base)
 
 ;;hacky way to accomodate both forms...
@@ -504,6 +504,7 @@
 ;;entry pointing at an assoc list for now.
 
 ;;These should be pulled out into a protocol.
+;;if we retain this, maybe coerce to a map.
 (defmacro symbol-meta (symb)        `(common-lisp:get (quote ,symb) 'meta))
 (defmacro with-symbol-meta (symb m) `(setf (common-lisp:get (quote ,symb) 'meta) ,m))
 
@@ -528,6 +529,17 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;; core protocols ;;;;;;;;;;;;;
+
+;;Note - with variadic protocol fns, we currently have to pass them
+;;as ((arg1 (body 1)) (args2 body2))  etc. since the implementation
+;;of the generic fn is a varargs guy, which dispatch to the variadic
+;;function machinery.
+
+;;We might make this more consistent with clojure (or handle it from the
+;;clojure side maybe), by recognizing that discrete arities for a single
+;;protocol fn can be supplied and collected into a varargs implementation
+;;on the caller's behalf.  I forget how it works in clojure right now.
+;;The biggest example is IFn though.
 
 ;;Need to get back to this guy...multiple arity is not yet implemented...
 (eval-when (:compile-toplevel :load-toplevel :execute) 
@@ -726,6 +738,11 @@
   ;;Extending types to native structures and clojure literals:
   ;;==========================================================
   (eval-when (:compile-toplevel :load-toplevel :execute)
+    (extend-protocol
+     IFn
+     Function
+     (-invoke ((this &rest args)
+               (apply #'funcall this args))))
     (extend-protocol
      IEquiv
      t (-equiv (this that) (eq this that))
@@ -1260,10 +1277,24 @@
              (conj coll x))))
 
 ;;need to define hierarchies.
+;;these should resolve to classes or something
+;;a hierarchy can pick up.
+;;protocols are structs, not classes.  since they
+;;don't have inheritance semantics, we can look to see
+;;if the class satisfies the protocol.
+
+;;So after reviewing CL types they're pretty cool.
+;;(typep (vector 1 2) (cons 'or (protocol-members IHash)))
+;;We can define protocol membership by the above..
+;;We already have this equivalent in satsfies? though.
+;;Can we used common-lisp:deftype to provide derivative
+;;hierarchies?
 (defn isa?
     ((child parent)
-     (or (= child parent)
-         (common-lisp:subtypep (type-of child) (type-of parent))))
+     (if (typep parent 'protocol)
+         (member child (protocol-members parent))
+         (or (identical? child parent) ;;maybe equiv but meh.
+             (common-lisp:subtypep child parent))))
     ((h child parent)
      (throw (ex-info "Hierarchies are not implemented bro!" (hash-map :in (vector child parent))))))
 
@@ -1407,12 +1438,12 @@
 ;; :static true}
 
 (defn doall
-    ((coll)
-     (dorun coll)
-     coll)
+  ((coll)
+   (dorun coll)
+   coll)
   ((n coll)
-      (dorun n coll)
-      coll))
+   (dorun n coll)
+   coll))
 
 ;; "Returns the nth rest of coll, coll when n is 0."
 ;; {:added "1.3"
@@ -1637,14 +1668,13 @@
 (defn every? (pred xs)
   (sequences::every? pred xs))
 
-
 (def identity #'common-lisp:identity)
 
 ;; "Returns a lazy seq of the first item in each coll, then the common-lisp:second etc."
 ;; {:added "1.0"
 ;; :static true}
 (defn interleave
-    (() ())
+    (() nil)
   ((c1) (lazy-seq (seq  c1)))
   ((c1 c2)
        (lazy-seq
@@ -1745,6 +1775,69 @@
 (defmacro new (klass &rest args)
   `(make-instance (quote ,klass) ,@args))
 
+;;lame multimethods?
+;;we need a methodcache
+;;dispatch fn
+
+(defparameter *default-hierarchy* nil)
+;;we can pack the multimethod into a struct.
+(defstruct multimethod name doc meta default dispatch-fn methodcache hierarchy)
+;;ignore hierarchy for now, keep it simple with doc and meta.
+(defun make-multi (name dispatch-fn &key doc meta default hierarchy)
+  (make-multimethod :name name
+                    :doc (or doc "")
+                    :default (or default :default)
+                    :dispatch-fn dispatch-fn
+                    :meta (or meta +empty-cowmap+)
+                    :methodcache +empty-cowmap+
+                    :hierarchy (or hierarchy *default-hierarchy*)))
+
+(extend-protocol
+ IFn
+ multimethod
+ (-invoke ((this &rest args)
+           (with-slots (methodcache dispatch-fn default) this
+             (let (dv          (apply dispatch-fn args)
+                   method-impl (or (get methodcache  dv)
+                                   (get methodcache default)))
+               (if method-impl
+                   (apply #'-invoke method-impl args)
+                   (throw (ex-info "no dispatch value found and no default for multimethod!"
+                                   (hash-map :name (multimethod-name this)
+                                             :args args)))))))))
+
+;;we'll scrape this out better later, for now we'll just force a name and dispatch
+;;fn.
+(defmacro defmulti (name dispatch &key default hierarchy)
+  (let (dfn     (gensym "dfn")
+        multifn (gensym "multifn")
+        args (gensym "args"))
+    `(let (,dfn ,dispatch
+           ,multifn (make-multi ,name ,dfn
+                                :default   (or ,default :default)
+                                :hierarchy (or ,hierarchy *default-hierarchy*)))
+       (def ,name ,multifn)
+       (setf (symbol-function (quote ,name))
+             (fn (&rest ,args) (apply -invoke ,multifn ,args)))
+       ,name)))
+
+(defun push-method (mf k func)
+  (with-slots (methodcache) mf
+    (setf methodcache (assoc methodcache k func))))
+
+(defmacro defmethod (name dispatch-val args &rest body)
+  (let (df (gensym "dispatch-fn"))
+    `(let (,df (fn (,@args) ,@body))
+       (push-method ,name ,dispatch-val ,df))))
+
+(comment ;;testing my precious
+   (defmulti mf (fn (x) (type-of x)))
+   (defmethod mf :default (x) (+ x 1))
+   (-invoke mf 1)
+   (mf 1)
+   )
+
+;;need to define defmethod.
 
 ;;destructuring junk.  not important yet.
 
