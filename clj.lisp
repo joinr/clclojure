@@ -686,10 +686,9 @@
   (defprotocol IEditableCollection
       (-as-transient (coll)))
 
-
   (defprotocol ITransientCollection
-      (-conj! (tcoll val))
-    (-persistent! (tcoll)))
+      (-conj!       (tcoll val))
+      (-persistent! (tcoll)))
 
   (defprotocol ITransientAssociative
       (-assoc! (tcoll key val)))
@@ -727,6 +726,10 @@
   ;;Extending types to native structures and clojure literals:
   ;;==========================================================
   (eval-when (:compile-toplevel :load-toplevel :execute)
+    (extend-protocol
+     IEquiv
+     t (-equiv (this that) (eq this that))
+     )
     (extend-type
      null
      ICounted
@@ -1058,8 +1061,8 @@
 ;;Core Lib
 ;;========
 
-
-(eval-when (:compile-toplevel :load-toplevel :execute)  
+(declaim (inline equiv))
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (defn seq (coll) (-seq coll))
   (defn vec (coll)
     (if (vector? coll) coll
@@ -1118,18 +1121,25 @@
   (def zero? #'common-utils:zero?)
   (defn inc (x) (1+ x))
   (defn dec (x) (1- x))
+  ;;TODO look at optimizing this.
+  ;;We are probably waaaaay slow.
+  ;;guessing this is a Good Thing  
+  (defn equiv (x y)
+    (if (and (numberp x) (numberp y))
+        (common-lisp:= x y)
+        (or (identical? x y)
+            (-equiv x y))))
+  
   (defn =
       ((x)   true)
-    ((x y)
-        (if (and (numberp x) (numberp y))
-            (common-lisp:= x y)
-            (-equiv x y)))
-    ((x y & more)
-        (if (-equiv x y)
-            (if (next more)
-                (recur y (first more) (next more))
-                (- y (first more)))
-            nil)))
+      ((x y)
+       (equiv x y))
+      ((x y & more)
+       (if (-equiv x y)
+           (if (next more)
+               (recur y (first more) (next more))
+               (- y (first more)))
+           nil)))
 
   (defn key (e) (-key e))
   (defn val (e) (-val e))
@@ -1187,10 +1197,10 @@
 ;;try-catch-finally...
 
 (defn ex-info
-    ((msg map)
-          (make-instance 'exception-info :data map :cause msg  :message msg))
+  ((msg map)
+   (make-instance 'exception-info :data map :cause msg  :message msg))
   ((msg map cause)
-        (make-instance 'exception-info  :data map :cause cause  :message msg)))
+   (make-instance 'exception-info  :data map :cause cause  :message msg)))
 
 (defn ex-data (e)
   (common-utils::exception-info-data e))
@@ -1210,11 +1220,12 @@
              (def ~name ~expr)))
 
 (defn assoc
-    ((m k v)       (-assoc m k v))
-  ((m k v & kvs)
-      (reduce (fn (acc kv)
-                  (-assoc acc (first kv) (second kv)))
-              (-assoc m k v) kvs)))
+    ((m k v)
+     (-assoc m k v))
+    ((m k v & kvs)
+     (reduce (fn (acc kv)
+                 (-assoc acc (first kv) (second kv)))
+             (-assoc m k v) kvs)))
 
 (defn dissoc
     ((m k)       (-dissoc m k))
@@ -1228,10 +1239,10 @@
     (-count coll))) 
 
 (defn nth
-    ((coll index)
-           (-nth coll index))
+  ((coll index)
+     (-nth coll index))
   ((coll index not-found)
-         (-nth coll index not-found)))
+     (-nth coll index not-found)))
 
 (defn take (n coll)
   (sequences:take n (seq  coll)))
@@ -1240,7 +1251,7 @@
   (sequences:drop n (seq coll)))
 
 (defn conj
-    (() +empty-pvec+)
+  (() +empty-pvec+)
   ((coll) coll)
   ((coll x) (-conj coll x))
   ((coll x & xs)
@@ -1248,11 +1259,19 @@
              (recur  (-conj  coll x) (first xs) (rest xs))
              (conj coll x))))
 
+;;need to define hierarchies.
+(defn isa?
+    ((child parent)
+     (or (= child parent)
+         (common-lisp:subtypep (type-of child) (type-of parent))))
+    ((h child parent)
+     (throw (ex-info "Hierarchies are not implemented bro!" (hash-map :in (vector child parent))))))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
   (defn chunked-seq? (x) nil)
-  (defn chunk-first (coll) (-chunked-first coll))
-  (defn chunk-rest (coll)  (-chunked-rest coll))
+  (defn chunk-first  (coll)  (-chunked-first coll))
+  (defn chunk-rest   (coll)  (-chunked-rest coll))
   (defn chunk-buffer (coll))
   (defn seq->list (xs) (sequences::seq->list (seq xs)))
 
@@ -1298,13 +1317,17 @@
 ;;   last of which will be treated as a sequence."
 ;; {:added "1.0"
 ;; :static true}
+;;TBD Revisit this definition, it's a bit off.
+;;Since we have actual lists in common lisp...
+;;do we want to lift these to seqs?  Maybe we
+;;do to keep the semantics separate.
 (defn list*
-    ((args) (seq args))
+  ((args) (seq args))
   ((a args) (cons a args))
   ((a b args) (cons a (cons b args)))
   ((a b c args) (cons a (cons b (cons c args))))
   ((a b c d & more)
-      (cons a (cons b (cons c (cons d (spread more)))))))
+   (cons a (cons b (cons c (cons d (spread more)))))))
 
 (defmacro loop* (bindings &rest body)
   (assert (or  (vector? bindings)
@@ -1720,7 +1743,7 @@
 ;;it's a low-level interop construct.
 
 (defmacro new (klass &rest args)
-  `(make-instance (quote ~klass) ~@args))
+  `(make-instance (quote ,klass) ,@args))
 
 
 ;;destructuring junk.  not important yet.

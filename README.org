@@ -19,6 +19,125 @@
 #+AUTHOR: joinr
 #+DATE: 18 Aug 2018
 
+* Status (6/13/2025)
+I got bit by the bug again.  After all the magic tricks and backflips required to get
+us to like a 90% embedded clojure environment using a combination of reader macros,
+hacking the sbcl evaluator, heavy metaprogramming to enable lexical analysis, and
+all sorts of unsavory (but fun to learn) stuff in Common Lisp, I decided to get back
+to the original approach I had avoided (due to exploring the bounds of embedding).
+
+** Separation of concerns
+I leveraged extant implementations of protocols, variadic functions, sequences,
+persistent data structures, etc. to effectively bootstrap a clojure runtime in
+Common Lisp.   This time, instead of trying to leverage the ambient facilities in
+CL for embedding a new language (and their surprising limitations), we instead 
+leverage the flexibility of CL to implement an equivalent of clojure.lang.RT
+or the cljs equivalent.  This way, we can focus on providing native CL 
+implementations of Clojure concepts, and defer the reader and analyzer work
+to tools.reader and tools.analyzer respectively. 
+
+** We already have most of clojure.core  and the runtime
+I was able to leverage prior work with some cleanup (removing reader, eval,
+and lexical analyzer tricks) to get a common clojure runtime.  So we have
+defprotocol, deftype, def, defn, reify, loop*, fn*, etc. and most of the 
+primitives out of the box.  I'll fill in gaps with library support (like using
+clj-con for concurrency stuff, cl-hamt, cl-murmurhash, etc).
+
+*** Data Literals Already Print 
+We already have (on the printing side) organic printing of clojure
+data structures (or the proxies in place).  So we get a nice quality
+of life when building out the clojure runtime in common lisp.  That
+then translates directly into clojure printing.  Printing is probably
+the easiest piece of this and it's already done.
+
+*** Let the Reader Read, not Common Lisp Readtable
+Reader macros are cool, but they start to get funky when you try to nest
+new data literals into lexical forms like `let`.  I resorted to a bunch of
+code walking and parsing to jump back and forth just to get vectors and maps
+working in all contexts.  Even keyword-as-function access ended up being a 
+semi-surmountable hurdle, but not without its problems.
+
+So no more bending the readtable and other shenanigans.  We go back
+to porting clojure.tools.reader to our clojure runtime in common lisp.
+
+The good news is we have like 99% of what we need that's now "native" 
+in CL (via macros), we just need to translate the reader literals and friends
+over, and fill out platform-specific gaps (e.g. java classes or js classes, 
+we'll probably leverage the cljs implementation since it's already protocol
+based).
+
+I hope that by porting the existing official readers, we get all the corner
+cases solved for us (like metadata, number parsing, etc). We also
+get reader conditionals (including platform junk).
+
+**** Some literals have different semantics
+In clojure, symbols and keys can be qualified or unqualified.
+In CL, they are automatically "qualified" in the sense that the
+reader wants to create them local to the current package.  You 
+can get unqualified with some effort, but it's enough of an
+ass pain to work around that it's best we lift our own keys/symbols/ns
+out of the environment and translate that to CL at compile time.
+
+This will let us encode the clojure semantics inside the clojure
+compilation/evaluation context, and let the reader build out actual
+clojure literals directly (e.g. packing on meta and the like where we
+want to, reading unqualified stuff).
+
+*** Leverage the Analzyer, Emit CL
+Since our clojure runtime is pretty robust and maps directly (including
+most of the core libs) to the clojure.core implementation from cljs (protocol based), 
+we have more than enough to build out the analyzer.  We also have a dually 
+flexible environment for porting the existing clj/cljs emitters into compatible
+clojure CL runtime forms.  We can leverage substantial metaprogramming facilities
+here to trivialize codegen.
+
+This opens up some opportunities down the road for additional optimizing
+passes.  Notably, SBCL already does a bunch for us (quite noisly) like
+pruning unused code.  The compiler is badass and we can expose more of that
+to clojure code directly (down the road).
+
+*** Parallel Construction
+We implement our own vars, keys, symbols, and namespaces going forward.
+There may be a way to embed better with e.g. the CL package system (which I originally
+tried), but for now we'll sidestep satisfying CL and just do clojure in its
+own environment.
+
+Thankfully these aren't too hard to implement, and there are at least some
+facilities present in the CL ecosystem to make it easier to do so.
+
+From an interop perspective, we should be able to trivially embed CL forms
+that can be resolved natively, and I think exposing clojure namespaces and 
+symbols should be similarly easy.  Since clojure functions are common lisp
+function/generic functions, and clojure classes are CLOS classes, so long
+as we can resolve it we should be able to use it.
+
+There is a question about maintaining or mirroring clojure namespaces in 
+CL packages. I'll think about that a bit down the road.
+
+** Current Trajectory
+I envision we'll have something like cljs (or the jvm implementation) 
+where our "triangle on screen moment" is when we have something like 
+
+#+BEGIN_SRC  
+(print-clojure 
+  (eval-clojure 
+    (read-clojure "(let [m {:x [1 2 #{}]}] (-> m :x last  (conj :blah)))")))
+;;yields #{:blah}
+#+END_SRC
+
+where we're reading, analyzing, evaling (resolve + apply), and printing
+everything across the common-lisp->clj bridge.  Then go the opposite
+direction (e.g. with a #cl reader dispatch).
+
+- Starting work on porting the reader now.
+
+- It's possible to write non-trivial "clojure" programs in CL as is, but
+  without reader support (which is sorely missed) and some semantics like
+  keys-as-functions.
+  - You get loop/recur, fn/recur, def, defn, metadata, sequences, vectors, 
+    a weak cow-map (replaced later), and a good chunk of the core library
+    (with more ported as needed), atoms, and other stuff added daily.
+
 * Background
 Porting Clojure seems to be the thing to do these days.  After the clojurescript
 compiler came out, people had a really good blueprint for hosting clojure in other

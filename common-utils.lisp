@@ -551,6 +551,10 @@
    (data    :initarg :data    :reader exception-info-data)
    (cause   :initarg :cause   :reader exception-info-cause)))
 
+(defmethod print-object ((obj exception-info) stream)
+  (with-slots (message data cause) obj
+    (format stream "#error~%{:type exception-info~%:message ~A~%:cause ~A~%:data ~A}" message cause data)))
+
 ;;our specs for a mult-bodied lambda are like this:
 ;; (lambda*
 ;;    (()    :no-args)
