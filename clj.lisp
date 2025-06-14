@@ -5,14 +5,37 @@
         :clj-con)
   (:shadow :deftype :keyword :atom :realized? :deref
    :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
-   :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := :defmethod)
+   :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
+   )
   (:export :def :defn :fn :meta :with-meta :str :symbol? :first :rest :second :next
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count :do :get :assoc :when-let
            :if-let :ns :even? :pos? :zero? :odd? :vector :hash-map :inc :dec :identity :loop  :chunk-first
    :doall  :chunk-buffer :every? :chunk-rest :interleave :ffirst :partition :seq->list :fnext :chunk-cons :nthrest
-           :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try := :true :false :defmulti :defmethod))
+           :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try := :true :false :defmulti :defmethod-clj))
 (in-package clclojure.base)
+
+;;define our own defmacro....weird
+;;OUTDATED
+(common-lisp:defmacro defmacro (name args &rest body)
+  `(common-lisp:defmacro ,name ,args ,@body))
+
+(defun vector? (x) (typep x 'clclojure.pvector::pvec))
+(defun as-list (xs)
+  (if (vector? xs)  (vector-to-list xs)
+      (if (vector-expr xs) (rest xs)
+          xs)))
+
+;;Let's hack let to allow us to infer vector-binds
+;;or non-vector but "flat" list (ala clojure's let)
+;;as a clojure compatible let definition...
+;;we don't have destructuring yet.
+(defmacro let (bindings &body body)
+  (if   ;(eq (common-lisp:first bindings) 'persistent-vector)
+   (or  (vector? bindings)
+        (not (common-utils::nested-list?  bindings)))
+   `(unified-let* (,@(partition! 2 (as-list  bindings))) ,@body)
+   `(cl:let  ,bindings ,@body)))
 
 ;;hacky way to accomodate both forms...
 ;;we know we're in clojure if the args are vector
@@ -245,28 +268,7 @@
                     (:use :clclojure.base :common-lisp)
                     (:shadowing-import-from :clclojure.base :let :deftype :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector))
                   (in-package ,name))))
-
-  ;;define our own defmacro....weird
-  ;;OUTDATED
-  (common-lisp:defmacro defmacro (name args &rest body)
-    `(common-lisp:defmacro ,name ,args ,@body))
   
-  (defun vector? (x) (typep x 'clclojure.pvector::pvec))
-  (defun as-list (xs)
-    (if (vector? xs)  (vector-to-list xs)
-        (if (vector-expr xs) (rest xs)
-            xs)))
-
-  ;;Let's hack let to allow us to infer vector-binds
-  ;;or non-vector but "flat" list (ala clojure's let)
-  ;;as a clojure compatible let definition...
-  ;;we don't have destructuring yet.
-  (defmacro let (bindings &body body)
-    (if   ;(eq (common-lisp:first bindings) 'persistent-vector)
-     (or  (vector? bindings)
-          (not (common-utils::nested-list?  bindings)))
-     `(unified-let* (,@(partition! 2 (as-list  bindings))) ,@body)
-     `(cl:let  ,bindings ,@body)))
   ;;TBD redefine this.  If s is a Var, we should look for its
   ;;macro flag....
   (defun macro?    (s) (when (macro-function s) 't))
@@ -1813,7 +1815,7 @@
         multifn (gensym "multifn")
         args (gensym "args"))
     `(let (,dfn ,dispatch
-           ,multifn (make-multi ,name ,dfn
+           ,multifn (make-multi ',name ,dfn
                                 :default   (or ,default :default)
                                 :hierarchy (or ,hierarchy *default-hierarchy*)))
        (def ,name ,multifn)
@@ -1825,14 +1827,14 @@
   (with-slots (methodcache) mf
     (setf methodcache (assoc methodcache k func))))
 
-(defmacro defmethod (name dispatch-val args &rest body)
+(defmacro defmethod-clj (name dispatch-val args &rest body)
   (let (df (gensym "dispatch-fn"))
     `(let (,df (fn (,@args) ,@body))
        (push-method ,name ,dispatch-val ,df))))
 
 (comment ;;testing my precious
    (defmulti mf (fn (x) (type-of x)))
-   (defmethod mf :default (x) (+ x 1))
+   (defmethod-clj mf :default (x) (+ x 1))
    (-invoke mf 1)
    (mf 1)
    )
