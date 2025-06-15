@@ -6,7 +6,7 @@
 ;;(ql:quickload :clj)
 (asdf:defsystem :clclj
   :depends-on (:named-readtables :cl-package-locks :cl-murmurhash
-               :clj-con) ;copied from example. debate using :cl-hamt
+               :clj-con :cl-ppcre) ;copied from example. debate using :cl-hamt
   :components ((:file "common-utils")
                (:file "walk"        :depends-on ("common-utils"))
                (:file "sequences"   :depends-on  ("common-utils"))

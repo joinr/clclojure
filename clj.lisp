@@ -1,22 +1,21 @@
 (defpackage :clclojure.base ;;might change this to clojure.lang at some point.
   (:use :common-lisp :common-utils
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols
-   :clclojure.lexical
-        :clj-con)
-  (:shadow :deftype :keyword :atom :realized? :deref
-   :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
-   :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
-   ) ;;forgot about shadowing-import-from....
-  (:export :def :defn :fn :meta :with-meta :str :symbol? :first :rest :second :next
+        :clclojure.lexical :clj-con)
+  (:shadow :deftype :keyword :atom :realized? :deref :char
+           :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
+           :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
+           ) ;;forgot about shadowing-import-from....
+  (:export :def :defn :fn :meta :with-meta :str :symbol? :instance? :first :rest :second :next :char
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count
    :do :get :assoc :when-let   :if-let :ns :even? :pos? :zero? :odd? :vector :hash-map :inc :dec :identity :loop  :chunk-first
    :doall  :chunk-buffer :every? :chunk-rest :interleave :ffirst :partition :seq->list :fnext :chunk-cons :nthrest
    :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try := :true :false
-   :defmulti :defmethod-clj :isa? :equiv :nnext :dissoc :implements? :partition-all :name :keyword? :val :key
+   :defmulti :defmethod-clj :isa? :equiv :nnext :dissoc :implements? :partition-all :name :keyword? :val :key :when-not
    ;;mostly (except atom) from clj-con 
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
-   :promise :realized? :reset! :reset-vals! :swap! :swap-vals!))
+   :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord))
 (in-package clclojure.base)
 
 ;;define our own defmacro....weird
@@ -1933,7 +1932,112 @@
 ;; swap!             
 ;; swap-vals! 
 
+(defn char (x)
+  (typecase x
+    (common-lisp:standard-char x)
+    (integer (code-char x))
+    (otherwise (throw (ex-info "cannot coerce to char!") (hash-map :in x)))))
 
+(defn instance? (c x)
+  (isa? (type-of x) c))
+
+;; (defn keys (x)
+;;   (->> x seq (map first)))
+
+(defn emit-copy-instance (name old args)
+  `(make-instance ',name
+                  ,@(->> args
+                         (map (fn (x) (list (alexandria:make-keyword x)
+                                            `(slot-value ,old ',x)) ))
+                         (reduce (fn (acc xy)
+                                     (-> acc
+                                         (-conj (first xy))
+                                         (-conj (second xy)))) +empty-pvec+)
+                         (as-list))))
+
+;;fn is having a hard time in some meta programming, probably due to
+;;labels and self-naming for recur.
+(defun emit-record-impls (nm args)
+  (let (this     (gensym "this")
+        res      (gensym "newrec")
+        v        (gensym "v")
+        ext      '_ext
+        meta     '_meta
+        all-args (into '()  (concat args (list ext meta)))
+        lookups  (into '() (map (fn (x) (list  (alexandria:make-keyword x)
+                                               `(slot-value ,this ',x))) args))
+        adds     (into '() (map (lambda (x)
+                                    (list  (alexandria:make-keyword x)
+                                           `(let (,res ,(emit-copy-instance `,nm `,this all-args))
+                                              (setf (slot-value ,res ',x) ,v)
+                                              ,res))) args)))
+    (with-gensyms (k not-found exists res newmeta)
+      `(ILookup
+        (-lookup (,this ,k)
+                 (case ,k
+                   ,@lookups              
+                   (otherwise (get ,ext ,this))))
+        (-lookup (,this ,k ,not-found)
+                 (case ,k
+                   ,@lookups             
+                   (otherwise
+                    (multiple-value-bind (,v ,exists)
+                        (get (slot-value ,this ',ext) ,k)
+                      (if ,exists ,v ,not-found)))))
+        IAssociative
+        (-contains-key? (,this ,k)
+                        (let (,res (-lookup ,this ,k :not-found) )
+                          (not (eq res :not-found)))) ;;brittle
+        (-entry-at (,this k)
+                   (let (,res (-lookup ,this ,k :not-found))
+                     (when (not (eq ,res :not-found))
+                         (vector ,k ,res))))
+        (-assoc (,this ,k ,v)
+                (case ,k
+                  ,@adds
+                  (otherwise (let (,res ,(emit-copy-instance `,nm `,this all-args))
+                               (setf (slot-value ,res ',ext) (assoc (slot-value ,this ',ext) ,k ,v))
+                               ,res))))
+        IMap
+        (-assoc-ex (,this ,k ,v)
+                   (throw (ex-info "not-implemented" nil)))
+        (-dissoc   (,this ,k)
+                   (if (member ,k  (list ,@(mapcar #'alexandria:make-keyword  args)))
+                       (throw (ex-info "dissoc on core fields is WIP" (hash-map)))
+                       (let (,res ,(emit-copy-instance `,nm `,this all-args))
+                         (setf (slot-value ,res ',ext) (dissoc (slot-value ,this ',ext) ,v))
+                         ,res)))
+        IMeta
+        (-meta (,this) (slot-value ,this ',meta))
+
+        IWithMeta
+        (-with-meta  (,this ,newmeta)
+          (let (,res ,(emit-copy-instance `,nm `,this all-args))
+            (setf (slot-value ,res ',meta) ,newmeta)
+            ,res))
+        ISeqable
+        (-seq (,this)
+              (concat (list ,@(mapcar (lambda (x) (list 'list  (alexandria:make-keyword x)
+                                                         `(slot-value ,this ',x))) args))
+                      (common-utils:hash-table->entries (cowmap-table (slot-value ,this ',ext) )))
+              )))))
+
+;;limited defrecord impl.
+;;full impl would be in
+;;https://github.com/clojure/clojurescript/blob/master/src/main/clojure/cljs/core.cljc#L1837
+(defmacro defrecord (name args &rest impls)
+  (let (all-args (nreverse  (into '() (concat args '(_ext _meta))))
+        ctor (intern  (str  "->" name ))
+        ks   (map (fn (x) (alexandria:make-keyword x)) args))
+    `(progn  (clojure-deftype ,name
+                              ,all-args
+                              ,@impls
+                              ,@(emit-record-impls name args)
+                              )
+             (defn ,ctor (,@args)
+               (make-instance ',name ,@(into '() (interleave  args ks))
+                              :_ext +empty-cowmap+
+                              :_meta +empty-cowmap+)))))
 
 
 ;;destructuring junk.  not important yet.
