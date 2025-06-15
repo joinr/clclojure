@@ -1283,21 +1283,6 @@
   `(when-not (boundp (quote ,name))
              (def ~name ~expr)))
 
-(defn assoc
-    ((m k v)
-     (-assoc m k v))
-    ((m k v & kvs)
-     (reduce (fn (acc kv)
-                 (-assoc acc (first kv) (second kv)))
-             (-assoc m k v) kvs)))
-
-(defn dissoc
-    ((m k)       (-dissoc m k))
-  ((m k & ks)
-      (reduce (fn (acc k)
-                  (-dissoc acc k))
-              (-dissoc m k) ks)))
-
 (eval-when (:compile-toplevel :load-toplevel :execute) 
   (defn count (coll)
     (-count coll))) 
@@ -1970,7 +1955,8 @@
                                     (list  (alexandria:make-keyword x)
                                            `(let (,res ,(emit-copy-instance `,nm `,this all-args))
                                               (setf (slot-value ,res ',x) ,v)
-                                              ,res))) args)))
+                                              ,res))) args))
+        nargs (count args))
     (with-gensyms (k not-found exists res newmeta)
       `(ILookup
         (-lookup (,this ,k)
@@ -2020,7 +2006,10 @@
               (concat (list ,@(mapcar (lambda (x) (list 'list  (alexandria:make-keyword x)
                                                          `(slot-value ,this ',x))) args))
                       (common-utils:hash-table->entries (cowmap-table (slot-value ,this ',ext) )))
-              )))))
+              )
+        ICounted
+        (-count (,this) (+ ,nargs (count (slot-value ,this ',ext))) )))))
+
 
 ;;limited defrecord impl.
 ;;full impl would be in
@@ -2037,9 +2026,27 @@
              (defn ,ctor (,@args)
                (make-instance ',name ,@(into '() (interleave  args ks))
                               :_ext +empty-cowmap+
-                              :_meta +empty-cowmap+)))))
+                              :_meta +empty-cowmap+))
+             (defmethod print-object ((,'obj ,name) ,'stream) ;;mildy janky.
+               (format stream "#~A.~A{~{~s~^ ~}}" (namespace ',name) ',name
+                  (mapcan identity (reverse  (into '()  (seq ,'obj))))))
+             ',name)))
 
+;;moved to later so we build on partition-all and reduce.
+(defn assoc
+  ((m k v)
+     (-assoc m k v))
+  ((m k v &rest kvs)
+   (reduce (fn (acc kv)
+               (-assoc acc (first kv) (second kv)))
+           (-assoc m k v) (partition-all 2 kvs))))
 
+(defn dissoc
+    ((m k)       (-dissoc m k))
+  ((m k & ks)
+   (reduce (fn (acc k)
+               (-dissoc acc k))
+           (-dissoc m k) ks)))
 ;;destructuring junk.  not important yet.
 
 ;; (defn ds-pvec (bvec b val)
