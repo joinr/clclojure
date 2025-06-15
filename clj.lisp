@@ -1,18 +1,22 @@
 (defpackage :clclojure.base ;;might change this to clojure.lang at some point.
   (:use :common-lisp :common-utils
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols
-        :clclojure.lexical
+   :clclojure.lexical
         :clj-con)
   (:shadow :deftype :keyword :atom :realized? :deref
    :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
    :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
-   )
+   ) ;;forgot about shadowing-import-from....
   (:export :def :defn :fn :meta :with-meta :str :symbol? :first :rest :second :next
    :deftype :defprotocol :reify :extend-type :nil? :identical?
-   :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count :do :get :assoc :when-let
-           :if-let :ns :even? :pos? :zero? :odd? :vector :hash-map :inc :dec :identity :loop  :chunk-first
+   :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count
+   :do :get :assoc :when-let   :if-let :ns :even? :pos? :zero? :odd? :vector :hash-map :inc :dec :identity :loop  :chunk-first
    :doall  :chunk-buffer :every? :chunk-rest :interleave :ffirst :partition :seq->list :fnext :chunk-cons :nthrest
-           :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try := :true :false :defmulti :defmethod-clj))
+   :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try := :true :false
+   :defmulti :defmethod-clj :isa? :equiv :nnext :dissoc :implements? :partition-all :name :keyword? :val :key
+   ;;mostly (except atom) from clj-con 
+   :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
+   :promise :realized? :reset! :reset-vals! :swap! :swap-vals!))
 (in-package clclojure.base)
 
 ;;define our own defmacro....weird
@@ -90,7 +94,6 @@
 ;;   "Generic vector printer."
 ;;   (format stream "(~{~s~^ ~})" (seq->list s)))
 
-                                        ;extend printing to both pvecs and subvectors
 (defmethod print-object ((obj CljSymbol) stream)
   (with-slots (ns (nm  name)) obj
     (if ns 
@@ -120,8 +123,19 @@
  ISymbol
  CljSymbol
  (sym-name (this) (slot-value this 'name))
- (sym-ns   (this) (slot-value this 'ns)))
-
+ (sym-ns   (this) (slot-value this 'ns))
+ CljKey
+ (sym-name (this) (slot-value this 'name))
+ (sym-ns   (this) (slot-value this 'ns))
+ ;;right now we interop with cl symbols by mapping
+ ;;to their package names, except for keywords.
+ ;;will probably revisit this.  maybe we can encode
+ ;;cl packages into an imported namespace like
+ ;;cl.the.package.name so we can resolve it. hmm.
+ common-lisp:symbol
+ (sym-name (this) (symbol-name this))
+ (sym-ns   (this) (when-not (keywordp this)
+                            (package-name (symbol-package this)))))
 
 (defun string->symbol (x)
   (let ((res  (uiop:split-string x :separator "/")))
@@ -159,6 +173,8 @@
 (defprotocol IHasheq
     (-hasheq (this)))
 
+;;shouldn't matter if hashcode is synchronized,
+;;it's ideal not to be actually.
 (extend-protocol
  IHasheq
  T
@@ -230,8 +246,17 @@
           (setf (gethash symb *keys*) kw)
           kw))))
 
+;;Right now, common lisp keywords are distinct.
+;;We can blur them a bit for interop.
+;;we treat this as identity if passed a CL keyword.
+;;Maybe the semantics are that unqualified clj keys are equiv to
+;;CL keys.
 (defun*  keyword
-  ((name)    (intern-key (clj-symbol name)))
+    ((name)    (typecase name
+                 (CljKey name)
+                 (string  (intern-key (clj-symbol name)))
+                 (common-lisp:keyword name)
+                 (otherwise (throw (ex-info "unknown symbol-string-or-key!" name)))))
   ((name ns) (intern-key (clj-symbol name ns))))
 
 (defun hash (this) (-hasheq this))
@@ -452,6 +477,9 @@
 ;;UPDATE - we should also think about how interop will work,
 ;;e.g. will there be a corresponding package presence for clojure
 ;;vars in namespaces? does def mirror things by default?  hmm....
+
+;;we can probably just unify function and value cl ns here
+;;by default instead of checking for functionp....
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro def (var &rest init-form)
     `(progn (defparameter ,var ,@init-form)
@@ -543,7 +571,8 @@
 ;;on the caller's behalf.  I forget how it works in clojure right now.
 ;;The biggest example is IFn though.
 
-;;Need to get back to this guy...multiple arity is not yet implemented...
+;;Need to get back to this guy...multiple arity is not yet implemented
+;;perfectly for protocol fns.
 (eval-when (:compile-toplevel :load-toplevel :execute) 
 
   (defprotocol IFn
@@ -872,29 +901,45 @@
                   )
 
     ;;not applicable.
-    (extend-type CljKey
-                 IEquiv
-                 ;;dirty implementation....
-                 ;;We need to unify qualified and unqualified symbols..
-                 ;;in clojure, symbol equality is a bit more complex
-                 ;;since they're equiv iff unqualified.
-                 ;;unless we hack the reader to reader qualified
-                 ;;symbols as unqual, the preponderance of clojure
-                 ;;symbol comparisons will not be strict, so
-                 ;;we end up with a lot of unqualified symbols.
-                 ;;This is just to paper over the bootstrapping
-                 ;;process....              
-                 (-equiv (l r)
-                         (or (eq l r)
-                             ;;I don't even know if this is possible...
-                             ;;I think keywords are always interned
-                             ;;in the keyword package.
-                             ;; (when (keywordp r)
-                             ;;   (common-lisp:= (sxhash l) (sxhash r)))
-                             ))
-                 IHash
-                 (-hash (k) (hash-code k))
-                 )
+    (extend-type
+     CljKey
+     IEquiv
+     ;;dirty implementation....
+     ;;We need to unify qualified and unqualified symbols..
+     ;;in clojure, symbol equality is a bit more complex
+     ;;since they're equiv iff unqualified.
+     ;;unless we hack the reader to reader qualified
+     ;;symbols as unqual, the preponderance of clojure
+     ;;symbol comparisons will not be strict, so
+     ;;we end up with a lot of unqualified symbols.
+     ;;This is just to paper over the bootstrapping
+     ;;process....              
+     (-equiv (l r) (or (eq l r)))
+     IHash
+     (-hash (k) (hash-code k))
+     INamed
+     (-name (k) (slot-value k 'name))
+     )
+    (extend-type
+     CljSymbol
+     IEquiv
+     ;;same as above...this a dirty hack for now.
+     (-equiv (l r) (or (eq l r)))
+     IHash
+     (-hash (k) (hash-code k))
+     INamed
+     (-name (k) (slot-value k 'name))
+     )
+    (extend-type
+     Namespace
+     IEquiv
+     ;;same as above...this a dirty hack for now.
+     (-equiv (l r) (or (eq l r)))
+     IHash
+     (-hash (k) (hash-code k))
+     INamed
+     (-name (k) (slot-value k 'name))
+     )
 
     ;;subvector impls...
     (extend-type
@@ -1162,6 +1207,7 @@
 
   (defn key (e) (-key e))
   (defn val (e) (-val e))
+  (defn namespace (this) (sym-ns this))
   (defn name (x) (-name x))
   )
 
@@ -1827,6 +1873,8 @@
   (with-slots (methodcache) mf
     (setf methodcache (assoc methodcache k func))))
 
+;;need to define/wrap defmethod as we did with deftype at
+;;some point.  this is fine for now.
 (defmacro defmethod-clj (name dispatch-val args &rest body)
   (let (df (gensym "dispatch-fn"))
     `(let (,df (fn (,@args) ,@body))
@@ -1839,7 +1887,54 @@
    (mf 1)
    )
 
-;;need to define defmethod.
+;;atoms and reference types from clj-con
+;;looks like most of these can be exported directly.
+(common-lisp:deftype clclojure.base:atom () 'clj-con:atom)
+
+(extend-protocol
+ IDeref
+ clj-con:future
+ (-deref (this) (clj-con:deref this))
+ clj-con:atom
+ (-deref (this) (clj-con:deref this))
+ clj-con:promise
+ (-deref (this) (clj-con:deref this))
+ )
+
+(extend-protocol
+ IPending
+ clj-con:future
+ (-realized? (this) (clj-con:realized? this))
+ clj-con:atom
+ (-realized? (this) (clj-con:realized? this))
+ clj-con:promise
+ (-realized? (this) (clj-con:realized? this))
+ )
+
+(defn deref     (this) (-deref this))
+(defn realized? (this) (-realized? this))
+(defn atom      (v)    (clj-con:atom v))
+
+;;exported directly from clj-con for us.
+;; atom?             
+;; compare-and-set!  
+;; deliver           
+;; deref             
+;; future            
+;; future-call       
+;; future-cancel     
+;; future-cancelled? 
+;; future-done?      
+;; future?           
+;; promise           
+;; realized?         
+;; reset!            
+;; reset-vals!       
+;; swap!             
+;; swap-vals! 
+
+
+
 
 ;;destructuring junk.  not important yet.
 
