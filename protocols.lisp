@@ -627,7 +627,8 @@
        ;;debugging 
        (defun ,(symbolize (str "->" name)) ,flds
          (make-instance ,`(quote  ,name) ,@(flatten  (mapcar (lambda (f) `(,(make-keyword f) ,f)) flds ))))
-       
+       ;;bind a var to the class for us.
+       (defparameter ,name (find-class ',name))
        )))
 
 

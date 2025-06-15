@@ -1321,12 +1321,14 @@
 ;;We already have this equivalent in satsfies? though.
 ;;Can we used common-lisp:deftype to provide derivative
 ;;hierarchies?
+;;hmm...since symbols can denote types....
+;;we have to allow them.  fack
 (defn isa?
     ((child parent)
-     (if (typep parent 'protocol)
-         (member child (protocol-members parent))
-         (or (identical? child parent) ;;maybe equiv but meh.
-             (common-lisp:subtypep child parent))))
+     (or (identical? child parent)
+         (typecase  parent
+           (protocol (member child (protocol-members parent)))
+           (otherwise       (common-lisp:subtypep child parent)))))
     ((h child parent)
      (throw (ex-info "Hierarchies are not implemented bro!" (hash-map :in (vector child parent))))))
 
@@ -2014,6 +2016,7 @@
 ;;limited defrecord impl.
 ;;full impl would be in
 ;;https://github.com/clojure/clojurescript/blob/master/src/main/clojure/cljs/core.cljc#L1837
+;;we might want to start binding classes to vars when we clojure-deftype...
 (defmacro defrecord (name args &rest impls)
   (let (all-args (nreverse  (into '() (concat args '(_ext _meta))))
         ctor (intern  (str  "->" name ))
