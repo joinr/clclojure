@@ -43,9 +43,9 @@
 (extend-protocol
  IPrintWithWriter
  ReaderConditional
- (-pr-writer [coll writer opts]
-             (-write writer (str "#?" (when (:splicing? coll) "@")))
-             (pr-writer (:form coll) writer opts)))
+ (-pr-writer (coll writer opts)
+             (-write writer (str "#?" (when (base:get coll :splicing?) "@")))
+             (pr-writer (base:get coll :form) writer opts)))
 
 (def ws-rx #"[\s]")
 

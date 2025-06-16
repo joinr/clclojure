@@ -15,7 +15,7 @@
    :defmulti :defmethod-clj :isa? :equiv :nnext :dissoc :implements? :partition-all :name :keyword? :val :key :when-not
    ;;mostly (except atom) from clj-con 
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
-   :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord))
+   :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer))
 (in-package clclojure.base)
 
 ;;define our own defmacro....weird
@@ -1333,6 +1333,9 @@
     ((h child parent)
      (throw (ex-info "Hierarchies are not implemented bro!" (hash-map :in (vector child parent))))))
 
+(defn instance? (c x)
+  (isa? (type-of x) c))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
   (defn chunked-seq? (x) nil)
@@ -1926,8 +1929,7 @@
     (integer (code-char x))
     (otherwise (throw (ex-info "cannot coerce to char!") (hash-map :in x)))))
 
-(defn instance? (c x)
-  (isa? (type-of x) c))
+
 
 ;; (defn keys (x)
 ;;   (->> x seq (map first)))
@@ -2051,8 +2053,21 @@
    (reduce (fn (acc k)
                (-dissoc acc k))
            (-dissoc m k) ks)))
-;;destructuring junk.  not important yet.
 
+;;pretty sure this is print-readably aka pr in clojure.
+;;unsure what opts are at the moment.  probably
+;;stuff like flush-on-newline and friends....
+(defn pr-writer (obj writer opts)
+  (-pr-writer obj writer opts))
+
+(extend-protocol
+ IWriter
+ STREAM
+ (-write (writer s)  (common-lisp:write  s  writer))
+ ;;I think this is correct, dunno.
+ (-flush (writer)     (common-lisp:finish-output writer)))
+
+;;destructuring junk.  not important yet.
 ;; (defn ds-pvec (bvec b val)
 ;;   (let (gvec (gensym "vec__")
 ;;     gseq (gensym "seq__")
