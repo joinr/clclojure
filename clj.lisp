@@ -267,14 +267,15 @@
 ;;-- mappings (direct mappings of symbols to vars in "this" namespace)
 
 
-(defclass NameSpace ()
-  ((name     :initarg :name)
-   (aliases  :initarg :aliases)
-   (mappings :initarg :mappings)))
+(eval-when  (:compile-toplevel :load-toplevel :execute)
+  (defclass NameSpace ()
+    ((name     :initarg :name)
+     (aliases  :initarg :aliases)
+     (mappings :initarg :mappings)))
 
-(defmethod print-object ((obj Namespace) stream)
-  (with-slots ((ns-name  name)) obj
-    (format stream "#<Namespace ~A>" ns-name)))
+  (defmethod print-object ((obj Namespace) stream)
+    (with-slots ((ns-name  name)) obj
+      (format stream "#<Namespace ~A>" ns-name))))
 
 ;;note: we can pull in a bunch of the stuff from proto clojure and use
 ;;that for implementing the reader.

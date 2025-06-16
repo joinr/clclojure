@@ -350,7 +350,7 @@
       (if (atom form)
 	  (list form x)
 	  `(,(first form) ,x ,@(rest form)))
-      `(->> (->> ,x ,form) ,@more)))
+      `(-> (-> ,x ,form) ,@more)))
 
 ;;Turn this into a generic function later for seqs.
 (defun zip (&rest lists)
