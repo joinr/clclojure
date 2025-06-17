@@ -1,3 +1,5 @@
+;;Original license from tools.reader:
+
 ;;   Copyright (c) Nicola Mometto, Rich Hickey & contributors.
 ;;   The use and distribution terms for this software are covered by the
 ;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
@@ -5,20 +7,17 @@
 ;;   By using this software in any fashion, you are agreeing to be bound by
 ;;   the terms of this license.
 ;;   You must not remove this notice, or any other, from this software.
-;; (ns cljs.tools.reader.impl.utils
-;;     (:refer-clojure :exclude [char])
-;;     (:require
-;;      [clojure.string :as string]
-;;      [goog.string :as gstring]))
 
 (defpackage cljs.tools.reader.impl.utils
   (:use :cl :clclojure.pvector :clclojure.cowmap :clclojure.protocols)
   (:shadow :char)
-  (:import-from :clclojure.base :def :defn :ex-info :instance? :defrecord)
+  (:import-from :clclojure.base
+   :def :defn :ex-info :instance? :defrecord :true :false :identical? :nil? :when-not
+   :hash-map :string? :keyword? :vector? :symbol?)
   (:local-nicknames (:base :clclojure.base)
                     (:re :cl-ppcre)))
 (in-package :cljs.tools.reader.impl.utils)
-
+(named-readtables:in-readtable clj-re:readtable)
 
 (defn char (x)
   (base::when-not (base:nil? x)
@@ -39,53 +38,55 @@
     (form splicing?)
   (->ReaderConditional splicing? form))
 
-;;high water mark
 (extend-protocol
  base::IPrintWithWriter
  ReaderConditional
- (-pr-writer (coll writer opts)
-             (-write writer (str "#?" (when (base:get coll :splicing?) "@")))
-             (pr-writer (base:get coll :form) writer opts)))
+ (base::-pr-writer (coll writer opts)
+             (base::-write writer (str "#?" (when (base:get coll :splicing?) "@")))
+             (base:pr-writer (base:get coll :form) writer opts)))
 
 (def ws-rx #"[\s]")
 
-(defn ^boolean whitespace?
-  "Checks whether a given character is whitespace"
-  [ch]
+;;in cljs all chars are strings due to how js stores them.
+;;we have actual char primitives, so prefer to use them instead.
+
+;;"Checks whether a given character is whitespace"
+(defn whitespace?
+  (ch)
   (when-not (nil? ch)
-            (if (identical? ch \,)
+            (if (identical? ch #\,)
                 true
-                (.test ws-rx ch))))
+                ;;(.test ws-rx ch)
+                (re::whitespacep ch) ;;use ppcre helpers.
+                )))
 
-(defn ^boolean numeric?
-  "Checks whether a given character is numeric"
-  [ch]
+;;"Checks whether a given character is numeric"
+(defn numeric? (ch)
   (when-not (nil? ch)
-            (gstring/isNumeric ch)))
-
-(defn ^boolean newline?
-  "Checks whether the character is a newline"
-  [c]
-  (or (identical? \newline c)
-      (identical? "\n" c)
+            (digit-char-p ch)))
+;;"Checks whether the character is a newline"
+(defn newline? (c)
+  (or (identical? #\newline c)
+      ;;(identical? "\n" c) ;;does this track?
       (nil? c)))
 
+;;"Resolves syntactical sugar in metadata" ;; could be combined with some other desugar?
 (defn desugar-meta
-  "Resolves syntactical sugar in metadata" ;; could be combined with some other desugar?
-  [f]
-  (cond
-    (keyword? f) {f true}
-    (symbol? f)  {:tag f}
-    (string? f)  {:tag f}
-    (vector? f)  {:param-tags f}
+    (f)
+  (base:cond
+    (keyword? f) (hash-map  f true)
+    (symbol? f)  (hash-map  :tag f)
+    (base::string? f)  (hash-map  :tag f)
+    (base::vector? f)  (hash-map  :param-tags f)
     :else        f))
 
-(def last-id (atom 0))
+(def last-id (base:atom 0))
 
-(defn next-id
-  []
-  (swap! last-id inc))
 
+(defn next-id ()
+  (base:swap! last-id base:inc))
+
+;;replace for with map for now.
 (defn namespace-keys [ns keys]
   (for [key keys]
        (if (or (symbol? key)
@@ -103,11 +104,39 @@
                key))
            key)))
 
-(defn second' [[a b]]
-  (when-not a b))
+(defn key-maker (k)
+  (if (symbol? k)
+      #'base::clj-symbol
+      #'base::keyword))
 
-(defn char-code [ch base]
-  (let [code (js/parseInt ch base)]
-    (if (js/isNaN code)
+(defn namespace-keys (ns keys)
+  (base::->>
+   keys
+   (base:map
+        (base:fn (k)
+            (if (or (symbol? k)
+                    (keyword? k))
+                (base:let (ns-name (funcall (base:juxt base:namespace base:name) k)
+                           key-ns   (base:first ns-name)
+                           key-name (base:second ns-name)
+                           ->key    (key-maker k))
+                  (base:cond
+                    (nil? key-ns)       (->key ns key-name)
+                    (base:= "_" key-ns) (->key key-name)
+                    :else k))
+                k)
+            ))))
+
+;;formerly second'
+(defn second> (a-b)
+  (destructuring-bind (a b) a-b
+    (when-not a b)))
+
+;;do we need this?
+;;I think we have this built-in already...
+;;formerly char-code
+(defn char-code> (ch base)
+  (base:let (code (parse-integer (base:str ch) :radix 10 :junk-allowed t))
+    (if (not code)
         -1
         code)))

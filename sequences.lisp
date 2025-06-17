@@ -143,6 +143,21 @@
 (defmethod seq ((xs null))
   nil)
 
+(deftype indexed () '(or vector simple-vector array simple-array))
+;;unchunked.
+(defun indexed-seq (coll)
+  (let* ((bound (length coll)))
+    (labels ((get-next (idx)              
+               (when (< idx bound)
+                 (cons (elt coll idx)
+                       (lazy-seq  (get-next  (1+ idx)))))))
+      (get-next 0))))
+
+(defmethod seq ((xs t))
+  (if (typep xs 'indexed)
+      (indexed-seq xs)
+      nil))
+
 ;; (defmethod more ((obj LazySeq))
 ;;   (promise? (slot-value obj ')))
 
@@ -206,6 +221,19 @@
         ((listp obj)
          (common-lisp:cons x obj))
         (t (lazy-cons x (seq obj)))))
+
+;;unchunked.
+;;we had a problem with this running
+;;away and turning into a non-caching sequence.
+;;interesting.  lazy-cons fixed it.
+(defun indexed-seq (coll)
+  (let* ((bound (length coll)))
+    (labels ((get-next (idx)
+               (when (< idx bound) 
+                 (lazy-cons
+                  (elt coll idx)
+                  (get-next  (1+ idx))))))
+      (get-next 0))))
 
 (defgeneric empty? (obj))
 (defmethod  empty? ((obj common-lisp:cons))

@@ -79,7 +79,8 @@
   (defun literal? (x) nil)
 
   (defun nested-list? (x)
-    (and (listp x)
+    (and x
+         (listp x)
          (listp (first x))))
 
   (defun hash-code (obj) (cl-murmurhash:murmurhash obj))

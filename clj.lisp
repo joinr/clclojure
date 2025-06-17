@@ -16,7 +16,8 @@
    :defmulti :defmethod-clj :isa? :equiv :nnext :dissoc :implements? :partition-all :name :keyword? :val :key :when-not
    ;;mostly (except atom) from clj-con 
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
-   :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer))
+   :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
+   :keyword? :symbol? :string? :vector?) )
 (in-package clclojure.base)
 
 ;;convenience for clj-re
@@ -304,7 +305,9 @@
   ;;macro flag....
   (defun function? (s) (fboundp s))
   ;;weak hack around lack of read-time vector creation.
-  (defun vector-form? (expr) (or (vector? expr) (eq (common-lisp:first expr) 'persistent-vector))))
+  (defun vector-form? (expr)
+    (and (not (common-lisp:atom expr) )
+         (or (vector? expr) (eq (common-lisp:first expr) 'persistent-vector)))))
 
 (define-condition not-implemented (error) ())
 (define-condition uneven-arguments (error) ())
@@ -458,10 +461,16 @@
 ;;we allow backwards compatibility with cl, so you can pass in
 ;;list formed args instead of vectors and stell get variadic
 ;;function definitions.
+;;we have to guard against empty arg lits now....which resolve to
+;;null, which is also a symbol.  so we can get confusion in named
+;;function parsing (since we now admit common lisp function defs with
+;;possibly empty arg lists).
+(defun actual (x) (and (not (null x)) (symbolp x)))
+
 (defmacro fn (&rest specs)
   (let* ((hd    (common-lisp:first specs))
-         (name  (if (symbolp hd) hd (symb (symbol-name (gensym "fn_")))))
-         (specs (if (symbolp hd) (common-lisp:rest specs) specs))
+         (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
+         (specs (if (actual hd) (common-lisp:rest specs) specs))
          (res   (if (or  (vector-form? (common-lisp:first specs))
                          (not (nested-list? (common-lisp:first specs)))) 
                     (fndef->sexp (fn* name specs))
@@ -819,7 +828,10 @@
      (-peek (coll) (elt coll 0))
      (-pop  (coll) (error 'not-implemented))
      ISeqable
-     (-seq (coll) (error 'not-implemented))
+     (-seq (coll)
+           (if (typep coll 'sequences::indexed)
+               (sequences::indexed-seq coll)
+               (error 'not-implemented)))
      IHash
      (-hash (o) (sxhash o))
      
@@ -1106,8 +1118,24 @@
                 IHash
                 (-hash (n) (hash-code n)))
 
-  (extend-type string
-               INamed (-name (x) x))
+  (extend-type
+   String
+   INamed
+   (-name (x) x)
+   IIndexed
+   (-nth (coll n) (elt coll n))
+   (-nth (coll n not-found)
+         (if (< n (length coll))
+             (elt coll n)
+             not-found))
+   ISeqable
+   (-seq (coll) (sequences::seq coll))
+   ISeq
+   (-first (coll)  (elt coll 0))
+   (-rest  (coll)  (sequences::rest coll))
+   IEquiv
+   (-equiv (this other)
+     (and (stringp other) (string-equal this other))))
   )
 ;; IChunk
 ;; (-drop-first (coll) (error 'not-implemented))
@@ -1692,7 +1720,7 @@
   (lazy-seq
    (when-let (s (seq coll))
      (let (f  (first s)
-       r (rest s))
+           r  (rest s))
        (if (funcall predicate f)
            (cons f (filter predicate r))
            (filter predicate r))))))
@@ -1731,8 +1759,11 @@
 ;;need destructure...
 
 ;;TBD update these to new classes...
-(def symbol? #'symbolp)
-(def keyword? #'keywordp)
+(defn symbol? (x)  (or (typep x 'cljsymbol)
+                       (symbolp x)))
+(defn keyword? (x) (or (typep x 'cljkey)
+                       (keywordp x)))
+(defn string? (x) (stringp x))
 
 ;;for now, we don't have qualified keywords...
 ;;we "could" encode that information in the
@@ -2069,6 +2100,20 @@
  (-write (writer s)  (common-lisp:write  s :stream  writer))
  ;;I think this is correct, dunno.
  (-flush (writer)     (common-lisp:finish-output writer)))
+
+
+;; "Takes a set of functions and returns a fn that is the juxtaposition
+;;   of those fns.  The returned fn takes a variable number of args, and
+;;   returns a vector containing the result of applying each fn to the
+;;   args (left-to-right).
+;;   ((juxt a b c) x) => [(a x) (b x) (c x)]"
+
+;;this works, but fn doesn't like having a non-list for a body
+;;with 0 args.
+(defn juxt (f &rest fs)
+  (let (all (list* f fs))
+    (fn  (&rest xs)
+         (vec  (map (lambda (f) (apply f xs)) all)))))
 
 ;;destructuring junk.  not important yet.
 ;; (defn ds-pvec (bvec b val)
