@@ -6,6 +6,7 @@
            :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
            :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
            ) ;;forgot about shadowing-import-from....
+  (:local-nicknames (:re :clj-re))
   (:export :def :defn :fn :meta :with-meta :str :symbol? :instance? :first :rest :second :next :char
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count
@@ -18,6 +19,8 @@
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer))
 (in-package clclojure.base)
 
+;;convenience for clj-re
+(named-readtables:in-readtable clj-re:readtable)
 ;;define our own defmacro....weird
 ;;OUTDATED
 (common-lisp:defmacro defmacro (name args &rest body)
@@ -1125,8 +1128,8 @@
 ;;Core Lib
 ;;========
 
-(declaim (inline equiv))
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  (declaim (inline equiv))
   (defn seq (coll) (-seq coll))
   (defn vec (coll)
     (if (vector? coll) coll
