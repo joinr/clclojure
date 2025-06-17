@@ -41,7 +41,7 @@
 
 ;;high water mark
 (extend-protocol
- IPrintWithWriter
+ base::IPrintWithWriter
  ReaderConditional
  (-pr-writer (coll writer opts)
              (-write writer (str "#?" (when (base:get coll :splicing?) "@")))

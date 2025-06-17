@@ -2063,7 +2063,7 @@
 (extend-protocol
  IWriter
  STREAM
- (-write (writer s)  (common-lisp:write  s  writer))
+ (-write (writer s)  (common-lisp:write  s :stream  writer))
  ;;I think this is correct, dunno.
  (-flush (writer)     (common-lisp:finish-output writer)))
 
