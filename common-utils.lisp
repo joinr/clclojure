@@ -880,9 +880,9 @@
                   (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) args))         
                   (bindings   (mapcar (lambda (xy)
                                         `(setf ,(car xy) ,(cdr xy))) (pairlis args recur-args))))
-             `(let ((,continue? t)
-                    (,res)
-                    ,@pairs)
+             `(let* ((,continue? t)
+                     (,res)
+                     ,@pairs)
                 (flet ((,recur-sym ,recur-args
                          (progn ,@bindings
                                 (setf ,continue? t))))

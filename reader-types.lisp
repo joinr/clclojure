@@ -284,14 +284,25 @@
 ;;"Reads a line from the reader or from *in* if no reader is specified"
 ;;output is wrong!  hmmm, why isn't stringbuilder accumulating bro?
 ;;works with defun, not defn!
+;;we bail in time.
 (defun read-line (rdr)
   (base:loop
     (c (read-char rdr)
      s (base::->string-builder ""))
-    (progn  (print (list  c (str sb))) 
+    (progn  (print (list  c (str s)))
             (if (newline? c)
                 (str s)
                 (recur (read-char rdr) (conj s c))))))
+
+;;we're not bailing in time.
+;; (defn read-line (rdr)
+;;   (base:loop
+;;     (c (read-char rdr)
+;;      s (base::->string-builder ""))
+;;     (progn  (print (list  c (str s) (newline? c)))
+;;             (if (newline? c)
+;;                 (str s)
+;;                 (recur (read-char rdr) (conj s c))))))
 
 ;; (defn read-line (rdr)
 ;;   (let (s (base::->string-builder ""))
