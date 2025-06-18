@@ -19,7 +19,8 @@
   ;;(:shadow :char)
   (:shadowing-import-from :clclojure.base
    :def :defn :let :ex-info :instance? :defrecord :true :false :identical? :nil? :when-not
-   :hash-map :string? :keyword? :vector? :symbol? :set! :inc :str)  
+   :hash-map :string? :keyword? :vector? :symbol? :set! :inc :dec :str :throw :aget :aset
+   :zero? :when-let)  
   (:shadowing-import-from :cljs.tools.reader.impl.utils :char :whitespace? :newline?)
   (:shadow :read-char :peek-char)
   (:local-nicknames (:base :clclojure.base)
@@ -101,63 +102,66 @@
                          (peek-char rdr)))
                (char c)))
   IPushbackReader
-  (unread [reader ch]
+  (unread (reader ch)
           (when ch
-            (if (zero? buf-pos) (throw (js/Error. "Pushback buffer is full")))
+            (if (zero? buf-pos)
+                (throw (ex-info "Pushback buffer is full" nil)))
             (set! buf-pos (dec buf-pos))
             (aset buf buf-pos ch))))
 
-(defn- normalize-newline [^not-native rdr ch]
-  (if (identical? \return ch)
-      (let [c (peek-char rdr)]
-        (when (or (identical? \formfeed c)
-                  (identical? \newline c))
+;;we can probably handle defn- as a normal defn;
+;;maybe change defn to add an automatic export?
+(defn normalize-newline (rdr ch)
+  (if (identical? #\return ch)
+      (let (c (peek-char rdr))
+        (when (or (identical? #\formfeed c)
+                  (identical? #\newline c))
           (read-char rdr))
-        \newline)
+        #\newline)
       ch))
 
-(deftype IndexingPushbackReader
-  [^not-native rdr ^:mutable line ^:mutable column
-  ^:mutable line-start? ^:mutable prev
-  ^:mutable prev-column file-name]
+(clojure-deftype IndexingPushbackReader
+    (rdr line column
+     line-start? prev
+     prev-column file-name)
   Reader
-  (read-char [reader]
-             (when-let [ch (read-char rdr)]
-               (let [ch (normalize-newline rdr ch)]
-                 (set! prev line-start?)
-                 (set! line-start? (newline? ch))
-                 (when line-start?
-                   (set! prev-column column)
-                   (set! column 0)
-                   (set! line (inc line)))
-                 (set! column (inc column))
-                 ch)))
+  (read-char (reader)
+    (when-let (ch (read-char rdr))
+      (let (ch (normalize-newline rdr ch))
+        (set! prev line-start?)
+        (set! line-start? (newline? ch))
+        (when line-start?
+          (set! prev-column column)
+          (set! column 0)
+          (set! line (inc line)))
+        (set! column (inc column))
+        ch)))
 
-  (peek-char [reader]
-             (peek-char rdr))
+  (peek-char (reader)
+     (peek-char rdr))
 
   IPushbackReader
-  (unread [reader ch]
-          (if line-start?
-              (do (set! line (dec line))
-                  (set! column prev-column))
-              (set! column (dec column)))
-          (set! line-start? prev)
-          (unread rdr ch))
+  (unread (reader ch)
+     (if line-start?
+         (do (set! line (dec line))
+             (set! column prev-column))
+         (set! column (dec column)))
+     (set! line-start? prev)
+     (unread rdr ch))
 
   IndexingReader
-  (get-line-number [reader] (int line))
-  (get-column-number [reader] (int column))
-  (get-file-name [reader] file-name))
+  (get-line-number (reader)  line)  ;;don't need int here. (int line)
+  (get-column-number (reader)  column) ;;(int column)
+  (get-file-name (reader) file-name))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Source Logging support
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn merge-meta
-  "Returns an object of the same type and value as `obj`, with its
-metadata merged over `m`."
-  [obj m]
-  (let [orig-meta (meta obj)]
+
+;; "Returns an object of the same type and value as `obj`, with its
+;; metadata merged over `m`."
+(defn merge-meta (obj m)
+  (let (orig-meta (base:meta obj))
     (with-meta obj (merge m (dissoc orig-meta :source)))))
 
 (defn- peek-source-log

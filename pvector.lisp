@@ -190,7 +190,9 @@
   (defstruct pvec (root nil)
 	     (tail nil)		
 	     (shift 5)
-             (counter 0)))
+             (counter 0)
+             (_meta nil)
+             (_hasheq -1)))
   
 ;;From stack overflow.  It looks like the compiler needs a hint if we're 
 ;;defining struct/class literals and using them as constants.
@@ -199,10 +201,11 @@
     (declare (ignore env))
     (make-load-form-saving-slots v)))
 
-(defun ->pvec (root tail shift counter)
+(defun ->pvec (root tail shift counter &optional (_meta nil) (_hasheq -1))
   "Simple persistent vector builder.  Used to derive from other pvectors 
    to share structure where possible."
-  (make-pvec :root root :tail tail :shift shift :counter counter))
+  (make-pvec :root root :tail tail :shift shift :counter counter
+             :_meta _meta :_hasheq _hasheq))
 
 (defconstant! +empty-pvec+ (make-pvec))
 (defun empty-vec  () +empty-pvec+)
@@ -295,7 +298,8 @@
 	   (make-pvec :root (pvec-root v) 
 		      :tail  newtail
 		      :shift (pvec-shift v)
-		      :counter (1+ (pvec-counter v)))))
+		      :counter (1+ (pvec-counter v))
+                      :_meta (pvec-_meta v))))
 
 (defun new-path (shift node)
   "Given a node and an amount of initial 'shift', recursively builds 
@@ -366,7 +370,7 @@
 	       (progn (setf (aref newparent idx) newchild) ;embed the newly found/created node(s) as a child of the parent.
 		      newparent)))) ;back out, building a (copied and modified) path of nodes as we go...
     (let ((newroot (aux (pvec-counter v) (pvec-shift v) (if (null (pvec-root v)) (make-node) (pvec-root v)) tl)))
-      (->pvec newroot nil (pvec-shift v) (pvec-counter v)))))
+      (->pvec newroot nil (pvec-shift v) (pvec-counter v) (pvec-_meta v)))))
 
 (defun grow-root (v &optional (newchild nil))
   "When the trie must be grown to accomodate a new child node, we create a new pvector, 
@@ -375,7 +379,7 @@
   (let ((rt (make-node)))
     (progn (setf (aref rt 0) (pvec-root v))
     	   (setf (aref rt 1) newchild)
-    	   (->pvec rt nil (+ (pvec-shift v) +bit-width+) (pvec-counter v)))))  
+    	   (->pvec rt nil (+ (pvec-shift v) +bit-width+) (pvec-counter v) (pvec-_meta v)))))  
 
 (defgeneric vector-element-type (v)
   (:documentation "Returns the element type of the arrays in v.  If no 
@@ -434,8 +438,9 @@
 		(->pvec root
 			(progn (setf (aref newtail (last-five-bits idx)) x) newtail)   
 			shift
-			count))
-	      (->pvec (insert-path root shift idx x) tail shift count)))
+			count
+                        (pvec-_meta v)))
+	      (->pvec (insert-path root shift idx x) tail shift count (pvec-_meta v))))
 	(if (= idx count)
 	    (vector-conj v x)
 	    (error 'index-out-of-bounds)))))
@@ -444,14 +449,15 @@
 ;;We derive subvectors from existing vectors (or existing subvectors)
 ;;by maintaining start and end points in the subvec, and wrapping the 
 ;;host vector (or subvec)...
-(defstruct subvector host start end)
-(defun ->subvec (v start end)
+(defstruct subvector host start end (_meta nil) (_hasheq -1))
+(defun ->subvec (v start end &optional (_meta nil) (_hasheq -1))
   (if (= start end) 
       (empty-vec)	
       (if (and (>= start 0) 
 	       (> end start)
 	       (< end (pvec-counter v)))
-	  (make-subvector :host v :start start :end end)
+	  (make-subvector :host v :start start :end end
+                          :_meta _meta :_hasheq _hasheq)
 	  (error 'index-out-of-bounds))))
 
 (defmethod nth-vec ((v subvector) idx)
@@ -469,7 +475,8 @@
    with x cons'd on."
   (->subvec (cons-vec (subvector-host sv) x) 
 	    (subvector-start sv) 
-	    (1+ (subvector-end sv))))
+	    (1+ (subvector-end sv))
+            (subvector-_meta sv)))
 
 (defmethod vector-conj ((v subvector) x)
   (cons-subvec v x))
@@ -482,7 +489,8 @@
 	     (->subvec (vector-assoc (subvector-host sv) 
 				  (+ (subvector-start sv) idx) x) 
 		       (subvector-start sv) 
-		       (subvector-end sv)))
+		       (subvector-end sv)
+                       (subvector-_meta sv)))
 	    ((= idx (vector-count sv))
 	     (vector-conj sv x))
 	    (t (error 'index-out-of-bounds)))

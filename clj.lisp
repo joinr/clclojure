@@ -17,7 +17,7 @@
    ;;mostly (except atom) from clj-con 
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
-   :keyword? :symbol? :string? :vector? :aget :set!) )
+   :keyword? :symbol? :string? :vector? :aget :aset :set!) )
 (in-package clclojure.base)
 
 ;;convenience for clj-re
@@ -879,6 +879,12 @@
      (-seq (coll) (vector-to-list coll ))
      IHash
      (-hash (o)   (error 'not-implemented))
+     IMeta
+     (-meta (this) (clclojure.pvector::pvec-_meta this))
+     IWithMeta
+     (-with-meta (this m) (let (vnew (clclojure.pvector::copy-pvec this))
+                            (setf (clclojure.pvector::pvec-_meta vnew) m)
+                            vnew))
      IMapEntry
      (-key (coll) (-nth coll 0))
      (-val (coll) (-nth coll 1))
@@ -986,6 +992,12 @@
      (-seq (coll) (vector-to-list coll)) ;poorly implemented.  should be arrayseq
      IHash
      (-hash (o)   (error 'not-implemented))
+     IMeta
+     (-meta (this) (clclojure.pvector::subvector-_meta this))
+     IWithMeta
+     (-with-meta (this m) (let (vnew (clclojure.pvector::copy-subvector this))
+                            (setf (clclojure.pvector::subvector-_meta vnew) m)
+                            vnew))
      IMapEntry
      (-key (coll) (-nth coll 0))
      (-val (coll) (-nth coll 1))
@@ -1113,6 +1125,13 @@
    IMap
    (-assoc-ex (coll k v)  (error 'not-implemented)) ;;apparently vestigial
    (-dissoc   (coll k)    (map-dissoc coll k))
+
+   IMeta
+   (-meta (this) (clclojure.cowmap::cowmap-_meta this))
+   IWithMeta
+   (-with-meta (this m) (let (mnew (clclojure.cowmap::copy-cowmap this))
+                          (setf (clclojure.cowmap::cowmap-_meta mnew) m)
+                          mnew))
    
    IHash
    (-hash (o)   (error 'not-implemented))
@@ -1778,6 +1797,9 @@
 ;;TODO: this should be symbol macro'd or inlined maybe?
 (declaim (inline aget))
 (defn aget (x idx) (aref x idx))
+(declaim (inline aset))
+(defn aset (x idx v)
+  (setf (aref x idx) v))
 
 ;;deviate from common-utils here on purpose.
 (defn str (x &rest xs)

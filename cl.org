@@ -234,3 +234,5 @@ being redefined.  So now....
 
 This was a pretty cool/quick fix.  Chalk one
 up to CL/lisp flexbility.
+
+* need to add meta to vectors and cowmaps.

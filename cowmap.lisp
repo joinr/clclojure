@@ -24,7 +24,10 @@
 (in-package clclojure.cowmap)
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  (defstruct cowmap (table (make-hash-table)))
+  (defstruct cowmap
+    (table (make-hash-table))
+    (_meta nil)
+    (_hasheq -1))
   
 ;;From stack overflow.  It looks like the compiler needs a hint if we're 
 ;;defining struct/class literals and using them as constants.
@@ -78,13 +81,13 @@
 (defun map-assoc (m k v)
   (let ((tbl (common-utils::copy-hash-table (cowmap-table m))))
     (setf (gethash k tbl) v)
-    (make-cowmap :table tbl)))
+    (make-cowmap :table tbl :_meta (cowmap-_meta m))))
 
 (defun map-dissoc (m k)
   (if (map-contains? m k)      
       (let ((tbl (common-utils::copy-hash-table (cowmap-table m))))
         (remhash k tbl)
-        (make-cowmap :table tbl))
+        (make-cowmap :table tbl :_meta (cowmap-_meta m)))
       m))
 
 (defun map-seq (m)
