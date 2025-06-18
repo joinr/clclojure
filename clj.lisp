@@ -2,7 +2,7 @@
   (:use :common-lisp :common-utils
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols
         :clclojure.lexical :clj-con)
-  (:shadow :deftype :keyword :atom :realized? :deref :char
+  (:shadow :deftype :keyword :atom :realized? :deref :char :str
            :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
            :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
            ) ;;forgot about shadowing-import-from....
@@ -17,7 +17,7 @@
    ;;mostly (except atom) from clj-con 
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
-   :keyword? :symbol? :string? :vector?) )
+   :keyword? :symbol? :string? :vector? :aget :set!) )
 (in-package clclojure.base)
 
 ;;convenience for clj-re
@@ -289,6 +289,8 @@
   ;;temporary hacks...
   (define-symbol-macro true 't)
   (define-symbol-macro false nil)
+  (defmacro  set! (&rest args)
+    `(common-lisp:setf ,@args))
 
   ;;convenient placeholder
   ;;OUTDATED
@@ -439,46 +441,46 @@
                         (common-lisp:rest (common-lisp:rest (fndef->sexp body)))) fd)))))
 
 
-  )
+  
 
-;;Clojure's anonymous function special form.
-;;Todo: support destructuring in the args.
-;; (defmacro fn (&rest specs)
-;;   (pprint specs)
-;;   (let* ((res 
-;;            (cond  ((symbolp (common-lisp:first specs))
-;;                    (fndef->sexp (fn*  (cons  (first specs) (list  (rest  specs))))))
-;;                   ((vector-form? (common-lisp:first specs))
-;;                   (fndef->sexp (fn*  specs)))
+  ;;Clojure's anonymous function special form.
+  ;;Todo: support destructuring in the args.
+  ;; (defmacro fn (&rest specs)
+  ;;   (pprint specs)
+  ;;   (let* ((res 
+  ;;            (cond  ((symbolp (common-lisp:first specs))
+  ;;                    (fndef->sexp (fn*  (cons  (first specs) (list  (rest  specs))))))
+  ;;                   ((vector-form? (common-lisp:first specs))
+  ;;                   (fndef->sexp (fn*  specs)))
 
-;;                  ;;TODO get rid of this eval....
-;;                  (t
-;;                   (fndef->sexp (apply #'fn* specs))))))    
-;;     `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
+  ;;                  ;;TODO get rid of this eval....
+  ;;                  (t
+  ;;                   (fndef->sexp (apply #'fn* specs))))))    
+  ;;     `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
 
-;;since we're ditching custom eval on this side, we can go back to regular bindings
-;;and let*.
-;;we allow backwards compatibility with cl, so you can pass in
-;;list formed args instead of vectors and stell get variadic
-;;function definitions.
-;;we have to guard against empty arg lits now....which resolve to
-;;null, which is also a symbol.  so we can get confusion in named
-;;function parsing (since we now admit common lisp function defs with
-;;possibly empty arg lists).
-(defun actual (x) (and (not (null x)) (symbolp x)))
+  ;;since we're ditching custom eval on this side, we can go back to regular bindings
+  ;;and let*.
+  ;;we allow backwards compatibility with cl, so you can pass in
+  ;;list formed args instead of vectors and stell get variadic
+  ;;function definitions.
+  ;;we have to guard against empty arg lits now....which resolve to
+  ;;null, which is also a symbol.  so we can get confusion in named
+  ;;function parsing (since we now admit common lisp function defs with
+  ;;possibly empty arg lists).
+  (defun actual (x) (and (not (null x)) (symbolp x))) 
 
-(defmacro fn (&rest specs)
-  (let* ((hd    (common-lisp:first specs))
-         (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
-         (specs (if (actual hd) (common-lisp:rest specs) specs))
-         (res   (if (or  (vector-form? (common-lisp:first specs))
-                         (not (nested-list? (common-lisp:first specs)))) 
-                    (fndef->sexp (fn* name specs))
-                    ;;TODO get rid of this eval....
-                    (let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
-                      (fndef->sexp bodies)))))
-    ;;`(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))
-    `(,@res)))
+  (defmacro fn (&rest specs)
+    (let* ((hd    (common-lisp:first specs))
+           (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
+           (specs (if (actual hd) (common-lisp:rest specs) specs))
+           (res   (if (or  (vector-form? (common-lisp:first specs))
+                           (not (nested-list? (common-lisp:first specs)))) 
+                      (fndef->sexp (fn* name specs))
+                      ;;TODO get rid of this eval....
+                      (let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
+                        (fndef->sexp bodies)))))
+      ;;`(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))
+      `(,@res))))
 
 ;;def 
 ;;===
@@ -773,14 +775,21 @@
 
   (defprotocol INamed
       (-name (thing)))
-
+  ;;Not sure if CLJS has this, but it's useful
+  ;;here.
+  (defprotocol IString
+    (-to-string (this)))
   
   
-
-
   ;;Extending types to native structures and clojure literals:
   ;;==========================================================
   (eval-when (:compile-toplevel :load-toplevel :execute)
+    (extend-protocol
+     IString
+     t
+     (-to-string (this) (prin1-to-string this))
+     string
+     (-to-string (this) this))
     (extend-protocol
      IFn
      Function
@@ -1123,10 +1132,10 @@
    INamed
    (-name (x) x)
    IIndexed
-   (-nth (coll n) (elt coll n))
+   (-nth (coll n) (common-lisp:char coll n))  ;;TODO: schar optimization option?
    (-nth (coll n not-found)
          (if (< n (length coll))
-             (elt coll n)
+             (common-lisp:char coll n)
              not-found))
    ISeqable
    (-seq (coll) (sequences::seq coll))
@@ -1764,6 +1773,15 @@
 (defn keyword? (x) (or (typep x 'cljkey)
                        (keywordp x)))
 (defn string? (x) (stringp x))
+;;this is overloaded for cljs though. hmm.
+;;aref is more generic; svref is probably closer in semantics...
+;;TODO: this should be symbol macro'd or inlined maybe?
+(declaim (inline aget))
+(defn aget (x idx) (aref x idx))
+
+;;deviate from common-utils here on purpose.
+(defn str (x &rest xs)
+   (format nil "~{~a~}" (mapcar #'-to-string (cons x xs))))
 
 ;;for now, we don't have qualified keywords...
 ;;we "could" encode that information in the
@@ -1981,6 +1999,11 @@
 
 ;;fn is having a hard time in some meta programming, probably due to
 ;;labels and self-naming for recur.
+;;we already have slots accessible, I forgot that when I originally
+;;implemented this.  Since clojure-deftype takes care of slot value
+;;access via with-slots, we already have them available via lexical scoping.
+;;We're just redundant (not hurting anything) with the longer (slot-value this 'fld)
+;;idiom.
 (defun emit-record-impls (nm args)
   (let (this     (gensym "this")
         res      (gensym "newrec")
@@ -2043,7 +2066,7 @@
         ISeqable
         (-seq (,this)
               (concat (list ,@(mapcar (lambda (x) (list 'list  (alexandria:make-keyword x)
-                                                         `(slot-value ,this ',x))) args))
+                                                        `(slot-value ,this ',x))) args))
                       (common-utils:hash-table->entries (cowmap-table (slot-value ,this ',ext) )))
               )
         ICounted
@@ -2054,6 +2077,8 @@
 ;;full impl would be in
 ;;https://github.com/clojure/clojurescript/blob/master/src/main/clojure/cljs/core.cljc#L1837
 ;;we might want to start binding classes to vars when we clojure-deftype...
+;;we want to eliminate the original ctor from deftype prior to eval.
+;;it's spooking the compiler.
 (defmacro defrecord (name args &rest impls)
   (let (all-args (nreverse  (into '() (concat args '(_ext _meta))))
         ctor (intern  (str  "->" name ))

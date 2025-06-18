@@ -608,6 +608,14 @@
 ;;the field is NOT shadowed as an argument to their method impl), we
 ;;need a call to with-slots to pull the referenced fields out to
 ;;mirror clojure's behavior.
+;;We also need to add `set!` macro support.
+;;so
+;;1 - determine the arg ref for obj (first arg from proto function def)
+;;2 - walk the function bodies to see if they refer to any non-bound slot values
+;;3 - macrolet (set! slot v) -> (setf (slot-value obj 'slot) v)
+;;  - we might be able to do some analyses to coalesce multiple slot-value
+;;    calls into one to get acess to a place.
+;;  - alternately we can put a top-level with-slots in the function body..
 (defmacro clojure-deftype (name fields &rest implementations)
   (let* ((flds (cond ((vector? fields) 
                      (vector-to-list fields))
@@ -628,8 +636,8 @@
        (defun ,(symbolize (str "->" name)) ,flds
          (make-instance ,`(quote  ,name) ,@(flatten  (mapcar (lambda (f) `(,(make-keyword f) ,f)) flds ))))
        ;;bind a var to the class for us.
-       (defparameter ,name (find-class ',name))
-       )))
+       (defparameter ,name (find-class ',name)))
+       ))
 
 
 ;;Deftype exists in common lisp.  

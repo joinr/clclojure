@@ -45,10 +45,13 @@
              (base::-write writer (str "#?" (when (base:get coll :splicing?) "@")))
              (base:pr-writer (base:get coll :form) writer opts)))
 
-(def ws-rx #"[\s]")
+;;not needed, although it prompted us to get regex working :)
+;;(def ws-rx #"[\s]")
 
 ;;in cljs all chars are strings due to how js stores them.
 ;;we have actual char primitives, so prefer to use them instead.
+;;A good deal of the CL implementation will probably be blending in
+;;ops from the jvm backend due to similarity of representation.
 
 ;;"Checks whether a given character is whitespace"
 (defn whitespace?
@@ -87,22 +90,22 @@
   (base:swap! last-id base:inc))
 
 ;;replace for with map for now.
-(defn namespace-keys [ns keys]
-  (for [key keys]
-       (if (or (symbol? key)
-               (keyword? key))
-           (let [[key-ns key-name] ((juxt namespace name) key)
-             ->key (if (symbol? key) symbol keyword)]
-             (cond
-               (nil? key-ns)
-               (->key ns key-name)
+;; (defn namespace-keys [ns keys]
+;;   (for [key keys]
+;;        (if (or (symbol? key)
+;;                (keyword? key))
+;;            (let [[key-ns key-name] ((juxt namespace name) key)
+;;              ->key (if (symbol? key) symbol keyword)]
+;;              (cond
+;;                (nil? key-ns)
+;;                (->key ns key-name)
 
-               (= "_" key-ns)
-               (->key key-name)
+;;                (= "_" key-ns)
+;;                (->key key-name)
 
-               :else
-               key))
-           key)))
+;;                :else
+;;                key))
+;;            key)))
 
 (defn key-maker (k)
   (if (symbol? k)

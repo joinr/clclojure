@@ -190,3 +190,23 @@ Unclear on whether clojure does this out of the box.
 ** maps
 ** strings
 ** numbers
+* arrays
+We have efficient access to many types of arrays.
+There's generic elt, aref, svref, char, schar, maybe more.
+It would be useful to explore preferred defaults if we are
+living on top of generic functions primarily.  I think we
+can probably optimize the hell out of stuff, but the
+baseline is going to be slow without understanding
+the mapping to CL optimization pathways.
+
+I am confident there is a mapping though.
+
+* optimize slot detection
+we have a naive setup in clojure-deftype right now
+where we just use with-slots and bind the slots in
+the body automatically.  This is not necessary if
+we analyze the slot usage.  We can analyze at
+macroexpansion time and trace slot usage.
+
+Combine this with a symbol macro for set! being
+setf.
