@@ -5,7 +5,7 @@
   (:shadow :deftype :keyword :atom :realized? :deref :char :str
            :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
            :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
-           ) ;;forgot about shadowing-import-from....
+           :some :merge) ;;forgot about shadowing-import-from....
   (:local-nicknames (:re :clj-re))
   (:export :def :defn :fn :meta :with-meta :str :symbol? :instance? :first :rest :second :next :char
    :deftype :defprotocol :reify :extend-type :nil? :identical?
@@ -17,7 +17,7 @@
    ;;mostly (except atom) from clj-con 
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
-   :keyword? :symbol? :string? :vector? :aget :aset :set!) )
+   :keyword? :symbol? :string? :vector? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in) )
 (in-package clclojure.base)
 
 ;;convenience for clj-re
@@ -787,9 +787,19 @@
     (extend-protocol
      IString
      t
-     (-to-string (this) (prin1-to-string this))
+     (-to-string (this) (princ-to-string this))
      string
-     (-to-string (this) this))
+     (-to-string (this) this)
+     common-lisp:symbol
+     (-to-string (this)
+       (if (typep this 'common-lisp:keyword)
+           (prin1-to-string this)
+           (princ-to-string this)))
+     cljkey
+     (-to-string (this) (prin1-to-string this))
+     cljsymbol
+     (-to-string (this) (princ-to-string this))
+     )
     (extend-protocol
      IFn
      Function
@@ -1107,7 +1117,15 @@
    (-empty (c) clclojure.cowmap::+empty-cowmap+)
 
    ICollection
-   (-conj (coll itm) (map-assoc coll (common-lisp:first itm) (common-lisp:second itm)))
+   (-conj (coll itm)
+          (if (typep itm 'clclojure.cowmap::cowmap)
+              ;;merge all the keys.  I missed that conj acts like this for maps man.
+              (->> (-seq itm)
+                   (sequences:reduce
+                    (fn (acc itm)
+                        (map-assoc acc (common-lisp:first itm) (common-lisp:second itm)))
+                    coll))
+              (map-assoc coll (common-lisp:first itm) (common-lisp:second itm))))
 
    ISeqable
    (-seq (coll) (map-seq coll))
@@ -1209,6 +1227,9 @@
 
   (defn first  (coll)  (-first (seq coll)))
   (defn rest   (coll)  (-rest  (seq coll)))
+  ;; "Returns the substring of s beginning at start inclusive, and ending
+  ;; at end (defaults to length of string), exclusive."
+  (def subs #'subseq)
   ;;TBD fix this for an actual -next implementation.
   ;; "Returns a seq of the items after the first. Calls seq on its
   ;; argument.  If there are no more items, returns nil"
@@ -1367,6 +1388,14 @@
          (if (seq xs)
              (recur  (-conj  coll x) (first xs) (rest xs))
              (conj coll x))))
+
+;; "disj[oin]. Returns a new set of the same (hashed/sorted) type, that
+;;   does not contain key(s)."
+(defn disj
+  ((coll x & xs)
+   (if (seq xs)
+       (recur  (-disjoin  coll x) (first xs) (rest xs))
+       (-disjoin coll x))))
 
 ;;need to define hierarchies.
 ;;these should resolve to classes or something
@@ -2161,6 +2190,95 @@
   (let (all (list* f fs))
     (fn  (&rest xs)
          (vec  (map (lambda (f) (apply f xs)) all)))))
+
+;; "Returns the first logical true value of (pred x) for any x in coll,
+;;   else nil.  One common idiom is to use a set as pred, for example
+;;   this will return :fred if :fred is in the sequence, otherwise nil:
+;;   (some #{:fred} coll)"
+(defn some (pred coll)
+  (when-let (s (seq coll))
+    (or (funcall pred (first s)) (recur pred (next s)))))
+
+;; "Returns a map that consists of the rest of the maps conj-ed onto
+;;   the first.  If a key occurs in more than one map, the mapping from
+;;   the latter (left-to-right) will be the mapping in the result."
+(defn merge (&rest maps)
+  (when (some identity maps)
+    (reduce (fn (acc m) (conj (or acc (hash-map)) m)) maps)))
+
+;;let's define a stringbuilder to support reader ops.
+(clojure-deftype
+ StringBuilder (buff)
+ IString
+ (-to-string (this) buff)
+ ICounted
+ (-count (this) (length buff))
+ INamed
+ (-name (x) buff)
+ IIndexed
+ (-nth (coll n) (common-lisp:char buff n)) ;;TODO: schar optimization option?
+ (-nth (coll n not-found)
+       (if (< n (length buff))
+           (common-lisp:char buff n)
+           not-found))
+ ISeqable
+ (-seq (coll) (sequences::seq buff))
+ ISeq
+ (-first (coll)  (cl:char buff 0))
+ (-rest  (coll)  (sequences::rest buff))
+ IEquiv
+ (-equiv (this other)
+         (and (stringp other) (string-equal buff other)))
+ ICollection
+ (-conj (this v)
+        (set! buff (str buff v))
+        this))
+
+(defn ->string-builder (&rest args)
+  (stringbuilder. (apply #'str args)))
+
+;;"Creates an array of objects"
+(defn object-array (size-or-seq)
+  (if (numberp size-or-seq)
+      (make-array size-or-seq)
+      (let (n (count size-or-seq) 
+            idx -1)
+        (->> size-or-seq
+             (reduce (fn (acc x)
+                         (aset acc (incf idx) x)
+                         acc)
+                     (make-array n))))))
+
+;; "'Updates' a value in an associative structure, where k is a
+;;   key and f is a function that will take the old value
+;;   and any supplied args and return the new value, and returns a new
+;;   structure.  If the key does not exist, nil is passed as the old value."
+(defn update
+  ((m k f)
+      (assoc m k (funcall f (get m k))))
+  ((m k f x)
+      (assoc m k (funcall f (get m k) x)))
+  ((m k f x y)
+      (assoc m k (funcall f (get m k) x y)))
+  ((m k f x y z)
+      (assoc m k (funcall f (get m k) x y z)))
+  ((m k f x y z &rest more)
+      (assoc m k (apply f (get m k) x y z more))))
+
+;; "'Updates' a value in a nested associative structure, where ks is a
+;;   sequence of keys and f is a function that will take the old value
+;;   and any supplied args and return the new value, and returns a new
+;;   nested structure.  If any levels do not exist, hash-maps will be
+;;   created."
+(defn update-in
+  (m ks f & args)
+  (let (up (fn up (m ks f args)
+               (let (k (first ks)
+                     ks (rest ks))
+                 (if ks
+                     (assoc m k (up (get m k) ks f args))
+                     (assoc m k (apply f (get m k) args))))))
+    (up m ks f args)))
 
 ;;destructuring junk.  not important yet.
 ;; (defn ds-pvec (bvec b val)

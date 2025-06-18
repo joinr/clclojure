@@ -20,9 +20,9 @@
   (:shadowing-import-from :clclojure.base
    :def :defn :let :ex-info :instance? :defrecord :true :false :identical? :nil? :when-not
    :hash-map :string? :keyword? :vector? :symbol? :set! :inc :dec :str :throw :aget :aset
-   :zero? :when-let)  
+   :zero? :when-let :assoc :dissoc :conj :disj :merge :with-meta :meta :subs)  
   (:shadowing-import-from :cljs.tools.reader.impl.utils :char :whitespace? :newline?)
-  (:shadow :read-char :peek-char)
+  (:shadow :read-char :peek-char :read-line)
   (:local-nicknames (:base :clclojure.base)
                     (:re   :cl-ppcre)
                     (:u    :cljs.tools.reader.impl.utils )))
@@ -160,156 +160,182 @@
 
 ;; "Returns an object of the same type and value as `obj`, with its
 ;; metadata merged over `m`."
+;;this seems kind of weird, I guess they call out source specifically hmm.
 (defn merge-meta (obj m)
-  (let (orig-meta (base:meta obj))
+  (let (orig-meta (meta obj))
     (with-meta obj (merge m (dissoc orig-meta :source)))))
 
-(defn- peek-source-log
-  "Returns a string containing the contents of the top most source
-logging frame."
-  [frames]
-  (subs (str (:buffer frames)) (first (:offset frames))))
+;;defn-
+;; "Returns a string containing the contents of the top most source
+;; logging frame."
+(defn peek-source-log (frames)
+  (subs (str (base:get frames :buffer)) (first (base:get frames :offset))))
 
-(defn- log-source-char
-  "Logs `char` to all currently active source logging frames."
-  [frames char]
-  (when-let [buffer (:buffer frames)]
-    (.append buffer char)))
+;;defn-
+;;  "Logs `char` to all currently active source logging frames."
+;;So the buffer here is a string builder, or object array elsewhere.
+;;We don't have that in cl, we just concat strings along the way.
+;;we use an adhoc stringbuilder type in clclojure.base now.
+;;.append -> conj
+(defn log-source-char (frames char)
+  (when-let (buffer (base:get frames :buffer))
+    (conj buffer char)))
 
-(defn- drop-last-logged-char
-  "Removes the last logged character from all currently active source
-logging frames. Called when pushing a character back."
-  [frames]
-  (when-let [buffer (:buffer frames)]
-    (.set buffer (subs (str buffer) 0 (dec (.getLength buffer))))))
+;;defn-
+;; "Removes the last logged character from all currently active source
+;; logging frames. Called when pushing a character back."
+(defn drop-last-logged-char (frames)
+  (when-let (buffer (base:get frames :buffer frames))
+    (setf (slot-value  buffer 'buff)
+          (subs (str buffer) 0 (dec (base:count buffer))))))
 
-(deftype SourceLoggingPushbackReader
-  [^not-native rdr ^:mutable line ^:mutable column
-  ^:mutable line-start? ^:mutable prev
-  ^:mutable prev-column file-name frames]
-  Reader
-  (read-char [reader]
-             (when-let [ch (read-char rdr)]
-               (let [ch (normalize-newline rdr ch)]
-                 (set! prev line-start?)
+(clojure-deftype
+ SourceLoggingPushbackReader
+ (rdr  line  column
+  line-start?  prev
+  prev-column file-name frames)
+ Reader
+ (read-char (reader)
+            (when-let (ch (read-char rdr))
+              (let (ch (normalize-newline rdr ch))
+                (set! prev line-start?)
                  (set! line-start? (newline? ch))
                  (when line-start?
                    (set! prev-column column)
                    (set! column 0)
                    (set! line (inc line)))
-                 (set! column (inc column))
-                 (log-source-char @frames ch)
+                (set! column (inc column))
+                (log-source-char (base:deref  frames) ch)
                  ch)))
 
-  (peek-char [reader]
-             (peek-char rdr))
+ (peek-char (reader)
+            (peek-char rdr))
 
-  IPushbackReader
-  (unread [reader ch]
-          (if line-start?
-              (do (set! line (dec line))
-                  (set! column prev-column))
-              (set! column (dec column)))
-          (set! line-start? prev)
-          (when ch
-            (drop-last-logged-char @frames))
-          (unread rdr ch))
+ IPushbackReader
+ (unread (reader ch)
+         (if line-start?
+             (do (set! line (dec line))
+                 (set! column prev-column))
+             (set! column (dec column)))
+         (set! line-start? prev)
+         (when ch
+           (drop-last-logged-char (base:deref frames)))
+         (unread rdr ch))
 
-  IndexingReader
-  (get-line-number [reader] (int line))
-  (get-column-number [reader] (int column))
-  (get-file-name [reader] file-name))
+ IndexingReader
+ (get-line-number   (reader)  line) ;;int not necessary.
+ (get-column-number (reader) column)
+ (get-file-name     (reader) file-name))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Public API
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;  "Returns true if the reader satisfies IndexingReader"
 ;; fast check for provided implementations
-(defn indexing-reader?
-  "Returns true if the reader satisfies IndexingReader"
-  [rdr]
-  (implements? IndexingReader rdr))
+(defn indexing-reader? (rdr)
+  (base:implements? IndexingReader rdr))
 
+;;"Creates a StringReader from a given string"
 (defn string-reader
-  "Creates a StringReader from a given string"
-  ([s]
-   (StringReader. s (count s) 0)))
+ ((s)
+  (StringReader. s (base:count s) 0)))
 
+;;"Creates a PushbackReader from a given string"
 (defn string-push-back-reader
-  "Creates a PushbackReader from a given string"
-  ([s]
+  ((s)
    (string-push-back-reader s 1))
-  ([s buf-len]
-      (PushbackReader. (string-reader s) (object-array buf-len) buf-len buf-len)))
+  ((s buf-len)
+   (PushbackReader. (string-reader s) (base:object-array buf-len) buf-len buf-len)))
 
-(defn node-readable-push-back-reader [readable]
-  (PushbackReader. (NodeReadableReader. readable nil) (object-array 1) 1 1))
+;; (defn node-readable-push-back-reader (readable)
+;;   (PushbackReader. (NodeReadableReader. readable nil) (object-array 1) 1 1))
 
+;;"Creates an IndexingPushbackReader from a given string or PushbackReader"
 (defn indexing-push-back-reader
-  "Creates an IndexingPushbackReader from a given string or PushbackReader"
-  ([s-or-rdr]
-   (indexing-push-back-reader s-or-rdr 1))
-  ([s-or-rdr buf-len]
-             (indexing-push-back-reader s-or-rdr buf-len nil))
-  ([s-or-rdr buf-len file-name]
-             (IndexingPushbackReader.
-              (if (string? s-or-rdr) (string-push-back-reader s-or-rdr buf-len) s-or-rdr) 1 1 true nil 0 file-name)))
+    ((s-or-rdr)
+     (indexing-push-back-reader s-or-rdr 1))
+  ((s-or-rdr buf-len)
+   (indexing-push-back-reader s-or-rdr buf-len nil))
+  ((s-or-rdr buf-len file-name)
+   (IndexingPushbackReader.
+    (if (string? s-or-rdr)
+        (string-push-back-reader s-or-rdr buf-len)
+        s-or-rdr)
+    1 1 true nil 0 file-name)))
 
+;;"Creates a SourceLoggingPushbackReader from a given string or PushbackReader"
 (defn source-logging-push-back-reader
-  "Creates a SourceLoggingPushbackReader from a given string or PushbackReader"
-  ([s-or-rdr]
-   (source-logging-push-back-reader s-or-rdr 1))
-  ([s-or-rdr buf-len]
-             (source-logging-push-back-reader s-or-rdr buf-len nil))
-  ([s-or-rdr buf-len file-name]
-             (SourceLoggingPushbackReader.
-              (if (string? s-or-rdr) (string-push-back-reader s-or-rdr buf-len) s-or-rdr)
-              1
-              1
-              true
-              nil
-              0
-              file-name
-              (atom {:buffer (StringBuffer.) :offset '(0)}))))
+    ((s-or-rdr)
+     (source-logging-push-back-reader s-or-rdr 1))
+  ((s-or-rdr buf-len)
+   (source-logging-push-back-reader s-or-rdr buf-len nil))
+  ((s-or-rdr buf-len file-name)
+   (SourceLoggingPushbackReader.
+    (if (string? s-or-rdr) (string-push-back-reader s-or-rdr buf-len) s-or-rdr)
+    1
+    1
+    true
+    nil
+    0
+    file-name
+    (base:atom (hash-map  :buffer (StringBuffer.) :offset '(0))))))
 
-(defn read-line
-  "Reads a line from the reader or from *in* if no reader is specified"
-  ([^not-native rdr]
-                (loop [c (read-char rdr) s (StringBuffer.)]
-                      (if (newline? c)
-                          (str s)
-                          (recur (read-char rdr) (.append s c))))))
+;;"Reads a line from the reader or from *in* if no reader is specified"
+;;output is wrong!  hmmm, why isn't stringbuilder accumulating bro?
+;;works with defun, not defn!
+(defun read-line (rdr)
+  (base:loop
+    (c (read-char rdr)
+     s (base::->string-builder ""))
+    (progn  (print (list  c (str sb))) 
+            (if (newline? c)
+                (str s)
+                (recur (read-char rdr) (conj s c))))))
 
-(defn ^boolean source-logging-reader?
-  [rdr]
+;; (defn read-line (rdr)
+;;   (let (s (base::->string-builder ""))
+;;     (base:loop
+;;       (c (read-char rdr))
+;;       (progn  (print (list  c (str sb))) 
+;;               (if (newline? c)
+;;                   (str s)
+;;                   (recur (progn (print :conjin)
+;;                                 (conj s c)
+;;                                 (read-char rdr)) ))))))
+
+(defn source-logging-reader?
+    (rdr)
   (instance? SourceLoggingPushbackReader rdr))
 
-(defn ^boolean line-start?
-  "Returns true if rdr is an IndexingReader and the current char starts a new line"
-  [^not-native rdr]
+;;"Returns true if rdr is an IndexingReader and the current char starts a new line"
+(defn line-start?
+  (rdr)
   (when (indexing-reader? rdr)
-    (== 1 (get-column-number rdr))))
+    (= 1 (get-column-number rdr))))
 
 (defn log-source*
-  [reader f]
-  (let [buffer (:buffer @(.-frames reader))]
-    (try
-     (swap! (.-frames reader) update-in [:offset] conj (.getLength buffer))
-     (let [ret (f)]
-       (if (implements? IMeta ret)
-           (merge-meta ret {:source (peek-source-log @ (.-frames reader))})
-           ret))
-     (finally
-      (swap! (.-frames reader) update-in [:offset] rest)))))
+    (reader f)
+  (with-slots (frames reader)
+      (let (buffer (get (base:deref frames) :buffer))
+        (base:try
+         (base:swap! frames  base:update-in '(:offset) conj (count buffer))
+         (let (ret (funcall f))
+           (if (implements? IMeta ret)
+               (merge-meta ret (hash-map  :source (peek-source-log @ (.-frames reader))))
+               ret))
+         (catch error e (print "I shouldn't happen, but they forced me to be here in log-source*"))
+         (finally
+          (swap! (.-frames reader) base:update-in '(:offset) base:rest))))))
 
 ;;in cljs we have to define macros in clj, not so here.
 ;;(ns cljs.tools.reader.reader-types)
 
+;; "If reader is a SourceLoggingPushbackReader, execute body in a source
+;;   logging context. Otherwise, execute body, returning the result."
 (defmacro log-source
-  "If reader is a SourceLoggingPushbackReader, execute body in a source
-  logging context. Otherwise, execute body, returning the result."
-  [reader & body]
-  `(if (and (source-logging-reader? ~reader)
-            (not (cljs.tools.reader.impl.utils/whitespace? (peek-char ~reader))))
-       (log-source* ~reader (^:once fn* [] ~@body))
-       (do ~@body)))
+  (reader &rest body)
+  `(if (and (source-logging-reader? ,reader)
+            (not (cljs.tools.reader.impl.utils:whitespace? (peek-char ,reader))))
+       (log-source* ,reader (base:fn () ,@body))
+       (do ,@body)))
