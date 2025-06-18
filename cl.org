@@ -210,3 +210,27 @@ macroexpansion time and trace slot usage.
 
 Combine this with a symbol macro for set! being
 setf.
+
+* Distinction between type ctor and record ctor
+We had originall generically used ->type for the
+deftype constructor (where clojure would have 
+type.)  This came up during compilation of 
+records, where we hit a false positive since
+defrecord redefines ->type to be the 
+special constructor that initializes the 
+meta and ext fields unbeknownst to the caller.
+
+We had an arg arity warning, and the ctor
+being redefined.  So now....
+- we emit type. as the ctor (just a function)
+  for the type
+- inside of method bodies for the genclass, 
+  we leverage symbol-macrolet to define
+  type. as just (make-instance 'type ....)
+  as we would with the type ctor.
+  - this is equivalent to clojure semantics.
+- for records, the -> ctor is unchanged and
+  now deconflicted.
+
+This was a pretty cool/quick fix.  Chalk one
+up to CL/lisp flexbility.

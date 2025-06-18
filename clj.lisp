@@ -2064,7 +2064,7 @@
             (setf (slot-value ,res ',meta) ,newmeta)
             ,res))
         ISeqable
-        (-seq (,this)
+        (-seq (,this) ;;we get a little nag with type specificity for hash entries for now.
               (concat (list ,@(mapcar (lambda (x) (list 'list  (alexandria:make-keyword x)
                                                         `(slot-value ,this ',x))) args))
                       (common-utils:hash-table->entries (cowmap-table (slot-value ,this ',ext) )))

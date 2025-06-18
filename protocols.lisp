@@ -623,17 +623,20 @@
                      (rest fields))
                     (t 
                      fields)))
+         (ctr (symbolize (str  name ".")))
          (impls (mapcar (lambda (impl)                               
                           (if (atom impl) impl
                               (apply #'with-fields (cons flds impl)))) implementations)))
-    `(progn 
-       (defclass ,name ()
-         ,(mapcar (lambda (f) (emit-class-field name f) ) flds))
+    `(progn
+       (symbol-macrolet ((,ctr (make-instance ,`(quote  ,name)
+                                               ,@(flatten  (mapcar (lambda (f) `(,(make-keyword f) ,f)) flds )))))
+         (defclass ,name ()
+           ,(mapcar (lambda (f) (emit-class-field name f) ) flds)))
        ;;we need to parse the implementations to provide
        ;;instance-level fields...
        (extend-type ,name ,@impls)
        ;;debugging 
-       (defun ,(symbolize (str "->" name)) ,flds
+       (defun ,ctr ,flds
          (make-instance ,`(quote  ,name) ,@(flatten  (mapcar (lambda (f) `(,(make-keyword f) ,f)) flds ))))
        ;;bind a var to the class for us.
        (defparameter ,name (find-class ',name)))
