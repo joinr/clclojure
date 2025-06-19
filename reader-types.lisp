@@ -18,7 +18,7 @@
   (:use :cl :clclojure.pvector :clclojure.cowmap :clclojure.protocols)
   ;;(:shadow :char)
   (:shadowing-import-from :clclojure.base
-   :def :defn :let :ex-info :instance? :defrecord :true :false :identical? :nil? :when-not
+   :do :def :defn :let :ex-info :instance? :defrecord :true :false :identical? :nil? :when-not
    :hash-map :string? :keyword? :vector? :symbol? :set! :inc :dec :str :throw :aget :aset
    :zero? :when-let :assoc :dissoc :conj :disj :merge :with-meta :meta :subs)  
   (:shadowing-import-from :cljs.tools.reader.impl.utils :char :whitespace? :newline?)
@@ -144,7 +144,7 @@
   (unread (reader ch)
      (if line-start?
          (do (set! line (dec line))
-             (set! column prev-column))
+                (set! column prev-column))
          (set! column (dec column)))
      (set! line-start? prev)
      (unread rdr ch))
@@ -315,17 +315,17 @@
 
 (defn log-source*
     (reader f)
-  (with-slots (frames reader)
+  (with-slots (frames) reader
       (let (buffer (get (base:deref frames) :buffer))
         (base:try
          (base:swap! frames  base:update-in '(:offset) conj (count buffer))
          (let (ret (funcall f))
            (if (implements? IMeta ret)
-               (merge-meta ret (hash-map  :source (peek-source-log @ (.-frames reader))))
+               (merge-meta ret (hash-map  :source (peek-source-log (base:deref frames))))
                ret))
-         (catch error e (print "I shouldn't happen, but they forced me to be here in log-source*"))
+         ;(catch error e (print "I shouldn't happen, but they forced me to be here in log-source*"))
          (finally
-          (swap! (.-frames reader) base:update-in '(:offset) base:rest))))))
+          (base:swap! frames base:update-in '(:offset) base:rest))))))
 
 ;;in cljs we have to define macros in clj, not so here.
 ;;(ns cljs.tools.reader.reader-types)

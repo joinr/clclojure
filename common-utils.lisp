@@ -1090,7 +1090,80 @@
 ;; catch-clause => (catch classname name expr*)
 ;; finally-clause => (finally expr*)
 
+(defparameter *default-catch*
+  '(catch t e
+    (throw t
+      (error 'common-utils:exception-info
+             :cause e
+             :data    "unhandled exception"
+             :message "passed to finally clause"))))
+
+(defun parse-try (expr)
+  (let* ((try-body (->> expr
+                       (sequences:take-while
+                        (lambda (x)
+                          (or (not (listp x))
+                              (not (or (seql (first x) 'finally)
+                                       (seql (first x) 'catch)))))
+                        )
+                       (sequences::seq->list)))
+         (catch-body (or  (->> expr (filter (lambda (x) (and (listp x) (seql (first x) 'catch)))) first)
+                         *default-catch*))
+         (finally-body (->> expr (filter (lambda (x) (and (listp x) (seql (first x) 'finally)))) first)))
+    (list try-body catch-body finally-body)))
+
 ;; Catches and handles Java exceptions.
+(defmacro try (&rest body)
+  (destructuring-bind (try-body catch-clause* finally-clause?) (parse-try body)
+    (assert (and try-body (or catch-clause* finally-clause?)) ()
+            "try must have a non-empty body, and one or both of a catch and finally clause")
+    (let ((expr* `(progn ,@try-body)))
+      (destructuring-bind (some-exception se &rest recover) (rest  catch-clause*)
+        (if finally-clause?
+            (destructuring-bind (f &rest fbody) finally-clause?
+              (declare (ignore f))
+              `(unwind-protect
+                    (handler-case
+                        ,expr*
+                      (,some-exception (,se)
+                        (declare (ignorable ,se))
+                        (progn ,@recover)))
+                 (progn ,@fbody)
+                 ))
+            `(handler-case
+                 ,expr*
+               (,some-exception (,se)
+                 (declare (ignorable ,se))
+                 (progn ,@recover))))))))
+#-sbcl
+(defmacro try (&rest body)
+  (destructuring-bind (try-body catch-clause* finally-clause?) (parse-try body)
+    (assert (and try-body (or catch-clause* finally-clause?)) ()
+            "try must have a non-empty body, and one or both of a catch and finally clause")
+    (let ((expr* `(progn ,@try-body)))
+      (destructuring-bind (some-exception se recover) (rest  catch-clause*)
+        (if finally-clause?
+            (destructuring-bind (f fbody) finally-clause?
+              (declare (ignore f))
+              (let ((finally (gensym "finally"))
+                    (res     (gensym "res"))
+                    (err     (gensym "err")))
+                `(let ((,res))
+                   (restart-case
+                       (handler-case
+                           ,expr*
+                         (,some-exception (,se) (progn  (try ,recover
+                                                             (catch t ,err (setf ,res ,err)))
+                                                        (invoke-restart (quote ,finally)))))
+                     (,finally ()
+                       (if ,res
+                           (progn ,fbody
+                                  (error ,res))
+                           ,fbody))))))
+            `(handler-case
+                 ,expr*
+               (,some-exception (,se) ,recover)))))))
+#-sbcl
 (defmacro try (expr* catch-clause* &rest finally-clause?)
   (destructuring-bind (some-exception se recover) (rest  catch-clause*)
     (if finally-clause?
@@ -1100,17 +1173,17 @@
                 (res     (gensym "res"))
                 (err     (gensym "err")))
             `(let ((,res))
-              (restart-case
-                  (handler-case
-                      ,expr*
-                    (,some-exception (,se) (progn  (try ,recover
-                                                        (catch t ,err (setf ,res ,err)))
-                                                   (invoke-restart (quote ,finally)))))
-                (,finally ()
-                  (if ,res
-                      (progn ,fbody
-                             (error ,res))
-                      ,fbody))))))
+               (restart-case
+                   (handler-case
+                       ,expr*
+                     (,some-exception (,se) (progn  (try ,recover
+                                                         (catch t ,err (setf ,res ,err)))
+                                                    (invoke-restart (quote ,finally)))))
+                 (,finally ()
+                   (if ,res
+                       (progn ,fbody
+                              (error ,res))
+                       ,fbody))))))
         `(handler-case
              ,expr*
            (,some-exception (,se) ,recover)))))
