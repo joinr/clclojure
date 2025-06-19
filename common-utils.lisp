@@ -514,7 +514,7 @@
 ;;in which we dispatch on the args passed to the function.  Clojure
 ;;makes this style idiomatic, so we'd like to have it in CL and clclojure.
 
-;;The most general subset is a macro that applies a function to some args 
+;;The most general subset is a macro that applies a function to some args 
 ;;and determines which body to evaluate based on the result of the dispatch 
 ;;function, which acts as a key in a case.
 
@@ -742,7 +742,7 @@
 (defun ->callsite (k e) (make-callsite :kind k :expr e))
 
 (defun recur-call? (expr)
-  (and  (listp expr) (eql (first expr) 'recur)))
+  (and  (listp expr) (seql (first expr) 'recur)))
 
 ;;we got the general idea here...
 ;;what we probably want to do is have a recursive routine that searches the call
@@ -759,8 +759,7 @@
                         `(,'dummy (nil ,@bindings) ,body)))))
     (labels ((aux (acc pending)
                (if-let ((nxt (first pending)))               
-                 (let* (;(blah  (pprint nxt))
-                        (k          (first nxt))
+                 (let* ((k          (first nxt))
                         (expr       (second nxt))
                         (pending    (append (rest pending) (tail-children expr))))
                    (cond (;; imediate invalid tail call
@@ -768,7 +767,8 @@
                           (aux (cons (->callsite :illegal-recur expr) acc )
                                pending))
                          (;; imediate invalid tail call
-                          (and (eql k :tail) (recur-call? expr) )
+                          (and (eql k :tail)
+                               (recur-call? expr))
                           (aux (cons (->callsite :recur expr) acc )
                                pending))
                          (t   (aux acc pending))))
@@ -1098,15 +1098,19 @@
              :data    "unhandled exception"
              :message "passed to finally clause"))))
 
+(defun take-while (pred list)
+  (loop for x in list
+        while (funcall pred x)
+        collect x))
+
 (defun parse-try (expr)
   (let* ((try-body (->> expr
-                       (sequences:take-while
+                       (take-while
                         (lambda (x)
                           (or (not (listp x))
                               (not (or (seql (first x) 'finally)
                                        (seql (first x) 'catch)))))
-                        )
-                       (sequences::seq->list)))
+                        )))
          (catch-body (or  (->> expr (filter (lambda (x) (and (listp x) (seql (first x) 'catch)))) first)
                          *default-catch*))
          (finally-body (->> expr (filter (lambda (x) (and (listp x) (seql (first x) 'finally)))) first)))
