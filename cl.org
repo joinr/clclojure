@@ -236,3 +236,9 @@ This was a pretty cool/quick fix.  Chalk one
 up to CL/lisp flexbility.
 
 * need to add meta to vectors and cowmaps.
+* note about "Attempt to bind a special variable with SYMBOL-MACROLET: SOME-SYMBOL"
+We get this during with-slots expansions, when the slot-name also has the same
+symbol as a top-level def/defn.
+
+Looking for a work around.
+

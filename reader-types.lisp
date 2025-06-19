@@ -265,21 +265,21 @@
     1 1 true nil 0 file-name)))
 
 ;;"Creates a SourceLoggingPushbackReader from a given string or PushbackReader"
-(defn source-logging-push-back-reader
-    ((s-or-rdr)
-     (source-logging-push-back-reader s-or-rdr 1))
-  ((s-or-rdr buf-len)
-   (source-logging-push-back-reader s-or-rdr buf-len nil))
-  ((s-or-rdr buf-len file-name)
-   (SourceLoggingPushbackReader.
-    (if (string? s-or-rdr) (string-push-back-reader s-or-rdr buf-len) s-or-rdr)
-    1
-    1
-    true
-    nil
-    0
-    file-name
-    (base:atom (hash-map  :buffer (StringBuffer.) :offset '(0))))))
+;; (defn source-logging-push-back-reader
+;;     ((s-or-rdr)
+;;      (source-logging-push-back-reader s-or-rdr 1))
+;;   ((s-or-rdr buf-len)
+;;    (source-logging-push-back-reader s-or-rdr buf-len nil))
+;;   ((s-or-rdr buf-len file-name)
+;;    (SourceLoggingPushbackReader.
+;;     (if (string? s-or-rdr) (string-push-back-reader s-or-rdr buf-len) s-or-rdr)
+;;     1
+;;     1
+;;     true
+;;     nil
+;;     0
+;;     file-name
+;;     (base:atom (hash-map  :buffer (StringBuffer.) :offset '(0))))))
 
 ;;"Reads a line from the reader or from *in* if no reader is specified"
 ;;output is wrong!  hmmm, why isn't stringbuilder accumulating bro?
@@ -325,19 +325,19 @@
   (when (indexing-reader? rdr)
     (= 1 (get-column-number rdr))))
 
-(defn log-source*
-    (reader f)
-  (with-slots (frames reader)
-      (let (buffer (get (base:deref frames) :buffer))
-        (base:try
-         (base:swap! frames  base:update-in '(:offset) conj (count buffer))
-         (let (ret (funcall f))
-           (if (implements? IMeta ret)
-               (merge-meta ret (hash-map  :source (peek-source-log @ (.-frames reader))))
-               ret))
-         (catch error e (print "I shouldn't happen, but they forced me to be here in log-source*"))
-         (finally
-          (swap! (.-frames reader) base:update-in '(:offset) base:rest))))))
+;; (defn log-source*
+;;     (reader f)
+;;   (with-slots (frames reader)
+;;       (let (buffer (get (base:deref frames) :buffer))
+;;         (base:try
+;;          (base:swap! frames  base:update-in '(:offset) conj (count buffer))
+;;          (let (ret (funcall f))
+;;            (if (implements? IMeta ret)
+;;                (merge-meta ret (hash-map  :source (peek-source-log @ (.-frames reader))))
+;;                ret))
+;;          (catch error e (print "I shouldn't happen, but they forced me to be here in log-source*"))
+;;          (finally
+;;           (swap! (.-frames reader) base:update-in '(:offset) base:rest))))))
 
 ;;in cljs we have to define macros in clj, not so here.
 ;;(ns cljs.tools.reader.reader-types)
@@ -349,4 +349,4 @@
   `(if (and (source-logging-reader? ,reader)
             (not (cljs.tools.reader.impl.utils:whitespace? (peek-char ,reader))))
        (log-source* ,reader (base:fn () ,@body))
-       (do ,@body)))
+       (progn ,@body)))
