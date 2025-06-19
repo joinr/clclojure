@@ -63,12 +63,21 @@
    :try
    :nested-list?
    :vector-expr
+   :with-suppressed
    ))
 (in-package :common-utils)
 
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-
+  (defmacro with-suppressed (&rest body)
+    #+:sbcl
+    `(handler-bind ((style-warning #'muffle-warning)
+                    (warning #'muffle-warning))
+       (locally (declare  (sb-ext:muffle-conditions warning))
+         ,@body))
+    #-:sbcl
+    `(,@body))
+  
   ;;aux
   ;;bootstrapping hack!
  

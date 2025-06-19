@@ -495,14 +495,26 @@
 ;;we can probably just unify function and value cl ns here
 ;;by default instead of checking for functionp....
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  ;;establishes a non-dynamic toplevel binding. this
+  ;;unscrews us from using defparameter by default,
+  ;;and allows symbol-macrolet ala with-slots to work
+  ;;equivalently to clojure, if the slot-name collides with
+  ;;a top-level binding.  under the prior way, we'd get
+  ;;an error since the symbol was declared special (dynamic)
+  ;;via defparameter, so symbol-macrolet crapped out.
+  (defmacro normal-var (name v)
+    `(with-suppressed
+        (setq ,name ,v)))
+  
   (defmacro def (var &rest init-form)
-    `(progn (defparameter ,var ,@init-form)
-            (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
-            (when (functionp (symbol-value (quote  ,var)))
-              (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
-            (export ',var)
-            (quote ,var)
-            )))
+    (let (dyn? (char= (common-lisp:char (str var) 0) #\*))
+      `(handler-bind ((style-warning #'muffle-warning))
+         (progn (,(if dyn? 'defparameter 'normal-var) ,var ,@init-form)
+                (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
+                (when (functionp (symbol-value (quote  ,var)))
+                  (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
+                (export ',var)
+                (quote ,var))))))
 
 ;;A CHEAP implementation of defn, replace this...
 (defmacro defn (name args &rest body)
