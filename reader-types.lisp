@@ -265,55 +265,43 @@
     1 1 true nil 0 file-name)))
 
 ;;"Creates a SourceLoggingPushbackReader from a given string or PushbackReader"
-;; (defn source-logging-push-back-reader
-;;     ((s-or-rdr)
-;;      (source-logging-push-back-reader s-or-rdr 1))
-;;   ((s-or-rdr buf-len)
-;;    (source-logging-push-back-reader s-or-rdr buf-len nil))
-;;   ((s-or-rdr buf-len file-name)
-;;    (SourceLoggingPushbackReader.
-;;     (if (string? s-or-rdr) (string-push-back-reader s-or-rdr buf-len) s-or-rdr)
-;;     1
-;;     1
-;;     true
-;;     nil
-;;     0
-;;     file-name
-;;     (base:atom (hash-map  :buffer (StringBuffer.) :offset '(0))))))
+(defn source-logging-push-back-reader
+    ((s-or-rdr)
+     (source-logging-push-back-reader s-or-rdr 1))
+  ((s-or-rdr buf-len)
+   (source-logging-push-back-reader s-or-rdr buf-len nil))
+  ((s-or-rdr buf-len file-name)
+   (SourceLoggingPushbackReader.
+    (if (string? s-or-rdr) (string-push-back-reader s-or-rdr buf-len) s-or-rdr)
+    1
+    1
+    true
+    nil
+    0
+    file-name
+    (base:atom (hash-map  :buffer (StringBuffer.) :offset '(0))))))
 
 ;;"Reads a line from the reader or from *in* if no reader is specified"
 ;;output is wrong!  hmmm, why isn't stringbuilder accumulating bro?
 ;;works with defun, not defn!
 ;;we bail in time.
-(defun read-line (rdr)
-  (base:loop
-    (c (read-char rdr)
-     s (base::->string-builder ""))
-    (progn  (print (list  c (str s)))
-            (if (newline? c)
-                (str s)
-                (recur (read-char rdr) (conj s c))))))
-
-;;we're not bailing in time.
-;; (defn read-line (rdr)
+;; (defun read-line (rdr)
 ;;   (base:loop
 ;;     (c (read-char rdr)
 ;;      s (base::->string-builder ""))
-;;     (progn  (print (list  c (str s) (newline? c)))
+;;     (progn  (print (list  c (str s)))
 ;;             (if (newline? c)
 ;;                 (str s)
 ;;                 (recur (read-char rdr) (conj s c))))))
 
-;; (defn read-line (rdr)
-;;   (let (s (base::->string-builder ""))
-;;     (base:loop
-;;       (c (read-char rdr))
-;;       (progn  (print (list  c (str sb))) 
-;;               (if (newline? c)
-;;                   (str s)
-;;                   (recur (progn (print :conjin)
-;;                                 (conj s c)
-;;                                 (read-char rdr)) ))))))
+;;we're not bailing in time.
+(defn read-line (rdr)
+  (base:loop
+    (c (read-char rdr)
+     s (base::->string-builder ""))
+    (if (newline? c)
+        (str s)
+        (recur (read-char rdr) (conj s c)))))
 
 (defn source-logging-reader?
     (rdr)
@@ -325,19 +313,19 @@
   (when (indexing-reader? rdr)
     (= 1 (get-column-number rdr))))
 
-;; (defn log-source*
-;;     (reader f)
-;;   (with-slots (frames reader)
-;;       (let (buffer (get (base:deref frames) :buffer))
-;;         (base:try
-;;          (base:swap! frames  base:update-in '(:offset) conj (count buffer))
-;;          (let (ret (funcall f))
-;;            (if (implements? IMeta ret)
-;;                (merge-meta ret (hash-map  :source (peek-source-log @ (.-frames reader))))
-;;                ret))
-;;          (catch error e (print "I shouldn't happen, but they forced me to be here in log-source*"))
-;;          (finally
-;;           (swap! (.-frames reader) base:update-in '(:offset) base:rest))))))
+(defn log-source*
+    (reader f)
+  (with-slots (frames reader)
+      (let (buffer (get (base:deref frames) :buffer))
+        (base:try
+         (base:swap! frames  base:update-in '(:offset) conj (count buffer))
+         (let (ret (funcall f))
+           (if (implements? IMeta ret)
+               (merge-meta ret (hash-map  :source (peek-source-log @ (.-frames reader))))
+               ret))
+         (catch error e (print "I shouldn't happen, but they forced me to be here in log-source*"))
+         (finally
+          (swap! (.-frames reader) base:update-in '(:offset) base:rest))))))
 
 ;;in cljs we have to define macros in clj, not so here.
 ;;(ns cljs.tools.reader.reader-types)

@@ -842,7 +842,7 @@
                                                 (not (seql (first xy) '&REST)))
                                               (pairlis args recur-args)))))
              `(destructuring-bind ,lhs ,rhs
-                (let ((,continue? t)
+                (let ((,continue? nil) ;;was t initially...
                       (,res)
                       ,@(mapcar (lambda (x) (list x x)) (strip-rest lhs)))
                   (flet ((,recur-sym ,recur-args
@@ -889,7 +889,7 @@
                   (recur-args (mapcar (lambda (x) (gensym (symbol-name x))) args))         
                   (bindings   (mapcar (lambda (xy)
                                         `(setf ,(car xy) ,(cdr xy))) (pairlis args recur-args))))
-             `(let* ((,continue? t)
+             `(let* ((,continue? nil) ;;was t before, let's try nil
                      (,res)
                      ,@pairs)
                 (flet ((,recur-sym ,recur-args

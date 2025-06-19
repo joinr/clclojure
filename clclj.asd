@@ -23,7 +23,7 @@
 	       (:file "clj"        :depends-on ("common-utils" "protocols" "pvector" "cowmap" "lexical"))
                ))
 
-(asdf:defsystem :tools.reader
+(asdf:defsystem :clclj/tools.reader
   :depends-on (:clclj :named-readtables :cl-package-locks :cl-murmurhash
                :clj-con :cl-ppcre :clj-re) ;copied from example. debate using :cl-hamt
   :components ((:file "reader-utils")

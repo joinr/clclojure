@@ -507,7 +507,10 @@
         (setq ,name ,v)))
   
   (defmacro def (var &rest init-form)
-    (let (dyn? (char= (common-lisp:char (str var) 0) #\*))
+    (let (vname (common-utils:str var)
+          dyn?  (char= #\*
+                       (common-lisp:char vname 0) 
+                       (common-lisp:char vname (1- (length vname)))))
       `(handler-bind ((style-warning #'muffle-warning))
          (progn (,(if dyn? 'defparameter 'normal-var) ,var ,@init-form)
                 (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
@@ -1216,6 +1219,9 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (declaim (inline equiv))
+  ;;deviate from common-utils here on purpose.
+  (defn str (x &rest xs)
+    (format nil "~{~a~}" (mapcar #'-to-string (cons x xs))))
   (defn seq (coll) (-seq coll))
   (defn vec (coll)
     (if (vector? coll) coll
@@ -1841,10 +1847,6 @@
 (declaim (inline aset))
 (defn aset (x idx v)
   (setf (aref x idx) v))
-
-;;deviate from common-utils here on purpose.
-(defn str (x &rest xs)
-   (format nil "~{~a~}" (mapcar #'-to-string (cons x xs))))
 
 ;;for now, we don't have qualified keywords...
 ;;we "could" encode that information in the
