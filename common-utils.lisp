@@ -708,10 +708,10 @@
                   (cons (list :tail tail) (mapcar (lambda (x) (list :non-tail x)) xs)))))
              ((seql x 'if)
               (destructuring-bind (i pred l &optional r) expr
-                (cons (list :tail l) (when r (list (list :tail r))))))
+                (cons (list :tail pred) (cons (list :tail l) (when r (list (list :tail r)))))))
              ((seql x 'when)
               (destructuring-bind (i pred l) expr
-                (list (list :tail l))))
+                (list (list :tail pred) (list :tail l))))
              ((some-symbol x '(case ecase ccase))
               (destructuring-bind (l binds) expr                
                 (mapcar (lambda (lr)
@@ -751,26 +751,29 @@
 ;;Much cleaner re-implementation of the code-walker using a basic graph search.
 ;;Note: this should be a DFS implementation, so leaves ought to be processed
 ;first.
-(defun categorize-tails (expr)
-  (labels ((aux (acc pending)
-             (if-let ((nxt (first pending)))               
-               (let* (;(blah  (pprint nxt))
-                      (k          (first nxt))
-                      (expr       (second nxt))
-                      (pending    (append (rest pending) (tail-children expr)) ;(reduce (lambda (l x) (cons x l))  (tail-children expr) :initial-value (rest  pending) )
-                                  ))
-                 (cond (;; imediate invalid tail call
-                        (and (eql k :non-tail) (recur-call? expr) )
-                        (aux (cons acc (->callsite :illegal-recur expr))
-                                      pending))
-                       ((detect-recur expr) ;;maybe doing some extra work here but meh.
-                        (aux (cons (->callsite
-                                       (case k
-                                         (:tail     :recur)
-                                         (:non-tail :illegal-recur)) expr) acc) pending))
-                       (t   (aux acc pending))))
-               acc)))
-    (aux '() (tail-children expr))))
+(defun categorize-tails (inexpr)
+  (let ((testexpr (if (seql (first inexpr) 'with-recur)
+                      `(,'dummy ,@(rest inexpr))
+                      (destructuring-bind (nm bindings body) inexpr
+                        (declare (ignorable nm)) ;;lame.  maybe use libs.
+                        `(,'dummy (nil ,@bindings) ,body)))))
+    (labels ((aux (acc pending)
+               (if-let ((nxt (first pending)))               
+                 (let* (;(blah  (pprint nxt))
+                        (k          (first nxt))
+                        (expr       (second nxt))
+                        (pending    (append (rest pending) (tail-children expr))))
+                   (cond (;; imediate invalid tail call
+                          (and (eql k :non-tail) (recur-call? expr) )
+                          (aux (cons (->callsite :illegal-recur expr) acc )
+                               pending))
+                         (;; imediate invalid tail call
+                          (and (eql k :tail) (recur-call? expr) )
+                          (aux (cons (->callsite :recur expr) acc )
+                               pending))
+                         (t   (aux acc pending))))
+                 acc)))
+      (aux '() (tail-children (sb-cltl2:macroexpand-all testexpr))))))
 
 ;;we want 2 things: is there a recursive call?
 ;;is there an invalid tail call?
@@ -808,7 +811,7 @@
   (filter (lambda (x)
             (not (seql x '&REST))) xs))
 
-(defparameter *error-on-recur* nil)
+(defparameter *error-on-recur* t)
 
 (defmacro with-rest-recur (bindings &rest body)
   "helper macro with with-recur, admits a varargs version
@@ -816,7 +819,7 @@
    Only one set of bindings is allowed...
    (with-rest-recur ((x &rest xs) (x &rest xs))
      body)"
-  (let* ((e             `(,'with-recur ,bindings ,@body))
+  (let* ((e             `(,'with-rest-recur ,bindings ,@body))
          (recur-illegals (summary-tails      e))
          (recurred?      (first recur-illegals))
          (illegals       (second recur-illegals))
@@ -824,7 +827,7 @@
          (bind          (first pairs))
          (lhs            (first bind))
          (rhs            (second bind)))
-    (if (and recurred? illegals *error-on-recur*)
+    (if (and illegals *error-on-recur*)
         (error 'illegal-recur   :data illegals)
         (when illegals (pprint (list :warning-possible-illegal-recur! illegals))))
     (cond ((not (= (length pairs) 1)) (error 'uneven-bindings :data bindings))
@@ -875,7 +878,7 @@
          (recurred?      (first recur-illegals))
          (illegals       (second recur-illegals))
          (pairs          (partition! 2 bindings)))
-    (if (and recurred? illegals *error-on-recur*)
+    (if (and illegals *error-on-recur*)
         (error 'illegal-recur   :data illegals)
         (when illegals (pprint (list :warning-possible-illegal-recur! illegals))))
     (cond ((not (evenp (length bindings))) (error 'uneven-bindings :data bindings))

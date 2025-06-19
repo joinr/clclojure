@@ -1336,9 +1336,9 @@
     arg     (-first binding)
     expr    (-first (-rest  binding))
     tst     (gensym "tst")) 
-    `(let ,(vector tst  (common-lisp:second binding))
+    `(let ,(list tst  (common-lisp:second binding))
        (if ,tst
-           (let ,(vector arg  tst)
+           (let ,(list arg  tst)
              ,body)
            ,@false-body))))
 
