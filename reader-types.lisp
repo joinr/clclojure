@@ -279,7 +279,7 @@
     nil
     0
     file-name
-    (base:atom (hash-map  :buffer (StringBuffer.) :offset '(0))))))
+    (base:atom (hash-map  :buffer (base:->string-builder) :offset '(0))))))
 
 ;;"Reads a line from the reader or from *in* if no reader is specified"
 ;;output is wrong!  hmmm, why isn't stringbuilder accumulating bro?
@@ -316,16 +316,15 @@
 (defn log-source*
     (reader f)
   (with-slots (frames) reader
-      (let (buffer (get (base:deref frames) :buffer))
-        (base:try
-         (base:swap! frames  base:update-in '(:offset) conj (count buffer))
-         (let (ret (funcall f))
-           (if (implements? IMeta ret)
-               (merge-meta ret (hash-map  :source (peek-source-log (base:deref frames))))
-               ret))
-         ;(catch error e (print "I shouldn't happen, but they forced me to be here in log-source*"))
-         (finally
-          (base:swap! frames base:update-in '(:offset) base:rest))))))
+    (let (buffer (base:get (base:deref frames) :buffer))
+      (base:try
+       (base:swap! frames  base:update-in '(:offset) conj (base:count buffer))
+       (let (ret (funcall f))
+         (if (base:implements? base::IMeta ret)
+             (merge-meta ret (hash-map  :source (peek-source-log (base:deref frames))))
+             ret))
+       (finally
+        (base:swap! frames base:update-in '(:offset) base:rest))))))
 
 ;;in cljs we have to define macros in clj, not so here.
 ;;(ns cljs.tools.reader.reader-types)

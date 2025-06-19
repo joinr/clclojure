@@ -1220,8 +1220,10 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (declaim (inline equiv))
   ;;deviate from common-utils here on purpose.
-  (defn str (x &rest xs)
-    (format nil "~{~a~}" (mapcar #'-to-string (cons x xs))))
+  (defn str
+      (() "")
+      ((x &rest xs)
+       (format nil "~{~a~}" (mapcar #'-to-string (cons x xs)))))
   (defn seq (coll) (-seq coll))
   (defn vec (coll)
     (if (vector? coll) coll
