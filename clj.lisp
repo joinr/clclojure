@@ -17,7 +17,8 @@
    ;;mostly (except atom) from clj-con 
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
-   :keyword? :symbol? :string? :vector? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in) )
+   :keyword? :symbol? :string? :vector? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj
+   :partial :list?) )
 (in-package clclojure.base)
 
 ;;convenience for clj-re
@@ -28,6 +29,8 @@
   `(common-lisp:defmacro ,name ,args ,@body))
 
 (defun vector? (x) (typep x 'clclojure.pvector::pvec))
+;;need to expand this to persistent lists later...
+(defun list? (x) (typep x 'common-lisp:cons))
 (defun as-list (xs)
   (if (vector? xs)  (vector-to-list xs)
       (if (vector-expr xs) (rest xs)
@@ -359,36 +362,11 @@
 ;;   `(list ,@(mapcar (lambda (vb) `(read-fn ,(common-lisp:first vb) ,(second vb))) specs)))
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  ;; (defun fn* (&rest specs)
-  ;;   (let* ((fst (car specs))
-  ;;          (named? nil)
-  ;;          (name (if (symbolp (common-lisp:first fst))                     
-  ;;                    (progn (setf named? t)
-  ;;                           (common-lisp:first fst) )
-  ;;                    (symb (symbol-name (gensym "fn_")))))
-  ;;          (specs (if named? (common-lisp:rest (common-lisp:first  specs)) specs)))
-  ;;     (pprint (list fst named? name specs))
-  ;;     `(,@(mapcar (lambda (vb)
-  ;;                   (pprint vb)
-  ;;                   (read-fn (common-lisp:first vb)
-  ;;                            (if (cadr vb)                                          
-  ;;                                (common-lisp:cons 'progn (common-lisp:rest vb))
-  ;;                                (second vb))
-  ;;                            name))
-  ;;                 specs
-  ;;                 ))))
-
   (defun fn* (name &rest specs)
     `(,@(mapcar (lambda (vb) (read-fn (common-lisp:first vb)
                                       (if (cadr vb)                            
                                           (common-lisp:cons 'progn (common-lisp:rest vb))
                                           (common-lisp:second vb)) name)) specs)))
-  
-
-  ;; (defparameter test-fn
-  ;;   '(fn* ((x) x)
-  ;;         ((x y)        (+ x y))
-  ;;         ((x y & xs)   (common-lisp:reduce #'+ xs :initial-value (+ x y)))))
 
   (defstruct arg-parse lambda-list outer-let)
 
@@ -400,11 +378,13 @@
   ;;the cases yet, but we'll need to be able to destructure vectors and maps into 
   ;;corresponding lambda lists.
   (defun parse-args (args)
-    (make-arg-parse :lambda-list (mapcar (lambda (x)
-                                           (if (and (symbolp x)
-                                                    (string-equal (symbol-name x) "&"))
-                                               '&rest
-                                               x)) (as-list args)))))
+    (make-arg-parse :lambda-list
+       (mapcar (lambda (x)
+                 (if (and (symbolp x)
+                          (string-equal (symbol-name x) "&"))
+                     '&rest
+                                               x))
+               (as-list args)))))
 ;;Compile a clojure fn special form into a common lisp lambda
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   ;;parse a list of function definitions into an n-lambda dispatching function.
@@ -417,20 +397,6 @@
                             body)))
           `(named-fn ,nm ,lambda-list ,interior)))))
 
-  ;; (defmethod fndef->sexp ((fd common-lisp:cons))
-  ;;   (if (= (length fd) 1)  (fndef->sexp (common-lisp:first fd)) ;simple case
-  ;;       ;;case with multiple function definitions.
-  ;;       (progn  (pprint fd)
-  ;;               `(common-utils:lambda* ,@(mapcar (lambda (body)
-  ;;                                                  (common-lisp:rest (fndef->sexp body))) fd)))))
-
-  ;; (defmethod fndef->sexp ((fd common-lisp:cons))
-  ;;   (if (= (length fd) 1)  (fndef->sexp (common-lisp:first fd)) ;simple case
-  ;;       ;;case with multiple function definitions.
-  ;;       (let ((name (fn-def-name (common-lisp:first fd))))
-  ;;         `(common-utils:lambda* ,@(mapcar (lambda (body)
-  ;;                                            (common-lisp:rest (common-lisp:rest (fndef->sexp body)))) fd)))))
-
   (defmethod fndef->sexp ((fd common-lisp:cons))
     (if (common-lisp:= (length fd) 1)  (fndef->sexp (common-lisp:first fd)) ;simple case
         ;;case with multiple function definitions.
@@ -439,8 +405,6 @@
             ,name
             ,@(mapcar (lambda (body)
                         (common-lisp:rest (common-lisp:rest (fndef->sexp body)))) fd)))))
-
-
   
 
   ;;Clojure's anonymous function special form.
@@ -495,6 +459,7 @@
 ;;we can probably just unify function and value cl ns here
 ;;by default instead of checking for functionp....
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  
   ;;establishes a non-dynamic toplevel binding. this
   ;;unscrews us from using defparameter by default,
   ;;and allows symbol-macrolet ala with-slots to work
@@ -504,20 +469,29 @@
   ;;via defparameter, so symbol-macrolet crapped out.
   (defmacro normal-var (name v)
     `(with-suppressed
-        (setq ,name ,v)))
-  
+         (setq ,name ,v)))
+
+  (defmacro declare-clj (&rest body)
+    (assert (every #'symbolp body) () "all forward declarations should be symbols!")
+    `(progn ,@(mapcar
+               (lambda (x) `(clclojure.base::normal-var ,x :unbound
+                                                       ))
+               body)))
+  ;;we probably want a way to control this in the future, but I'd
+  ;;like warnings by default for now.
   (defmacro def (var &rest init-form)
     (let (vname (common-utils:str var)
           dyn?  (char= #\*
                        (common-lisp:char vname 0) 
                        (common-lisp:char vname (1- (length vname)))))
-      `(handler-bind ((style-warning #'muffle-warning))
-         (progn (,(if dyn? 'defparameter 'normal-var) ,var ,@init-form)
-                (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
-                (when (functionp (symbol-value (quote  ,var)))
-                  (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
-                (export ',var)
-                (quote ,var))))))
+      ;`(handler-bind ((style-warning #'muffle-warning)))
+      `(progn (when (not ,dyn?) (normal-var ,var :unbound))
+             (,(if dyn? 'defparameter 'setq) ,var ,@init-form)
+             (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
+             (when (functionp (symbol-value (quote  ,var)))
+               (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
+             (export ',var)
+             (quote ,var)))))
 
 ;;A CHEAP implementation of defn, replace this...
 (defmacro defn (name args &rest body)
@@ -1731,6 +1705,10 @@
 ;; :static true}
 
 
+;;ERROR case:
+;;(let (ss   (conj '((:e :f :g)) '(1 2 3) '(:a :b :c)) ls (map identity ss)) (sequences::seq ls) (print ls))
+;;map consumes the sequence without retaining it.  shows up during interleave.
+;;nested funcseqs are not persistent when they should be.
 
 (defn map
     ;;temporarily on hold while we fix tail recur detection.
@@ -2295,6 +2273,77 @@
                      (assoc m k (up (get m k) ks f args))
                      (assoc m k (apply f (get m k) args))))))
     (up m ks f args)))
+
+;;this screws up a lot of stuff.
+;;we could do some goofiness and actually give it a var ...
+;;then symbol-function/symbol-value it.  ugh, I don't
+;;want to mess with it.
+(defn partial (f  &rest args)
+  (lambda (&rest more)
+    (apply f (concatenate 'list args more))))
+
+;;we need a lazy apply...
+(defmacro lazy-apply (f &rest args)
+  
+  )
+;;"Returns a lazy seq of the first item in each coll, then the second etc."
+(defn interleave
+  (() '())
+  ((c1) (lazy-seq c1))
+  ((c1 c2)
+       (lazy-seq
+        (let (s1 (seq c1) s2 (seq c2))
+          (when (and s1 s2)
+            (cons (first s1) (cons (first s2)
+                                   (interleave (rest s1) (rest s2))))))))
+  ((c1 c2 &rest colls)
+       (lazy-seq
+        (let (ss (map seq (conj colls c2 c1)))
+          (when (every? identity ss)
+            (concat (map first ss) (apply interleave (seq->list  (map rest ss)))))))))
+
+;; "Returns a lazy seq of the elements of coll separated by sep.
+;;   Returns a stateful transducer when no collection is provided."
+(defn interpose
+    ((sep coll)
+        (drop 1 (interleave (repeat sep) coll))))
+
+(clojure-deftype cowset (entries _meta _hasheq)
+  ISeq
+  (-first (coll) (first (-seq coll)))
+  (-rest (coll)  (rest (-seq coll)))
+  INext
+  (-next (coll) (next (-seq coll)))
+  ICollection
+  (-conj (coll o)
+         (-assoc entries o o)
+         coll)
+  ILookup
+  (-lookup (this k)
+     (-lookup entries k))
+  (-lookup (this k not-found)
+     (-lookup entries k not-found))
+  IMeta
+  (-meta (this)  _meta)
+  IWithMeta
+  (-with-meta  (this newmeta)
+  (cowset. entries newmeta -1))
+  ISeqable
+  (-seq (this)
+        (->> (-seq entries)
+             (map first)))
+  ICounted
+  (-count (this)
+          (-count entries))
+  IString
+  (-to-string (this)
+     #-sbcl(str "#{" (apply str (->> (-seq this) )) "}")                          ))
+
+(defmethod print-object ((obj cowset) stream)
+  (with-slots (ns (nm  name)) obj
+    (if ns 
+        (format stream "~A/~A" ns nm)
+        (format stream "~A" nm))))
 
 ;;destructuring junk.  not important yet.
 ;; (defn ds-pvec (bvec b val)

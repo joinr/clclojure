@@ -296,6 +296,7 @@
 ;;        (progn (add-protocol ,p)
 ;; 	      (defparameter ,name ,p)))))
 
+;;we should add exports to protocols and protocol fns.
 (defmacro defprotocol (name &rest functions)
   (let ((p (gensym))
 	(spec (cons name functions)))

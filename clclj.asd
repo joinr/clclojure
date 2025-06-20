@@ -28,6 +28,7 @@
                :clj-con :cl-ppcre :clj-re) ;copied from example. debate using :cl-hamt
   :components ((:file "reader-utils")
                (:file "reader-types"   :depends-on ("reader-utils"))
+               ;(:file "reader-inspect")
                ;(:file "reader-errors"  :depends-on ("reader-types" "reader-inspect"))
                ;(:file "reader-commons" :depends-on ("reader-utils" "reader-errors" "reader-types"))
                ))

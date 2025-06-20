@@ -58,6 +58,7 @@
 (defmethod sval ((obj FuncSeq))
   (with-slots (sval seed sequence) obj
     (when seed
+;      (print (format nil "~A~%" (list :forcing seed)))
       (setf sval (force seed))
       (setf seed nil))
     (if (not (null sval))
@@ -72,6 +73,7 @@
     (if (not (null sval))
         (let ((ls sval))
           (setf sval nil)
+          ;;(print (format nil "~A~%" (list  ls (type-of ls))))
           (setf sequence 
                 (loop until   (not (func-seq? ls))
                       do      (setf ls (sval ls))
