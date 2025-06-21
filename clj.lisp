@@ -477,6 +477,7 @@
                (lambda (x) `(clclojure.base::normal-var ,x :unbound
                                                        ))
                body)))
+  
   ;;we probably want a way to control this in the future, but I'd
   ;;like warnings by default for now.
   (defmacro def (var &rest init-form)
@@ -484,9 +485,8 @@
           dyn?  (char= #\*
                        (common-lisp:char vname 0) 
                        (common-lisp:char vname (1- (length vname)))))
-      ;`(handler-bind ((style-warning #'muffle-warning)))
       `(progn (when (not ,dyn?) (normal-var ,var :unbound))
-             (,(if dyn? 'defparameter 'setq) ,var ,@init-form)
+              (,(if dyn? 'defparameter 'setq) ,var (trap-errors,@init-form))
              (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
              (when (functionp (symbol-value (quote  ,var)))
                (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
@@ -1199,6 +1199,8 @@
       ((x &rest xs)
        (format nil "~{~a~}" (mapcar #'-to-string (cons x xs)))))
   (defn seq (coll) (-seq coll))
+  (defn seq? (coll) (implements? ISeq coll))
+  (defn seqable? (coll) (implements? ISeqable coll))
   (defn vec (coll)
     (if (vector? coll) coll
         (sequences:apply #'persistent-vector (seq coll))))
@@ -1704,11 +1706,6 @@
 ;; {:added "1.0"
 ;; :static true}
 
-
-;;ERROR case:
-;;(let (ss   (conj '((:e :f :g)) '(1 2 3) '(:a :b :c)) ls (map identity ss)) (sequences::seq ls) (print ls))
-;;map consumes the sequence without retaining it.  shows up during interleave.
-;;nested funcseqs are not persistent when they should be.
 
 (defn map
     ;;temporarily on hold while we fix tail recur detection.
@@ -2282,10 +2279,6 @@
   (lambda (&rest more)
     (apply f (concatenate 'list args more))))
 
-;;we need a lazy apply...
-(defmacro lazy-apply (f &rest args)
-  
-  )
 ;;"Returns a lazy seq of the first item in each coll, then the second etc."
 (defn interleave
   (() '())

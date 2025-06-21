@@ -78,7 +78,8 @@
                 (loop until   (not (func-seq? ls))
                       do      (setf ls (sval ls))
                       finally (return ls)))
-          sequence))))
+          sequence)
+        sequence)))
 
 ;;sb-sequence claims these are its fundamental protocol:
 
@@ -413,10 +414,14 @@
 ;;for now...we listify this.
 ;;apply is eager.
 (defun apply (f arg &rest args)
-  (let ((arg (if (seq? arg)
-                 (seq->list arg)
-                 arg)))
-    (common-lisp:apply f arg)))
+  (if (null args)
+      (common-lisp:apply f (if (seq? arg)
+                               (seq->list arg)
+                               arg))
+      (let ((arglist (if (seq? arg)
+                         (list*  (seq->list arg) args)
+                         (list*  arg args))))
+        (common-lisp:apply f arglist))))
 
 (defun* map
     ((f coll)
