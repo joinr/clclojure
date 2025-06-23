@@ -6,8 +6,9 @@
            :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
            :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
            :some :merge) ;;forgot about shadowing-import-from....
+  (:shadowing-import-from :sequences :apply)
   (:local-nicknames (:re :clj-re))
-  (:export :def :defn :fn :meta :with-meta :str :symbol? :instance? :first :rest :second :next :char
+  (:export :apply :def :defn :fn :meta :with-meta :str :symbol? :instance? :first :rest :second :next :char
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count
    :do :get :assoc :when-let   :if-let :ns :even? :pos? :zero? :odd? :vector :hash-map :inc :dec :identity :loop  :chunk-first
@@ -17,8 +18,8 @@
    ;;mostly (except atom) from clj-con 
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
-   :keyword? :symbol? :string? :vector? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj
-   :partial :list?) )
+   :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj
+   :partial :list? :cond) )
 (in-package clclojure.base)
 
 ;;convenience for clj-re
@@ -27,6 +28,16 @@
 ;;OUTDATED
 (common-lisp:defmacro defmacro (name args &rest body)
   `(common-lisp:defmacro ,name ,args ,@body))
+
+;;note:
+;;we use a common-lisp:apply lazyseq compatible replacement
+;;from sequences:apply.
+
+;;determine verbosity of def/defn emissions.
+;;specifically if we muffle sbcl.
+(eval-when  (:compile-toplevel :load-toplevel :execute)
+  ;;defvar?
+  (defparameter *clj-verbose* nil))
 
 (defun vector? (x) (typep x 'clclojure.pvector::pvec))
 ;;need to expand this to persistent lists later...
@@ -477,21 +488,38 @@
                (lambda (x) `(clclojure.base::normal-var ,x :unbound
                                                        ))
                body)))
+
+  ;;Since we can't muffle inside progn, we'd like to have muffled
+  ;;as an option.  e.g, for the core libs we're sure are okay,
+  ;;we can muffle them.  Then for new functions being built out,
+  ;;we can provide unmuffled versions to get warnings.  Can't
+  ;;do more until I learn the sbcl compiler policies better to
+  ;;handle fwd referencing like this.  It's intended to provide
+  ;;compile time security (which is badass), but we want flexibility
+  ;;to say "I'm setqing this thing, so we know it will exist, don't
+  ;;tell me about it.  DO tell me about everything else though"
+
+  ;;ideally we'd just have a meta form to dispatch on.
   
   ;;we probably want a way to control this in the future, but I'd
   ;;like warnings by default for now.
+  ;;we'll have it look at the current package for a *verbose*
+  ;;setting and default to that or nil if unbound.
   (defmacro def (var &rest init-form)
     (let (vname (common-utils:str var)
           dyn?  (char= #\*
                        (common-lisp:char vname 0) 
-                       (common-lisp:char vname (1- (length vname)))))
-      `(progn (when (not ,dyn?) (normal-var ,var :unbound))
-              (,(if dyn? 'defparameter 'setq) ,var (trap-errors,@init-form))
-             (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
-             (when (functionp (symbol-value (quote  ,var)))
-               (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
-             (export ',var)
-             (quote ,var)))))
+                       (common-lisp:char vname (1- (length vname))))
+          initializer (if (and (boundp 'clclojure.base::*clj-verbose*)
+                               (not (null clclojure.base::*clj-verbose*)))
+                          'setq
+                          'normal-var))
+      `(progn (,(if dyn? 'defparameter initializer) ,var ,@init-form)
+              (with-meta (quote ,var) '((SYMBOL .  T) (DOC . "none")))
+              (when (functionp (symbol-value (quote  ,var)))
+                (setf (symbol-function (quote ,var)) (symbol-value (quote  ,var))))
+              (export ',var)
+              (quote ,var)))))
 
 ;;A CHEAP implementation of defn, replace this...
 (defmacro defn (name args &rest body)
@@ -793,7 +821,7 @@
      IFn
      Function
      (-invoke ((this &rest args)
-               (apply #'funcall this args))))
+               (apply this args))))
     (extend-protocol
      IEquiv
      t (-equiv (this that) (eq this that))
@@ -1208,6 +1236,8 @@
     (sequences:apply #'persistent-vector (seq xs)))
   
   (defn hash-map (& xs)
+    (if (null xs)
+        clclojure.cowmap:+empty-cowmap+)
     (sequences:apply #'persistent-map (seq xs))
     )
   (defn identical? (l r)
@@ -1816,6 +1846,9 @@
 (defn keyword? (x) (or (typep x 'cljkey)
                        (keywordp x)))
 (defn string? (x) (stringp x))
+(defn map? (x) (implements? IMap x)) ;;don't like this.  seems too loose.
+(defn set? (x) (implements? ISet x))
+(defn number? (x) (numberp x))
 ;;this is overloaded for cljs though. hmm.
 ;;aref is more generic; svref is probably closer in semantics...
 ;;TODO: this should be symbol macro'd or inlined maybe?
@@ -1933,7 +1966,7 @@
                    method-impl (or (get methodcache  dv)
                                    (get methodcache default)))
                (if method-impl
-                   (apply #'-invoke method-impl args)
+                   (apply method-impl args)
                    (throw (ex-info "no dispatch value found and no default for multimethod!"
                                    (hash-map :name (multimethod-name this)
                                              :args args)))))))))
@@ -1950,7 +1983,19 @@
                                 :hierarchy (or ,hierarchy *default-hierarchy*)))
        (def ,name ,multifn)
        (setf (symbol-function (quote ,name))
-             (fn (&rest ,args) (apply -invoke ,multifn ,args)))
+             ;;terrible compromise but meh.  we were nesting args too
+             ;;much during apply/invoke....we just inline it here for now
+             ;;until I get smarter.
+             (fn (&rest ,args)
+                 (with-slots (,'methodcache ,'dispatch-fn ,'default) ,name
+                   (let (,'dv          (apply ,'dispatch-fn ,args)
+                         ,'method-impl (or (get ,'methodcache  ,'dv)
+                                           (get ,'methodcache ,default)))
+                     (if ,'method-impl
+                         (apply ,'method-impl ,args)
+                         (throw (ex-info "no dispatch value found and no default for multimethod!"
+                                         (hash-map :name (multimethod-name ,name)
+                                                   :args ,args))))))))
        ,name)))
 
 (defun push-method (mf k func)
@@ -2295,12 +2340,19 @@
           (when (every? identity ss)
             (concat (map first ss) (apply interleave (seq->list  (map rest ss)))))))))
 
+;;we'll do a hack job for now.
+(defn repeat
+  ((v) (sequences:iterate identity v))
+  ((n v) (take n (sequences:iterate identity v))))
+
 ;; "Returns a lazy seq of the elements of coll separated by sep.
 ;;   Returns a stateful transducer when no collection is provided."
 (defn interpose
     ((sep coll)
         (drop 1 (interleave (repeat sep) coll))))
 
+;;cheap stand-in, copy-on-write hashset built on hashmaps.
+;;good enough for bootstrapping and implementation can be replaced trivially.
 (clojure-deftype cowset (entries _meta _hasheq)
   ISeq
   (-first (coll) (first (-seq coll)))
@@ -2309,8 +2361,10 @@
   (-next (coll) (next (-seq coll)))
   ICollection
   (-conj (coll o)
-         (-assoc entries o o)
-         coll)
+         (let (res (-assoc entries o o))
+           (if (identical? res entries)
+               coll
+               (cowset. res _meta -1))))
   ILookup
   (-lookup (this k)
      (-lookup entries k))
@@ -2328,16 +2382,24 @@
   ICounted
   (-count (this)
           (-count entries))
+  ISet
+  (-disjoin (coll v)
+    (let (res (dissoc entries v))
+      (if (identical? res entries)
+          coll
+          (cowset. res _meta -1))))
   IString
   (-to-string (this)
-     #-sbcl(str "#{" (apply str (->> (-seq this) )) "}")                          ))
+              (str "#{" (apply #'str (interpose " " (-seq this))) "}")))
 
 (defmethod print-object ((obj cowset) stream)
-  (with-slots (ns (nm  name)) obj
-    (if ns 
-        (format stream "~A/~A" ns nm)
-        (format stream "~A" nm))))
+  (format stream "#{~A}" (apply #'str (interpose " " (-seq obj)))))
 
+(def +empty-set+ (cowset. (hash-map) (hash-map) -1))
+
+(defn ->cowset (&rest args)
+  (cowset. (apply #'hash-map (mapcan (lambda (x) (list x x)) args))
+           (hash-map) -1))
 ;;destructuring junk.  not important yet.
 ;; (defn ds-pvec (bvec b val)
 ;;   (let (gvec (gensym "vec__")
@@ -2436,3 +2498,105 @@
          (reduce1 process-entry +empty-pvec+ bents))))
 
  )
+
+
+;;:cljs.tools.reader.impl.inspect
+;;brings this in.  We already have a proxy
+;;for it as a lazyseq from sequences, and it
+;;extends to all known indexed common lisp types.
+;;we may bring it in formally though for completeness.
+;; (deftype IndexedSeq [arr i meta]
+;;   Object
+;;   (toString [coll]
+;;             (pr-str* coll))
+;;   (equiv [this other]
+;;          (-equiv this other))
+;;   (indexOf [coll x]
+;;            (-indexOf coll x 0))
+;;   (indexOf [coll x start]
+;;            (-indexOf coll x start))
+;;   (lastIndexOf [coll x]
+;;                (-lastIndexOf coll x (count coll)))
+;;   (lastIndexOf [coll x start]
+;;                (-lastIndexOf coll x start))
+
+;;   ICloneable
+;;   (-clone [_] (IndexedSeq. arr i meta))
+
+;;   ISeqable
+;;   (-seq [this]
+;;         (when (< i (alength arr))
+;;           this))
+
+;;   IMeta
+;;   (-meta [coll] meta)
+;;   IWithMeta
+;;   (-with-meta [coll new-meta]
+;;               (if (identical? new-meta meta)
+;;                   coll
+;;                   (IndexedSeq. arr i new-meta)))
+
+;;   ASeq
+;;   ISeq
+;;   (-first [_] (aget arr i))
+;;   (-rest [_] (if (< (inc i) (alength arr))
+;;                  (IndexedSeq. arr (inc i) nil)
+;;                  ()))
+
+;;   INext
+;;   (-next [_] (if (< (inc i) (alength arr))
+;;                  (IndexedSeq. arr (inc i) nil)
+;;                  nil))
+
+;;   IDrop
+;;   (-drop [coll n]
+;;          (if (pos? n)
+;;              (if (< (+ i n) (alength arr))
+;;                  (IndexedSeq. arr (+ i n) nil)
+;;                  nil)
+;;              coll))
+
+;;   ICounted
+;;   (-count [_]
+;;           (max 0 (- (alength arr) i)))
+
+;;   IIndexed
+;;   (-nth [coll n]
+;;         (let [i (+ n i)]
+;;           (if (and (<= 0 i) (< i (alength arr)))
+;;               (aget arr i)
+;;               (throw (js/Error. "Index out of bounds")))))
+;;   (-nth [coll n not-found]
+;;         (let [i (+ n i)]
+;;           (if (and (<= 0 i) (< i (alength arr)))
+;;               (aget arr i)
+;;               not-found)))
+
+;;   ISequential
+;;   IEquiv
+;;   (-equiv [coll other] (equiv-sequential coll other))
+
+;;   IIterable
+;;   (-iterator [coll]
+;;              (IndexedSeqIterator. arr i))
+
+;;   ICollection
+;;   (-conj [coll o] (cons o coll))
+
+;;   IEmptyableCollection
+;;   (-empty [coll] (.-EMPTY List))
+
+;;   IReduce
+;;   (-reduce [coll f]
+;;            (array-reduce arr f (aget arr i) (inc i)))
+;;   (-reduce [coll f start]
+;;            (array-reduce arr f start i))
+
+;;   IHash
+;;   (-hash [coll] (hash-ordered-coll coll))
+
+;;   IReversible
+;;   (-rseq [coll]
+;;          (let [c (-count coll)]
+;;            (if (pos? c)
+;;                (RSeq. coll (dec c) nil)))))
