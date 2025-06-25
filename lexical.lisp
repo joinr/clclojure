@@ -3,7 +3,8 @@
 (defpackage :clclojure.lexical
   (:use  :common-lisp  :clclojure.keywordfunc
    :common-utils)
-  (:export :unified-let*))
+  (:export :unified-let*)
+  (:local-nicknames (:mbind :metabang-bind)))
 (in-package :clclojure.lexical)
 
 ;;if the arg can be construed as a function,
@@ -141,24 +142,43 @@
                  )
        ,@body)))
 
+;;If we want to introduce lisp1 binding forms, we need to cover
+;;(with-slots (...)  body)
+;;(destructuring-bind (& locals) body)
+;;then we can call this unified-bind or something.
+
+;; (defmacro unified-with-slots (slots obj &rest body)
+;;   `(with-slots ,slots ,obj
+;;      (labels (,@ (functionize-slots bindings)
+;;                  )
+;;        ,@body)))
+
+;; (defmacro unified-dbind (binding obj &rest body)
+;;   `(destructuring-bind ,binding ,obj
+;;      (labels (,@(functionize-slots binding)
+;;                  )
+;;        ,@body)))
+
+
+
 ;;a simple test function to tie everything together.
-(defun test-my-scope ()
-  (unified-let* ((hello :hello)  ;;we create (or lookup cached) keyaccess funcallable objects
-                 (world :world)  ;;when we have literal keywords bound to symbols.
-                 (k 2) 
-                 (inc (lambda (x) (+ x 1)))
-                 (add (lambda (x y) (+ x y)))
-                 (tbl (unified-let* ((tbl (make-hash-table)))
-                                    (setf  (gethash :hello tbl) "World")
-                                    (setf  (gethash :world tbl) "Hello")
-                                    (setf  (gethash :k  tbl)    k)
-                                    tbl)))
-                (list (hello tbl)
-                      (world tbl)
-                      (add (inc 39) k)
-                      ;;(:k tbl) ;;doesn't work without some extra macro magic...
-                      (funcall (->keyaccess :k) tbl) ;;it will look like this behind the scenes.
-                      )))
+;; (defun test-my-scope ()
+;;   (unified-let* ((hello :hello)  ;;we create (or lookup cached) keyaccess funcallable objects
+;;                  (world :world)  ;;when we have literal keywords bound to symbols.
+;;                  (k 2) 
+;;                  (inc (lambda (x) (+ x 1)))
+;;                  (add (lambda (x y) (+ x y)))
+;;                  (tbl (unified-let* ((tbl (make-hash-table)))
+;;                                     (setf  (gethash :hello tbl) "World")
+;;                                     (setf  (gethash :world tbl) "Hello")
+;;                                     (setf  (gethash :k  tbl)    k)
+;;                                     tbl)))
+;;                 (list (hello tbl)
+;;                       (world tbl)
+;;                       (add (inc 39) k)
+;;                       ;;(:k tbl) ;;doesn't work without some extra macro magic...
+;;                       (funcall (->keyaccess :k) tbl) ;;it will look like this behind the scenes.
+;;                       )))
 
 ;;LEXICAL> (test-my-scope)
 ;;("World" "Hello" 42 2)  ;;works!

@@ -18,18 +18,14 @@
    :zero? :when-let :assoc :dissoc :conj :disj :merge :with-meta :meta :subs :declare-clj :count
    :partial :map :take :str :interpose :concat := :cond :defmulti :defmethod-clj :apply)
   (:shadow :truncate :inspect)
-  (:local-nicknames (:base :clclojure.base)
-                    (:re   :cl-ppcre)
-                    (:u    :cljs.tools.reader.impl.utils))
+  (:local-nicknames (:base :clclojure.base))
   (:export :inspect))
 (in-package :cljs.tools.reader.impl.inspect)
 (named-readtables:in-readtable clj-re:readtable)
 
-(setf clclojure.base::*clj-verbose* t) ;;noisy warnings for now.
+;(setf clclojure.base::*clj-verbose* t) ;;noisy warnings for now.
 
 (declare-clj inspect*)
-
-(defn echo (res) (print res) res)
 
 (defn inspect*-col (truncate col start end)
   (let (n (count col)
