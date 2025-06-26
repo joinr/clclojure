@@ -182,3 +182,128 @@
 
 ;;LEXICAL> (test-my-scope)
 ;;("World" "Hello" 42 2)  ;;works!
+
+
+;;example of working with funcallable
+;;classes.
+
+;; (defclass fn-class ()
+;;   ((data :initarg :data))
+;;   (:metaclass sb-mop:funcallable-standard-class))
+
+;; (defmethod initialize-instance :after ((obj fn-class) &rest initargs)
+;;   (declare (ignore initargs))
+;;   (sb-mop:set-funcallable-instance-function obj
+;;     (lambda (&rest args)
+;;       (apply (slot-value obj 'data) args))))
+
+;; (defparameter *blah* (make-instance 'fn-class :data (lambda (x) (+ x 99))))
+
+;;we can play games with macrolet here and scrape the results...
+;;let's let it replace all of our calls in the function position
+;;and turn them into funcalls.
+;;This is another way to lisp1 stuff in the lexical environment.
+;;We introduce some asspain though, since e.g. in let* we can
+;;have later binds depend on earlier ones.  That means leveraging
+;;earlier binds as functions.  We currently have that problem with
+;;the legacy scheme though (e.g. unified-let* will mess up since we
+;;don't unify a binding at a time and instead go in bulk.
+
+;;e.g., this code currently fails: despite being valid:
+
+;; (unified-let*
+;;  ((f (lambda (x) (+ x 2)))
+;;   (g (lambda (x) (f x)))
+;;   (k (g 3)))
+;;  (f k))
+
+;;as it expands to
+;; (LET* ((F (LAMBDA (X) (+ X 2))) (G (LAMBDA (X) (F X))) (K (G 3)))
+;;   (LABELS ((#:|dummyfn1809| ()
+;;              (LIST :THIS-PREVENTS-WARNINGS-NOTHING-ELSE))
+;;            (F (&REST ARGS)
+;;              (APPLY F ARGS))
+;;            (G (&REST ARGS)
+;;              (APPLY G ARGS))
+;;            (K (&REST ARGS)
+;;              (APPLY K ARGS)))
+;;     (F H)))
+;;and we have a failure to resolve (g 3) inside of K.
+
+;;if we nest our unified bindings, we're okay though:
+
+;; (unified-let*
+;;  ((f (lambda (x) (+ x 2)))
+;;   (g (lambda (x) (f x)))
+;;   (k (g 3)))
+;;  (f k))
+
+(defmacro replace-funcalls (vars &rest body)
+  (let* ((args (gensym "args"))
+         (impls (mapcar (lambda (var)
+                        `(,var (,'&rest ,args)
+                               `(funcall ,',var ,@,args)))
+                       vars)))
+    `(macrolet (,@impls)
+       ,@body)))
+
+;;this is probably a more elegant approach going forward.
+;;we might have collisions with other macrolets though....
+;;like how does this work with with-slots and friends...
+(defmacro unified-let*2 (bindings &rest body)
+  (let ((vars (mapcar #'first bindings)))
+    `(replace-funcalls ,vars
+      (let* ,bindings
+        ,@body))))
+
+;;this works fine now.
+;; (unified-let*2
+;;  ((f (lambda (x) (+ x 2)))
+;;   (g (lambda (x) (f x)))
+;;   (k (g 3)))
+;;  (f k))
+
+
+;; (defstruct dummy (g))
+
+;; (pprint
+;;  (sb-cltl2:macroexpand-all
+;;   '(unified-let*2
+;;      ((f (lambda (x) (+ x 2)))
+;;       (g (lambda (x) (f x)))
+;;       (k (g 3))
+;;       (the-object (make-dummy :g 99)))
+;;     (with-slots (g) the-object
+;;       (f k)))))
+
+;;we can more simply introduce metabang this way.
+;;we just need to scrape any LHS binding forms from
+;;our let, flatten those, then feed them to
+;;replace-funcalls...
+
+
+;;this is probably a more elegant approach going forward.
+;;we might have collisions with other macrolets though....
+;;like how does this work with with-slots and friends...
+;;I think we lose out on mutual recursion here maybe
+;;since we aren't doing explicit labels functions.
+;;do we care?
+(defmacro unified-let*3 (bindings &rest body)
+  (let ((vars (->> (mapcar #'first bindings)
+                   (concatenate 'list) 
+                   (flatten)
+                   (remove-duplicates)
+                   (filter (lambda (x) (not (keywordp x)))))))
+    `(replace-funcalls ,vars
+        (mbind:bind ,bindings
+          ,@body))))
+
+
+;; (pprint (macroexpand-1 '(unified-let*3 (((x y) '(1 2))
+;;                                         ((f g) (list (lambda (x) (+ x 2)) (lambda (y) (* y 4))))
+;;                                         (h (lambda (n) (f (g n))))
+;;                                         (k 10)
+;;                                         (the-object (make-dummy :g 10))
+;;                                         ((:slots g) the-object))
+;;                          (list x y (+  (h k) g)))))
+;; ;;(1 2 52)

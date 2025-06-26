@@ -1035,8 +1035,8 @@
 ;;inline function bodies to ensure outer fn name can be called via labels.
 (defmacro named-fn* (name &rest args-bodies)
   (if (= (length args-bodies) 1)
-      (let ((args-body (first args-bodies)))
- 	`(named-fn ,name ,(first args-body) ,(second args-body))) ;regular named-fn, no dispatch.
+      (let ((args-body (first args-bodies))
+            `(named-fn ,name ,(first args-body) ,(second args-body)))) ;regular named-fn, no dispatch.
       (destructuring-bind (cases var) (parse-dispatch-specs args-bodies)
         (let* ((args (gensym "args"))
                (n-bodies (mapcar (lambda (xs)
@@ -1139,56 +1139,3 @@
                (,some-exception (,se)
                  (declare (ignorable ,se))
                  (progn ,@recover))))))))
-#-sbcl
-(defmacro try (&rest body)
-  (destructuring-bind (try-body catch-clause* finally-clause?) (parse-try body)
-    (assert (and try-body (or catch-clause* finally-clause?)) ()
-            "try must have a non-empty body, and one or both of a catch and finally clause")
-    (let ((expr* `(progn ,@try-body)))
-      (destructuring-bind (some-exception se recover) (rest  catch-clause*)
-        (if finally-clause?
-            (destructuring-bind (f fbody) finally-clause?
-              (declare (ignore f))
-              (let ((finally (gensym "finally"))
-                    (res     (gensym "res"))
-                    (err     (gensym "err")))
-                `(let ((,res))
-                   (restart-case
-                       (handler-case
-                           ,expr*
-                         (,some-exception (,se) (progn  (try ,recover
-                                                             (catch t ,err (setf ,res ,err)))
-                                                        (invoke-restart (quote ,finally)))))
-                     (,finally ()
-                       (if ,res
-                           (progn ,fbody
-                                  (error ,res))
-                           ,fbody))))))
-            `(handler-case
-                 ,expr*
-               (,some-exception (,se) ,recover)))))))
-#-sbcl
-(defmacro try (expr* catch-clause* &rest finally-clause?)
-  (destructuring-bind (some-exception se recover) (rest  catch-clause*)
-    (if finally-clause?
-        (destructuring-bind ((f fbody)) finally-clause?
-          (declare (ignore f))
-          (let ((finally (gensym "finally"))
-                (res     (gensym "res"))
-                (err     (gensym "err")))
-            `(let ((,res))
-               (restart-case
-                   (handler-case
-                       ,expr*
-                     (,some-exception (,se) (progn  (try ,recover
-                                                         (catch t ,err (setf ,res ,err)))
-                                                    (invoke-restart (quote ,finally)))))
-                 (,finally ()
-                   (if ,res
-                       (progn ,fbody
-                              (error ,res))
-                       ,fbody))))))
-        `(handler-case
-             ,expr*
-           (,some-exception (,se) ,recover)))))
-
