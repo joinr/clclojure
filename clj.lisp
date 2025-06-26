@@ -51,12 +51,16 @@
 ;;or non-vector but "flat" list (ala clojure's let)
 ;;as a clojure compatible let definition...
 ;;we don't have destructuring yet.
+;; (defmacro let (bindings &body body)
+;;   (if   ;(eq (common-lisp:first bindings) 'persistent-vector)
+;;    (or  (vector? bindings)
+;;         (not (common-utils::nested-list?  bindings)))
+;;    `(unified-let* (,@(partition! 2 (as-list  bindings))) ,@body)
+;;    `(cl:let  ,bindings ,@body)))
+
+;;we're destructuring in let now, so no more interop with cl:let.
 (defmacro let (bindings &body body)
-  (if   ;(eq (common-lisp:first bindings) 'persistent-vector)
-   (or  (vector? bindings)
-        (not (common-utils::nested-list?  bindings)))
-   `(unified-let* (,@(partition! 2 (as-list  bindings))) ,@body)
-   `(cl:let  ,bindings ,@body)))
+  `(unified-let* (,@(partition! 2 (as-list  bindings))) ,@body))
 
 ;;hacky way to accomodate both forms...
 ;;we know we're in clojure if the args are vector
@@ -444,6 +448,40 @@
   ;;possibly empty arg lists).
   (defun actual (x) (and (not (null x)) (symbolp x))) 
 
+  ;;we can implement destructuring now by leveraging metabang-bind.
+  ;;our test for multiple bodies is different now, since we can
+  ;;have a nested list for a single arg version, since the args
+  ;;can be destructuring.  So we detect if we have a list of 2-entry
+  ;;lists as our multiple-body criteria.
+  ;;Then, for each of the arglists, we see if they are normal lambda
+  ;;lists, or destructing forms.  We consolidate the destructuring
+  ;;forms into discrete args, then emit binding forms for them.
+
+  ;;either we have a 2 element list, or
+  ;;we have a nested list of 2 elements.
+  (defun function-bodies (name specs)
+    (common-lisp:cond
+      ((= (length specs) 2) ;;possibly ambiguous case.
+       (cl:let ((l (cl:first specs))
+                (r (cl:second specs)))
+         (if (and (nested-list? l)
+                  (nested-list? r)
+                  (not (=  (length (first l))
+                           (length (first r)))))
+             (common-lisp:let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
+               (fndef->sexp bodies))
+             (fndef->sexp (fn* name specs)))))
+      ((every (lambda (xs) (common-lisp:= (length xs) 2)) specs)
+       (common-lisp:let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
+         (fndef->sexp bodies)))))
+  
+  ;;either (arg1 arg2) body | [arg1 arg2] body |
+  ;;( ((arg1 arg2) body1)
+  ;;  ((arg1 arg2 arg3) body2))
+  ;;or
+  ;; (([arg1 arg2] body)
+  ;;  ([arg1 arg2 arg3] body))
+  
   (defmacro fn (&rest specs)
     (let* ((hd    (common-lisp:first specs))
            (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))

@@ -136,11 +136,13 @@
 ;;should be covered by a funcallable object...  We unify the
 ;;symbol-value and symbol-function namespaces in the lexical context,
 ;;detecting the need to generate keyword accessors.
-(defmacro unified-let* (bindings &rest body)
-  `(let* (,@bindings)
-     (labels (,@ (functionize-bindings bindings)
-                 )
-       ,@body)))
+
+;;DEPRECATED - original implementation.
+;; (defmacro unified-let* (bindings &rest body)
+;;   `(let* (,@bindings)
+;;      (labels (,@ (functionize-bindings bindings)
+;;                  )
+;;        ,@body)))
 
 ;;If we want to introduce lisp1 binding forms, we need to cover
 ;;(with-slots (...)  body)
@@ -250,11 +252,11 @@
 ;;this is probably a more elegant approach going forward.
 ;;we might have collisions with other macrolets though....
 ;;like how does this work with with-slots and friends...
-(defmacro unified-let*2 (bindings &rest body)
-  (let ((vars (mapcar #'first bindings)))
-    `(replace-funcalls ,vars
-      (let* ,bindings
-        ,@body))))
+;; (defmacro unified-let*2 (bindings &rest body)
+;;   (let ((vars (mapcar #'first bindings)))
+;;     `(replace-funcalls ,vars
+;;       (let* ,bindings
+;;         ,@body))))
 
 ;;this works fine now.
 ;; (unified-let*2
@@ -288,12 +290,13 @@
 ;;I think we lose out on mutual recursion here maybe
 ;;since we aren't doing explicit labels functions.
 ;;do we care?
-(defmacro unified-let*3 (bindings &rest body)
+(defmacro unified-let* (bindings &rest body)
   (let ((vars (->> (mapcar #'first bindings)
                    (concatenate 'list) 
                    (flatten)
                    (remove-duplicates)
-                   (filter (lambda (x) (not (keywordp x)))))))
+                   (filter (lambda (x) (and  (not (keywordp x))
+                                             (not (seql x 'QUOTE))))))))
     `(replace-funcalls ,vars
         (mbind:bind ,bindings
           ,@body))))
