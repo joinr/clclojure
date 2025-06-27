@@ -301,7 +301,6 @@
         (mbind:bind ,bindings
           ,@body))))
 
-
 ;; (pprint (macroexpand-1 '(unified-let*3 (((x y) '(1 2))
 ;;                                         ((f g) (list (lambda (x) (+ x 2)) (lambda (y) (* y 4))))
 ;;                                         (h (lambda (n) (f (g n))))
@@ -310,3 +309,18 @@
 ;;                                         ((:slots g) the-object))
 ;;                          (list x y (+  (h k) g)))))
 ;; ;;(1 2 52)
+
+;;defines a lambda form with a unified value/function namespace, e.g. lisp1
+;;where the args can be used in function position without problems.
+(defmacro unified-lambda (args &rest body)
+  (let ((vars (common-utils:lambda-list->args '(x y z &optional b &rest xs &key d e f) t)))
+    `(lambda ,args
+       (replace-funcalls ,vars
+                         ,@body))))
+
+;;one limitation of the replace-funcalls approach is that we don't affect
+;;passing values to other things that may expect functions.
+;;like if we want to interop with mapcar, the function argument isn't defined.
+;;where with labels it probably is.....hmmm.
+;;lambdas are fine to pass around.  unclear about other cases...so far, no
+;;big deal. we can always revert to the labels approach if necessary.

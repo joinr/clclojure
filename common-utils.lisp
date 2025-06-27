@@ -2,6 +2,7 @@
 ;;of implementing clclojure.
 (defpackage :common-utils
   (:use :common-lisp :cl-murmurhash)
+  (:local-nicknames (:mbind :metabang-bind))
   (:export  
    :comment
    :symbol?
@@ -64,6 +65,9 @@
    :nested-list?
    :vector-expr
    :with-suppressed
+   :->hash-table
+   :lambda-list->args
+   :normal-lambda?
    ))
 (in-package :common-utils)
 
@@ -199,10 +203,9 @@
 ;;this is a hack, will be replaced later.   Thanks common lisp cookbook!
 ;;I hate loop!
 (defun hash-table->entries (tbl)
-  (nreverse 
-   (loop for key being the hash-keys of tbl
-         using (hash-value value)
-         collect (list key value))))
+  (loop for key being the hash-keys of tbl
+        using (hash-value value)
+        collect (list key value)))
 
 (defun hash-table->keys (tbl)
   (loop for key being the hash-keys of tbl
@@ -213,6 +216,17 @@
   (loop for key being the hash-keys of tbl
         using (hash-value value)
         collect value))
+
+(defun ->hash-table (&rest args)
+  (let ((n   (length args))
+        (res (make-hash-table)))
+    ;;this example came from AI suggestion on google, hah.  wonder where it ripped
+    ;;from?  and of course the original fails since it assumes b is non-null lol.
+    ;(loop :for (a b) :on args :by #'cddr :while b :do (setf (gethash a res)  b))
+    (loop :for (a b) :on args :by #'cddr :while (> n 0) :do
+          (progn  (setf (gethash a res)  b)
+                  (decf n 2)))
+    res))
 
 ;;https://stackoverflow.com/questions/26045442/copy-hash-table-in-lisp
 ;;josh taylor's answer
@@ -1139,3 +1153,49 @@
                (,some-exception (,se)
                  (declare (ignorable ,se))
                  (progn ,@recover))))))))
+
+(defun normal-lambda? (the-list)
+  (let ((res 
+          (try
+           (alexandria:parse-ordinary-lambda-list the-list)
+           (catch error e :invalid))))
+    (not (eq res :invalid))))
+
+(defun parse-lambda-list (the-list)
+  (let ((res 
+          (try
+           (multiple-value-bind (params optional rest-param keys other-keys? aux-params key?)
+               (alexandria:parse-ordinary-lambda-list the-list)
+             (->hash-table :params params
+                           :optional optional
+                           :rest-param rest-param
+                           :keys keys
+                           :other-keys? other-keys?
+                           :aux-params aux-params
+                           :key? key?))
+           (catch error e (values nil nil)))))
+    res))
+
+(mbind::defbinding-form
+    (:keys
+     :docstring
+     "Allows binding of multiple keys to a hash-table, for now.  We will
+      probably override this later in clj, or expand it to be generic.")
+  `(let (,@(loop for var in METABANG.BIND::VARIABLES collect
+                   (let* ((k (make-keyword var))
+                          (accessor `(gethash ,k ,values)))
+                     `(,var ,accessor))))
+       ,values))
+
+;;this is mildly circuitous since we could just uses values and bind
+;;with :values, but it's exercising our new keys binding and letting us
+;;pass around maps instead of implicit values.
+(defun lambda-list->args (the-list &optional ignore-rest?)
+  (mbind:bind (((:keys params optional rest-param keys aux-params)
+                (parse-lambda-list the-list)))
+    (->> (concatenate 'list params
+                     (mapcar #'first optional)
+                     (list (when (not ignore-rest?) rest-param))
+                     (mapcar (lambda (x) (-> x first second)) keys)
+                     (mapcar (lambda (x) (if (symbolp x) x (first x))) aux-params))
+          (remove nil ))))

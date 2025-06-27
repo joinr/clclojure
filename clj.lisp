@@ -7,7 +7,8 @@
            :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
            :some :merge) ;;forgot about shadowing-import-from....
   (:shadowing-import-from :sequences :apply)
-  (:local-nicknames (:re :clj-re))
+  (:local-nicknames (:re :clj-re)
+                    (:mbind :metabang-bind))
   (:export :apply :def :defn :fn :meta :with-meta :str :symbol? :instance? :first :rest :second :next :char
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count
@@ -408,14 +409,14 @@
   (defmethod  fndef->sexp ((fd fn-def))
     (with-slots (args body (nm name)) fd
       (with-slots (lambda-list outer-let) (parse-args args)           
-        (let ((interior (if outer-let `(let* ,outer-let ,body)
+        (cl:let ((interior (if outer-let `(let* ,outer-let ,body)
                             body)))
           `(named-fn ,nm ,lambda-list ,interior)))))
 
   (defmethod fndef->sexp ((fd common-lisp:cons))
     (if (common-lisp:= (length fd) 1)  (fndef->sexp (common-lisp:first fd)) ;simple case
         ;;case with multiple function definitions.
-        (let ((name (fn-def-name (common-lisp:first fd))))
+        (cl:let ((name (fn-def-name (common-lisp:first fd))))
           `(common-utils:named-fn*
             ,name
             ,@(mapcar (lambda (body)
@@ -458,8 +459,23 @@
   ;;forms into discrete args, then emit binding forms for them.
 
   ;;either we have a 2 element list, or
-  ;;we have a nested list of 2 elements.
-  (defun function-bodies (name specs)
+  ;;we have a nested list of (args body), where
+  ;;count of args is distinct.
+
+  ;;If wee want to destructure
+  ;;(fn ((x y) z &rest (a b c (d e f) &rest more)))
+  ;;it is equivalent to
+  ;;(fn (xy z &rest restargs)
+  ;;  (let ((x y) xy
+  ;;        (a b c (d e f) &rest more) restargs)
+  ;; ....)
+  ;;so we can naively pick up destructuring forms
+  ;;by partitioning left and right of the baseline &
+  ;;then assigning forms.  If we admit general lambda lists
+  ;;from CL in this form, then that adds a slight burden.
+  ;;We can leverage metabang-bind's lambda-destructuring
+  ;;form.
+  (defun function-bodies (specs)
     (common-lisp:cond
       ((= (length specs) 2) ;;possibly ambiguous case.
        (cl:let ((l (cl:first specs))
@@ -468,20 +484,32 @@
                   (nested-list? r)
                   (not (=  (length (first l))
                            (length (first r)))))
-             (common-lisp:let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
-               (fndef->sexp bodies))
-             (fndef->sexp (fn* name specs)))))
+             2
+             1)))
       ((every (lambda (xs) (common-lisp:= (length xs) 2)) specs)
-       (common-lisp:let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
-         (fndef->sexp bodies)))))
+       (length specs))))
+
+  ;;we can leverage lambda-bind to build out or destructured fns...
+  ;;alexandria:parse-ordinary-lambda-list can tell us if this is
+  ;;a common lisp ll or if we're deviating.
+  ;;if it's a normal lambda-list, then we can parse fn binds
+  ;;as is.
+  ;;if it's a destructuring arg-body spec, then we can
+  ;;parse the form using lambda-bind's expansion.
+  (defun dbinding-spec (args body)
+    (if (common-utils:normal-lambda? args)
+        (list args body) ;;unaltered
+        (mbind:bind (((_ newargs binding) (macroexpand-1 `(mbind:lambda-bind ,args ,body))))
+          (list newargs `(clclojure.lexical:unified-let* ,@(rest binding)))))) ;;destructured
   
   ;;either (arg1 arg2) body | [arg1 arg2] body |
   ;;( ((arg1 arg2) body1)
   ;;  ((arg1 arg2 arg3) body2))
-  ;;or
+  ;;or if we have vector literals
   ;; (([arg1 arg2] body)
   ;;  ([arg1 arg2 arg3] body))
-  
+
+  #-sbcl
   (defmacro fn (&rest specs)
     (let* ((hd    (common-lisp:first specs))
            (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
@@ -490,10 +518,27 @@
                            (not (nested-list? (common-lisp:first specs)))) 
                       (fndef->sexp (fn* name specs))
                       ;;TODO get rid of this eval....
-                      (let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
+                      (cl:let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
                         (fndef->sexp bodies)))))
       ;;`(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))
-      `(,@res))))
+      `(,@res)))
+
+  ;;very close to destructuring fn forms + unified forms.
+  ;;we need to mode common-utils:named-fn and named-fn* to get the
+  ;;behavior we want wired in.  Right now, they are returning function
+  ;;object from a labels definition.  We may just return a unified
+  ;;lambda that invokes the labels function for us.
+  (defmacro fn (&rest specs)
+    (let* ((hd    (common-lisp:first specs))
+           (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
+           (specs (if (actual hd) (common-lisp:rest specs) specs))
+           (res   (cl:case (function-bodies specs)
+                    (1 (fndef->sexp (fn* name specs)))
+                    (otherwise 
+                     (cl:let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
+                       (fndef->sexp bodies))))))
+      `(,@res)))
+  )
 
 ;;def 
 ;;===
