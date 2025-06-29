@@ -73,6 +73,17 @@
 
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (mbind::defbinding-form
+      (:keys
+       :docstring
+       "Allows binding of multiple keys to a hash-table, for now.  We will
+      probably override this later in clj, or expand it to be generic.")
+    `(let (,@(loop for var in METABANG.BIND::VARIABLES collect
+                   (let* ((k (make-keyword var))
+                          (accessor `(gethash ,k ,values)))
+                     `(,var ,accessor))))
+       ,values))
+  
   (defmacro with-suppressed (&rest body)
     #+:sbcl
     `(handler-bind ((style-warning #'muffle-warning)
@@ -1049,8 +1060,8 @@
 ;;inline function bodies to ensure outer fn name can be called via labels.
 (defmacro named-fn* (name &rest args-bodies)
   (if (= (length args-bodies) 1)
-      (let ((args-body (first args-bodies))
-            `(named-fn ,name ,(first args-body) ,(second args-body)))) ;regular named-fn, no dispatch.
+      (let ((args-body (first args-bodies)))
+        `(named-fn ,name ,(first args-body) ,(second args-body))) ;regular named-fn, no dispatch.
       (destructuring-bind (cases var) (parse-dispatch-specs args-bodies)
         (let* ((args (gensym "args"))
                (n-bodies (mapcar (lambda (xs)
@@ -1104,98 +1115,99 @@
 ;; catch-clause => (catch classname name expr*)
 ;; finally-clause => (finally expr*)
 
-(defparameter *default-catch*
-  '(catch t e
-    (throw t
-      (error 'common-utils:exception-info
-             :cause e
-             :data    "unhandled exception"
-             :message "passed to finally clause"))))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+           (defparameter *default-catch*
+             '(catch t e
+               (throw t
+                 (error 'common-utils:exception-info
+                        :cause e
+                        :data    "unhandled exception"
+                        :message "passed to finally clause"))))
+           
 
-(defun take-while (pred list)
-  (loop for x in list
-        while (funcall pred x)
-        collect x))
+           (defun take-while (pred list)
+             (loop for x in list
+                   while (funcall pred x)
+                   collect x))
+           
 
-(defun parse-try (expr)
-  (let* ((try-body (->> expr
-                       (take-while
-                        (lambda (x)
-                          (or (not (listp x))
-                              (not (or (seql (first x) 'finally)
-                                       (seql (first x) 'catch)))))
-                        )))
-         (catch-body (or  (->> expr (filter (lambda (x) (and (listp x) (seql (first x) 'catch)))) first)
-                         *default-catch*))
-         (finally-body (->> expr (filter (lambda (x) (and (listp x) (seql (first x) 'finally)))) first)))
-    (list try-body catch-body finally-body)))
+           (defun parse-try (expr)
+             (let* ((try-body (->> expr
+                                (take-while
+                                 (lambda (x)
+                                   (or (not (listp x))
+                                       (not (or (seql (first x) 'finally)
+                                                (seql (first x) 'catch)))))
+                                 )))
+                    (catch-body (or  (->> expr (filter (lambda (x) (and (listp x) (seql (first x) 'catch)))) first)
+                                     *default-catch*))
+                    (finally-body (->> expr (filter (lambda (x) (and (listp x) (seql (first x) 'finally)))) first)))
+               (list try-body catch-body finally-body)))
 
-;; Catches and handles Java exceptions.
-(defmacro try (&rest body)
-  (destructuring-bind (try-body catch-clause* finally-clause?) (parse-try body)
-    (assert (and try-body (or catch-clause* finally-clause?)) ()
-            "try must have a non-empty body, and one or both of a catch and finally clause")
-    (let ((expr* `(progn ,@try-body)))
-      (destructuring-bind (some-exception se &rest recover) (rest  catch-clause*)
-        (if finally-clause?
-            (destructuring-bind (f &rest fbody) finally-clause?
-              (declare (ignore f))
-              `(unwind-protect
-                    (handler-case
-                        ,expr*
-                      (,some-exception (,se)
-                        (declare (ignorable ,se))
-                        (progn ,@recover)))
-                 (progn ,@fbody)
-                 ))
-            `(handler-case
-                 ,expr*
-               (,some-exception (,se)
-                 (declare (ignorable ,se))
-                 (progn ,@recover))))))))
+           ;; Catches and handles Java exceptions.
+           (defmacro try (&rest body)
+             (destructuring-bind (try-body catch-clause* finally-clause?) (parse-try body)
+               (assert (and try-body (or catch-clause* finally-clause?)) ()
+                       "try must have a non-empty body, and one or both of a catch and finally clause")
+               (let ((expr* `(progn ,@try-body)))
+                 (destructuring-bind (some-exception se &rest recover) (rest  catch-clause*)
+                   (if finally-clause?
+                       (destructuring-bind (f &rest fbody) finally-clause?
+                         (declare (ignore f))
+                         `(unwind-protect
+                               (handler-case
+                                   ,expr*
+                                 (,some-exception (,se)
+                                   (declare (ignorable ,se))
+                                   (progn ,@recover)))
+                            (progn ,@fbody)
+                            ))
+                       `(handler-case
+                            ,expr*
+                          (,some-exception (,se)
+                            (declare (ignorable ,se))
+                            (progn ,@recover))))))))
 
-(defun normal-lambda? (the-list)
-  (let ((res 
-          (try
-           (alexandria:parse-ordinary-lambda-list the-list)
-           (catch error e :invalid))))
-    (not (eq res :invalid))))
+           (defun normal-lambda? (the-list)
+             (let ((res 
+                     (try
+                      (alexandria:parse-ordinary-lambda-list the-list)
+                      (catch error e :invalid))))
+               (not (eq res :invalid))))
 
-(defun parse-lambda-list (the-list)
-  (let ((res 
-          (try
-           (multiple-value-bind (params optional rest-param keys other-keys? aux-params key?)
-               (alexandria:parse-ordinary-lambda-list the-list)
-             (->hash-table :params params
-                           :optional optional
-                           :rest-param rest-param
-                           :keys keys
-                           :other-keys? other-keys?
-                           :aux-params aux-params
-                           :key? key?))
-           (catch error e (values nil nil)))))
-    res))
+           (defun parse-lambda-list (the-list)
+             (let ((res 
+                     (try
+                      (multiple-value-bind (params optional rest-param keys other-keys? aux-params key?)
+                          (alexandria:parse-ordinary-lambda-list the-list)
+                        (->hash-table :params params
+                                      :optional optional
+                                      :rest-param rest-param
+                                      :keys keys
+                                      :other-keys? other-keys?
+                                      :aux-params aux-params
+                                      :key? key?))
+                      (catch error e (values nil nil)))))
+               res))
 
-(mbind::defbinding-form
-    (:keys
-     :docstring
-     "Allows binding of multiple keys to a hash-table, for now.  We will
-      probably override this later in clj, or expand it to be generic.")
-  `(let (,@(loop for var in METABANG.BIND::VARIABLES collect
-                   (let* ((k (make-keyword var))
-                          (accessor `(gethash ,k ,values)))
-                     `(,var ,accessor))))
-       ,values))
+           ;;this is mildly circuitous since we could just uses values and bind
+           ;;with :values, but it's exercising our new keys binding and letting us
+           ;;pass around maps instead of implicit values.
+           (defun lambda-list->args (the-list &optional ignore-rest?)
+             (mbind:bind (((:keys params optional rest-param keys aux-params)
+                           (parse-lambda-list the-list)))
+               (->> (concatenate 'list params
+                                 (mapcar #'first optional)
+                                 (list (when (not ignore-rest?) rest-param))
+                                 (mapcar (lambda (x) (-> x first second)) keys)
+                                 (mapcar (lambda (x) (if (symbolp x) x (first x))) aux-params))
+                 (remove nil )))))
 
-;;this is mildly circuitous since we could just uses values and bind
-;;with :values, but it's exercising our new keys binding and letting us
-;;pass around maps instead of implicit values.
-(defun lambda-list->args (the-list &optional ignore-rest?)
-  (mbind:bind (((:keys params optional rest-param keys aux-params)
-                (parse-lambda-list the-list)))
-    (->> (concatenate 'list params
-                     (mapcar #'first optional)
-                     (list (when (not ignore-rest?) rest-param))
-                     (mapcar (lambda (x) (-> x first second)) keys)
-                     (mapcar (lambda (x) (if (symbolp x) x (first x))) aux-params))
-          (remove nil ))))
+(defun macroexpand-n (n expr &optional (print?))
+  (labels ((aux (n acc)
+             (if (> n 0)
+                 (let ((nxt (macroexpand-1 acc)))
+                   (if print? (pprint acc))
+                   (aux (1- n) nxt))
+                 acc)))
+     (aux n expr)))

@@ -59,10 +59,6 @@
 ;;    `(unified-let* (,@(partition! 2 (as-list  bindings))) ,@body)
 ;;    `(cl:let  ,bindings ,@body)))
 
-;;we're destructuring in let now, so no more interop with cl:let.
-(defmacro let (bindings &body body)
-  `(unified-let* (,@(partition! 2 (as-list  bindings))) ,@body))
-
 ;;hacky way to accomodate both forms...
 ;;we know we're in clojure if the args are vector
 ;;we should allow deftype to implement generic functions directly too...
@@ -80,10 +76,14 @@
 ;;Or does that cut into dynamicity?
 
 (defmacro reify (&rest implementations)
-  (let ((classname (gentemp "REIFY"))
+  (cl:let ((classname (gentemp "REIFY"))
         (ctor (gensym "CONSTRUCTOR")))
     `(let ((,ctor (clojure-deftype ,classname ,'() ,@implementations)))
        (funcall ,ctor))))
+
+;;we're destructuring in let now, so no more interop with cl:let.
+(defmacro let (bindings &body body)
+  `(unified-let* (,@(partition! 2 (as-list  bindings))) ,@body))
 
 ;;we want protocols early.
 ;;need some bootstrapping stuff.
@@ -477,13 +477,13 @@
   ;;form.
   (defun function-bodies (specs)
     (common-lisp:cond
-      ((= (length specs) 2) ;;possibly ambiguous case.
+      ((cl:= (length specs) 2) ;;possibly ambiguous case.
        (cl:let ((l (cl:first specs))
                 (r (cl:second specs)))
          (if (and (nested-list? l)
                   (nested-list? r)
-                  (not (=  (length (first l))
-                           (length (first r)))))
+                  (not (cl:=  (length (cl:first l))
+                              (length (cl:first r)))))
              2
              1)))
       ((every (lambda (xs) (common-lisp:= (length xs) 2)) specs)
@@ -501,6 +501,45 @@
         (list args body) ;;unaltered
         (mbind:bind (((_ newargs binding) (macroexpand-1 `(mbind:lambda-bind ,args ,body))))
           (list newargs `(clclojure.lexical:unified-let* ,@(rest binding)))))) ;;destructured
+
+  ;;if we have a binding form a, if it has to be destructured, we get a
+  ;;local form b, where the params of a are gensymed as the list PARENTS,
+  ;;the bindings from a are bound to corresponding PARENT,
+  (defun arg-binds (params) ;;return a list of (old new) args.
+    (cl:let* ((parents  (->  (cl:reduce (lambda (acc x)
+                                          (if (cl:atom x)
+                                              (cl:cons (list  x x) acc)
+                                              (cl:cons (list  (gensym "arg") x) acc)))
+                                        params :initial-value '())
+                          (nreverse)))
+              (compound (->> parents
+                          (mapcar (lambda (x)
+                                    (list (second x) (first x))))
+                          (filter #'identity))))
+      (->hash-table :mapping  parents
+                    :parents  (mapcar #'first parents)
+                    :compound compound)))
+
+  (defun dbind-fn (args body)
+    (mbind:bind (((:keys parents compound) (arg-binds args)))
+      (if (null compound)
+          (list args body)
+          `(,parents (clclojure.lexical:unified-let* (,@compound) ,body)))))
+  
+  ;;so clojure simplifies the dbinding process e.g. with loop/recur,
+  ;; (loop ((x y) '(1 2) acc 0)
+  ;;       body)
+  ;; ;;becomes
+  ;; (let (g14 '(1 2)
+  ;;       (x y) g14
+  ;;       acc 0)
+  ;;   (loop* (g14 g14
+  ;;           acc acc)
+  ;;     (let ((x y) g14
+  ;;           acc acc)
+  ;;       body)))
+  ;;so with-recur would pick this up as well,
+  ;;same with function bindings
   
   ;;either (arg1 arg2) body | [arg1 arg2] body |
   ;;( ((arg1 arg2) body1)
@@ -528,12 +567,19 @@
   ;;behavior we want wired in.  Right now, they are returning function
   ;;object from a labels definition.  We may just return a unified
   ;;lambda that invokes the labels function for us.
+  #+sbcl
   (defmacro fn (&rest specs)
     (let* ((hd    (common-lisp:first specs))
            (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
            (specs (if (actual hd) (common-lisp:rest specs) specs))
            (res   (cl:case (function-bodies specs)
-                    (1 (fndef->sexp (fn* name specs)))
+                    (1 #-sbcl(fndef->sexp (fn* name specs #-sbcl(cl:apply #'dbind-fn specs)))
+                     #+sbcl
+                       (cl:let* ((new-spec (apply #'dbind-fn specs))
+                                 (new-form 
+                                   `(common-utils:named-fn ,name ,(cl:first new-spec) ,(cl:second new-spec))))
+                         (pprint new-form)
+                         new-form))
                     (otherwise 
                      (cl:let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
                        (fndef->sexp bodies))))))
@@ -1320,9 +1366,9 @@
   
   (defn hash-map (& xs)
     (if (null xs)
-        clclojure.cowmap:+empty-cowmap+)
-    (sequences:apply #'persistent-map (seq xs))
-    )
+        clclojure.cowmap:+empty-cowmap+
+        (sequences:apply #'persistent-map (seq xs))))
+  
   (defn identical? (l r)
     (common-lisp:eq l r))
 
