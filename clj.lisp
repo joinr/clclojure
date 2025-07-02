@@ -83,7 +83,7 @@
 
 ;;we're destructuring in let now, so no more interop with cl:let.
 (defmacro let (bindings &body body)
-  `(unified-let* (,@(partition! 2 (as-list  bindings))) ,@body))
+  `(clclojure.lexical::unified-let* (,@(partition! 2 (as-list  bindings))) ,@body))
 
 ;;we want protocols early.
 ;;need some bootstrapping stuff.
@@ -514,17 +514,24 @@
                           (nreverse)))
               (compound (->> parents
                           (mapcar (lambda (x)
-                                    (list (second x) (first x))))
-                          (filter #'identity))))
+                                    (list (cl:second x) (cl:first x))))
+                          (common-utils:filter (lambda (xy)
+                                                 (not (char= (cl:char (symbol-name (cl:first xy)) 0)
+                                                             #\&)
+                                                      #-sbcl
+                                                      (seql (cl:first xy) '&))))
+                          )))
       (->hash-table :mapping  parents
-                    :parents  (mapcar #'first parents)
+                    :parents  (mapcar #'cl:first parents)
                     :compound compound)))
-
+  
+  ;;helper for destructuring binding fn forms.
+  ;;we need these for other bindings like let/for/loop and friends.
   (defun dbind-fn (args body)
     (mbind:bind (((:keys parents compound) (arg-binds args)))
       (if (null compound)
           (list args body)
-          `(,parents (clclojure.lexical:unified-let* (,@compound) ,body)))))
+          `(,parents (clclojure.lexical::unified-let* (,@compound) ,body)))))
   
   ;;so clojure simplifies the dbinding process e.g. with loop/recur,
   ;; (loop ((x y) '(1 2) acc 0)
@@ -567,24 +574,22 @@
   ;;behavior we want wired in.  Right now, they are returning function
   ;;object from a labels definition.  We may just return a unified
   ;;lambda that invokes the labels function for us.
-  #+sbcl
   (defmacro fn (&rest specs)
     (let* ((hd    (common-lisp:first specs))
            (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
            (specs (if (actual hd) (common-lisp:rest specs) specs))
            (res   (cl:case (function-bodies specs)
-                    (1 #-sbcl(fndef->sexp (fn* name specs #-sbcl(cl:apply #'dbind-fn specs)))
-                     #+sbcl
-                       (cl:let* ((new-spec (apply #'dbind-fn specs))
-                                 (new-form 
-                                   `(common-utils:named-fn ,name ,(cl:first new-spec) ,(cl:second new-spec))))
-                         (pprint new-form)
-                         new-form))
+                    (1 (cl:let
+                        ((spec  (if  (cl:= (length specs) 1)
+                                     (cl:first specs)
+                                     specs)))
+                         (fndef->sexp (fn* name (cl:apply #'dbind-fn (if (cl:atom (cl:first spec))
+                                                                         (list spec nil)
+                                                                         spec))))))
                     (otherwise 
                      (cl:let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
                        (fndef->sexp bodies))))))
-      `(,@res)))
-  )
+      `(,@res))))
 
 ;;def 
 ;;===
@@ -1584,7 +1589,7 @@
   (defn chunked-seq? (x) nil)
   (defn chunk-first  (coll)  (-chunked-first coll))
   (defn chunk-rest   (coll)  (-chunked-rest coll))
-  (defn chunk-buffer (coll))
+  (defn chunk-buffer (coll)  nil)
   (defn seq->list (xs) (sequences::seq->list (seq xs)))
 
   (defn cons (x coll)

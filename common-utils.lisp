@@ -769,16 +769,19 @@
 (defun recur-call? (expr)
   (and  (listp expr) (seql (first expr) 'recur)))
 
+(defmacro macro-identity (args)
+  `(quote ,args))
+
 ;;we got the general idea here...
 ;;what we probably want to do is have a recursive routine that searches the call
 ;;graph.  We need to retain the state of the parent.  If the parent was a non-tail,
 ;;we cannot have recursive tail calls.  That's the invariant.
 ;;Much cleaner re-implementation of the code-walker using a basic graph search.
 ;;Note: this should be a DFS implementation, so leaves ought to be processed
-;first.
+;;first.
 (defun categorize-tails (inexpr)
   (let ((testexpr (if (seql (first inexpr) 'with-recur)
-                      `(,'dummy ,@(rest inexpr))
+                      `(,'dummy ,@(rest inexpr)) ;(cons 'progn (rest inexpr))
                       (destructuring-bind (nm bindings body) inexpr
                         (declare (ignorable nm)) ;;lame.  maybe use libs.
                         `(,'dummy (nil ,@bindings) ,body)))))
