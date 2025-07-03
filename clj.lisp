@@ -5,7 +5,7 @@
   (:shadow :deftype :keyword :atom :realized? :deref :char :str
            :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
            :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
-           :some :merge) ;;forgot about shadowing-import-from....
+           :some :merge :pop) ;;forgot about shadowing-import-from....
   (:shadowing-import-from :sequences :apply)
   (:local-nicknames (:re :clj-re)
                     (:mbind :metabang-bind))
@@ -20,7 +20,7 @@
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
    :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj
-   :partial :list? :cond) )
+   :partial :list? :cond :peek :pop))
 (in-package clclojure.base)
 
 ;;convenience for clj-re
@@ -505,33 +505,57 @@
   ;;if we have a binding form a, if it has to be destructured, we get a
   ;;local form b, where the params of a are gensymed as the list PARENTS,
   ;;the bindings from a are bound to corresponding PARENT,
+  (defun rest? (x)
+    (and (symbolp x)
+         (char= (cl:char (symbol-name x) 0)
+                #\&)))
+  ;;we need to handle restargs like (& msg)
+  ;;so we scan to detect restargs, note it,
+  ;;then dbind-fn can splice in the rest arg when building
+  ;;the args list back up.
   (defun arg-binds (params) ;;return a list of (old new) args.
-    (cl:let* ((parents  (->  (cl:reduce (lambda (acc x)
-                                          (if (cl:atom x)
-                                              (cl:cons (list  x x) acc)
-                                              (cl:cons (list  (gensym "arg") x) acc)))
+    (cl:let* ((rest-arg  (->> params
+                             (common-utils:partition-offset! 2 1)
+                             (common-utils:filter (lambda (xy)
+                                                    (rest? (cl:first xy))))
+                             cl:first
+                             cl:second))
+              (parents  (->  (cl:reduce (lambda (acc x)
+                                          (if (rest? x)
+                                              acc
+                                              (if (cl:atom x)
+                                                  (cl:cons (list  x x) acc)
+                                                  (cl:cons (list  (gensym "arg") x) acc))))
                                         params :initial-value '())
-                          (nreverse)))
+                             (nreverse)))
               (compound (->> parents
                           (mapcar (lambda (x)
                                     (list (cl:second x) (cl:first x))))
                           (common-utils:filter (lambda (xy)
-                                                 (not (char= (cl:char (symbol-name (cl:first xy)) 0)
-                                                             #\&)
-                                                      #-sbcl
-                                                      (seql (cl:first xy) '&))))
+                                                 (or (not (symbolp xy))
+                                                     (not (char= (cl:char (symbol-name (cl:first xy)) 0)
+                                                                 #\&)
+                                                          #-sbcl
+                                                          (seql (cl:first xy) '&)))))
                           )))
-      (->hash-table :mapping  parents
+      (->hash-table :rest-arg rest-arg
+                    :mapping  parents
                     :parents  (mapcar #'cl:first parents)
                     :compound compound)))
   
   ;;helper for destructuring binding fn forms.
   ;;we need these for other bindings like let/for/loop and friends.
   (defun dbind-fn (args body)
-    (mbind:bind (((:keys parents compound) (arg-binds args)))
+    (mbind:bind (((:keys parents compound rest-arg) (arg-binds args)))
       (if (null compound)
           (list args body)
-          `(,parents (clclojure.lexical::unified-let* (,@compound) ,body)))))
+          (cl:let ((newargs (if rest-arg
+                             (mapcan (lambda (x) (if (seql x rest-arg)
+                                                     (list '&rest x)
+                                                     (list  x)))
+                                     parents)
+                             parents)))
+            `(,newargs (clclojure.lexical::unified-let* (,@compound) ,body))))))
   
   ;;so clojure simplifies the dbinding process e.g. with loop/recur,
   ;; (loop ((x y) '(1 2) acc 0)
@@ -996,7 +1020,13 @@
      ;; (-conj (coll itm) (cons itm nil))
      IStack
      (-peek (coll) (elt coll 0))
-     (-pop  (coll) (error 'not-implemented))
+     (-pop  (coll) (cl:subseq coll 1))
+     IIndexed
+     (-nth  (coll n) (elt coll n))
+     (-nth  (coll n not-found)
+            (if (<= n (cl:length coll))
+                (elt coll n)
+                not-found))
      ISeqable
      (-seq (coll)
            (if (typep coll 'sequences::indexed)
@@ -1991,7 +2021,9 @@
 (declaim (inline aset))
 (defn aset (x idx v)
   (setf (aref x idx) v))
-
+(declaim (inline peek pop))
+(defn peek (coll) (-peek coll))
+(defn pop (coll) (-pop coll))
 ;;for now, we don't have qualified keywords...
 ;;we "could" encode that information in the
 ;;keyword name somewhere (like a central db),
@@ -2629,20 +2661,103 @@
 ;; (for ((x y) '(1 (2 3 4))
 ;;       (hd & rst) y)
 ;;      (list x y))
-;; (defmacro for
-;;     (seq-exprs body-expr)
+
+;; "bindings => x xs
+
+;;   Roughly the same as (when (seq xs) (let [x (first xs)] body)) but xs is evaluated only once"
+;;  {:added "1.0"}
+(defmacro when-first  (bindings &rest body)
+  ;; (assert-args
+  ;;  (vector? bindings) "a vector for its binding"
+  ;;  (= 2 (count bindings)) "exactly 2 forms in binding vector")
+  (let ((x xs) bindings)
+    (with-gensyms (xs#)
+      `(when-let (,xs# (seq ,xs))
+         (let (,x (first ,xs#))
+           ,@body)))))
+
+;;WORK IN PROGRESS.
+;;implementing for is a good skill check due to all the destructuring, plus
+;;it's probably useful in the implementation side.
+;; (fn emit-bind (((bind expr &rest mod-pairs) &rest next-groups))
+;;     (let ((_ next-expr)  next-groups
+;;           giter (gensym "iter__"))
+;;       (let (gxs (gensym "s__")
+;;             do-mod (fn do-mod (pair & etc)
+;;                        (let ((k v) pair)
+;;                          (cond
+;;                            (= k :let) `(let ,v ,(do-mod etc))
+;;                            (= k :while) `(when ,v ,(do-mod etc))
+;;                            (= k :when) `(if ,v
+;;                                             ,(do-mod etc)
+;;                                             (recur (rest ,gxs)))
+;;                            (keyword? k) (err "Invalid 'for' keyword " k)
+;;                            next-groups
+;;                            (with-gensyms (iterys# fs#)
+;;                              `(let (,iterys ,(emit-bind next-groups)
+;;                                     ,fs# (seq (,iterys# ,next-expr)))
+;;                                 (if ,fs#
+;;                                     (concat ,fs# (,giter (rest ,gxs)))
+;;                                     (recur (rest ,gxs)))))
+;;                            :else `(cons ,body-expr
+;;                                         (,giter (rest ,gxs)))))))
+;;         (if next-groups
+;;             ;;"not the inner-most loop"
+;;             `(fn ,giter (,gxs)
+;;                  (lazy-seq
+;;                   (loop (,gxs ,gxs)
+;;                     (when-first (,bind ,gxs)
+;;                                ,(do-mod mod-pairs)))))
+;;             ;;"inner-most loop"
+;;             (let (gi (gensym "i__")
+;;                   gb (gensym "b__")
+;;                   do-cmod (fn do-cmod (pair & etc)
+;;                               (let ((k v) pair)
+;;                                 (cond
+;;                                   (= k :let) `(let ,v ,(do-cmod etc))
+;;                                   (= k :while) `(when ,v ,(do-cmod etc))
+;;                                   (= k :when) `(if ,v
+;;                                                    ,(do-cmod etc)
+;;                                                    (recur
+;;                                                     (unchecked-inc ,gi)))
+;;                                   (keyword? k)
+;;                                   (err "Invalid 'for' keyword " k)
+;;                                   :else
+;;                                   `(do (chunk-append ,gb ,body-expr)
+;;                                        (recur (unchecked-inc ,gi)))))))
+;;               `(fn ,giter [,gxs]
+;;                    (lazy-seq
+;;                     (loop [,gxs ,gxs]
+;;                           (when-let [,gxs (seq ,gxs)]
+;;                             (if (chunked-seq? ,gxs)
+;;                                 (let [c# (chunk-first ,gxs)
+;;                                   size# (int (count c#))
+;;                                   ,gb (chunk-buffer size#)]
+;;                                   (if (loop [,gi (int 0)]
+;;                                             (if (< ,gi size#)
+;;                                                 (let [,bind (.nth c# ,gi)]
+;;                                                   ,(do-cmod mod-pairs))
+;;                                                 true))
+;;                                       (chunk-cons
+;;                                        (chunk ,gb)
+;;                                        (,giter (chunk-rest ,gxs)))
+;;                                       (chunk-cons (chunk ,gb) nil)))
+;;                                 (let [,bind (first ,gxs)]
+;;                                   ,(do-mod mod-pairs))))))))))))
+;; (defmacro for (seq-exprs body-expr)
 ;;   ;; (assert-args
 ;;   ;;  (vector? seq-exprs) "a vector for its binding"
 ;;   ;;  (even? (count seq-exprs)) "an even number of forms in binding vector")
-;;   (let [to-groups (fn (seq-exprs)
-;;                       (reduce1 (fn (groups (k v))
+;;   (let (to-groups (fn (seq-exprs)
+;;                       (reduce (fn (groups (k v))
 ;;                                    (if (keyword? k)
-;;                                        (conj (pop groups) (conj (peek groups) [k v]))
-;;                                        (conj groups [k v])))
-;;                                [] (partition 2 seq-exprs)))
-;;     err (fn [& msg] (throw (IllegalArgumentException. ^String (apply str msg))))
-;;     emit-bind (fn emit-bind [[[bind expr & mod-pairs]
-;;                   & [[_ next-expr] :as next-groups]]]
+;;                                        (conj (pop groups)
+;;                                              (conj (peek groups) (vector  k v)))
+;;                                        (conj groups (vector  k v))))
+;;                               (vector)  (partition 2 seq-exprs)))
+;;         err (fn (& msg) (throw (ex-info (apply str msg) (hashs-map))))
+;;         )
+;;     emit-bind (fn emit-bind [[[bind expr & mod-pairs] & [[_ next-expr] :as next-groups]]]
 ;;                   (let [giter (gensym "iter__")
 ;;                     gxs (gensym "s__")
 ;;                     do-mod (fn do-mod [[[k v :as pair] & etc]]
