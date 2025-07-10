@@ -268,6 +268,8 @@
           (setf (gethash symb *keys*) kw)
           kw))))
 
+(defun throw (e)
+  (error e))
 ;;Right now, common lisp keywords are distinct.
 ;;We can blur them a bit for interop.
 ;;we treat this as identity if passed a CL keyword.
@@ -487,7 +489,12 @@
              2
              1)))
       ((every (lambda (xs) (common-lisp:= (length xs) 2)) specs)
-       (length specs))))
+       (length specs))
+      ;;if first arg is a list,
+      ((and (cl:listp (first specs))
+            (> (count specs) 2))
+       :single-spread)
+      (:else (length specs))))
 
   ;;we can leverage lambda-bind to build out or destructured fns...
   ;;alexandria:parse-ordinary-lambda-list can tell us if this is
@@ -610,8 +617,20 @@
                          (fndef->sexp (fn* name (cl:apply #'dbind-fn (if (cl:atom (cl:first spec))
                                                                          (list spec nil)
                                                                          spec))))))
+                    (:single-spread
+                     (mbind:bind (((args &rest body) specs))
+                       (fndef->sexp (fn* name (cl:apply #'dbind-fn (list args `(progn ,@body)))))))
                     (otherwise 
-                     (cl:let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
+                     (cl:let ((bodies (apply #'fn*
+                                             (common-lisp:cons name
+                                                               (mapcar (lambda (spec)
+                                                                         (case (function-bodies spec)
+                                                                           (:single-spread
+                                                                            (cl:apply #'dbind-fn (list (first spec)
+                                                                                                       `(progn ,@(rest spec)))))
+                                                                           (otherwise 
+                                                                            (cl:apply #'dbind-fn spec))))
+                                                          specs)))))
                        (fndef->sexp bodies))))))
       `(,@res))))
 
@@ -1526,8 +1545,7 @@
 ;;               ,body)
 ;;             ,@false-body)))))
 
-(defn throw (e)
-  (error e))
+
 
 ;;try-catch-finally...
 
