@@ -125,7 +125,7 @@
 (defmacro .alt (&rest rawbinds)
   (let* ((binds (pairs rawbinds)))
     `(.or ,@(mapcar (lambda (kv)
-                      (list '.labeled (first kv) (second kv)))
+                      (list '.label (first kv) (second kv)))
                     binds))))
 
 (defun .rest ()

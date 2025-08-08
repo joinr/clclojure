@@ -30,7 +30,8 @@
    :.variadic
    :.fn
    :.defn-args
-   :.defn-expr))
+   :.defn-expr
+   :.fn-expr))
 (in-package :clj-parse)
 ;;we have a grammar for function bodies.
 ;; destructuring-bind-form :: 
@@ -84,28 +85,39 @@
           (if (and 
                (parse! (.args) (list  args))
                (parse! (.body) body))
-              (.identity (list :normal args :body body))
+              (.identity (list :normal (list  (list  :args args)  (list :body body))))
               (.fail)))
         (.fail))))
 
-(defun .normal ()
-  (.label :normal 
-          (.tuple  (.args) (.label :body (.body)))))
+(defun .normal2 ()
+  (.label :normal
+          (.tuple  (.args)  (.label :body (.body)))))
 
 ;;one or more normals,
 ;;where the arg lengths are distinct.
 
 (defun .variadic ()
   (.let* ((defs  (.only  (.map 'list (.normal)))))
-    (let* ((args (mapcar #'second defs))
+    (let* ((args (mapcar (lambda (spec)
+                           (destructuring-bind (tg ((ag xs) (b body))) spec
+                             xs))
+                         defs))
            (counts (remove-duplicates  (mapcar #'length args))))
       (if (= (length  counts) (length args))
           (.identity (list :variadic defs))
           (.fail)))))
 
+;;mildly janky....
 (defun .fn ()
-  (.or   (.only  (.normal))
-         (.variadic)))
+  (.or  (.only  (.normal))
+          (.variadic)
+          (.only (.normal2))))
+
+(defun .fn-all ()
+  (.or (.variadic)
+         (.only  (.normal))         
+        (.only (.normal2))))
+
 
 ;; '(fn (x y) (+ x y))
 ;; '((x y) (+ x y))
@@ -146,27 +158,42 @@
         :meta      (.optional (.is #'hash-table-p)) ;;will change to map? later...
         :fn-tail   (.fn)))
 
-(defun .defn-expr ()
-  (.let* ((_  (.func (x)
-                     (string= (string-downcase  (symbol-name x)) "defn")))
-          (spec (.defn-args)))
-    (if spec (.identity spec) (.fail))))
+;; (defun .defn-expr ()
+;;   (.let* ((_  (.func (x)
+;;                      (string= (string-downcase  (symbol-name x)) "defn")))
+;;           (spec (.defn-args)))
+;;     (if spec (.identity spec) (.fail))))
 
-(defparameter tst
-  '(defn interleave
-      (() '())
-    ((c1) (lazy-seq c1))
-    ((c1 c2)
-     (lazy-seq
-      (let (s1 (seq c1) s2 (seq c2))
-        (when (and s1 s2)
-          (cons (first s1) (cons (first s2)
-                                 (interleave (rest s1) (rest s2))))))))
-    ((c1 c2 &rest colls)
-     (lazy-seq
-      (let (ss (map seq (conj colls c2 c1)))
-        (when (every? identity ss)
-          (concat (map first ss) (apply interleave (seq->list  (map rest ss))))))))))
+(defun .sym (sym)
+  (.&  (.is #'symbolp)
+         (.func (x)  (string=  (string-downcase  (symbol-name x)) sym))))
+
+(defun .defn-expr ()
+  (.and  (.sym "defn")
+         (.defn-args)))
+
+(defun .fn-expr ()
+  (.and  (.sym "fn")
+         (.cat :fn-name  (.optional  (.is #'symbolp))
+    ;;             :docstring (.optional (.is #'stringp))
+   ;;              :meta      (.optional (.is #'hash-table-p)) ;;will change to map? later...
+               :fn-tail   (.fn))))
+
+;; (defparameter tst
+;;   '(defn interleave
+;;       (() '())
+;;     ((c1) (lazy-seq c1))
+;;     ((c1 c2)
+;;      (lazy-seq
+;;       (let (s1 (seq c1) s2 (seq c2))
+;;         (when (and s1 s2)
+;;           (cons (first s1) (cons (first s2)
+;;                                  (interleave (rest s1) (rest s2))))))))
+;;     ((c1 c2 &rest colls)
+;;      (lazy-seq
+;;       (let (ss (map seq (conj colls c2 c1)))
+;;         (when (every? identity ss)
+;;           (concat (map first ss) (apply interleave (seq->list  (map rest ss))))))))))
 
 ;; (defparameter tst2
 ;;   (concatenate 'list
@@ -186,6 +213,26 @@
 ;;           (when (every? identity ss)
 ;;             (concat (map first ss) (apply interleave (seq->list  (map rest ss)))))))))))
 
+;;getting our asses kicked on this one.
+;;we can't parse it right now.
+;;we have a variadic function,
+;;which has more than 2 args in each spec.
+;;args are
+;;(coll) 
+;;so the body is
+;;( (dorun coll) coll)
+;;then
+;;(n coll)
+;;((dorun n coll) coll) 
+
+;;This freaks out our parsing...
+;;and we conform the result to a normal
+;;2-element function spec, where
+;;args
+(defparameter ambig
+  '(FN DOALL
+    ((COLL)     (DORUN COLL) COLL)
+    ((N COLL)  (DORUN N COLL) COLL)))
 
 ;;more complex implementation
 ;; ;;;; destructure

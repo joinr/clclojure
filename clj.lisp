@@ -5,10 +5,12 @@
   (:shadow :deftype :keyword :atom :realized? :deref :char :str
            :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
            :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
-           :some :merge :pop) ;;forgot about shadowing-import-from....
+           :some :merge :pop :step) ;;forgot about shadowing-import-from....
   (:shadowing-import-from :sequences :apply)
-  (:local-nicknames (:re :clj-re)
-                    (:mbind :metabang-bind))
+  (:local-nicknames
+       (:re :clj-re)
+       (:mbind :metabang-bind)
+       (:parse :clj-parse))
   (:export :apply :def :defn :fn :meta :with-meta :str :symbol? :instance? :first :rest :second :next :char
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count
@@ -380,6 +382,20 @@
 ;;   `(list ,@(mapcar (lambda (vb) `(read-fn ,(common-lisp:first vb) ,(second vb))) specs)))
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defun parse-fn (expr)
+    (cl:let ((res (parse:parse! (parse:.fn-expr) expr)))
+      (when res
+        (mbind:bind
+            (((( _ fn-name )  (_  (fn-type fn-tail)))    res)
+             (fn-name (or fn-name  (symb (symbol-name (gensym "fn_"))))))
+          (if (seql fn-type :normal)
+              (mbind:bind (( ((_ args) (_ body))     fn-tail))
+                (read-fn args body  fn-name))
+              (mapcar (lambda (spec)
+                        (mbind:bind (( (_  ((_ args) (_ body))) spec))
+                          (read-fn args body fn-name)))
+                      fn-tail))))))
+  
   (defun fn* (name &rest specs)
     `(,@(mapcar (lambda (vb) (read-fn (common-lisp:first vb)
                                       (if (cadr vb)                            
@@ -605,34 +621,47 @@
   ;;behavior we want wired in.  Right now, they are returning function
   ;;object from a labels definition.  We may just return a unified
   ;;lambda that invokes the labels function for us.
+  (defun dbind-fndef (fndef)
+    (with-slots (name args body) fndef
+      (destructuring-bind (new-args new-body) (dbind-fn args body)
+        (make-fn-def :name name :args new-args :body new-body))))
+  
   (defmacro fn (&rest specs)
-    (let* ((hd    (common-lisp:first specs))
-           (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
-           (specs (if (actual hd) (common-lisp:rest specs) specs))
-           (res   (cl:case (function-bodies specs)
-                    (1 (cl:let
-                        ((spec  (if  (cl:= (length specs) 1)
-                                     (cl:first specs)
-                                     specs)))
-                         (fndef->sexp (fn* name (cl:apply #'dbind-fn (if (cl:atom (cl:first spec))
-                                                                         (list spec nil)
-                                                                         spec))))))
-                    (:single-spread
-                     (mbind:bind (((args &rest body) specs))
-                       (fndef->sexp (fn* name (cl:apply #'dbind-fn (list args `(progn ,@body)))))))
-                    (otherwise 
-                     (cl:let ((bodies (apply #'fn*
-                                             (common-lisp:cons name
-                                                               (mapcar (lambda (spec)
-                                                                         (case (function-bodies spec)
-                                                                           (:single-spread
-                                                                            (cl:apply #'dbind-fn (list (first spec)
-                                                                                                       `(progn ,@(rest spec)))))
-                                                                           (otherwise 
-                                                                            (cl:apply #'dbind-fn spec))))
-                                                          specs)))))
-                       (fndef->sexp bodies))))))
-      `(,@res))))
+    (let* ( (fndef (parse-fn (cl:list* 'fn specs)) )
+               (res 
+                 (if (not (consp fndef))
+                     (fndef->sexp (dbind-fndef fndef))
+                     (fndef->sexp (mapcar #'dbind-fndef  fndef)))))
+      `(,@res)))
+#-sbcl
+(defmacro fn (&rest specs)
+  (let* ((hd    (common-lisp:first specs))
+         (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
+         (specs (if (actual hd) (common-lisp:rest specs) specs))
+         (res   (cl:case (function-bodies specs)
+                  (1 (cl:let
+                         ((spec  (if  (cl:= (length specs) 1)
+                                      (cl:first specs)
+                                      specs)))
+                       (fndef->sexp (fn* name (cl:apply #'dbind-fn (if (cl:atom (cl:first spec))
+                                                                       (list spec nil)
+                                                                       spec))))))
+                  (:single-spread
+                   (mbind:bind (((args &rest body) specs))
+                     (fndef->sexp (fn* name (cl:apply #'dbind-fn (list args `(progn ,@body)))))))
+                  (otherwise 
+                   (cl:let ((bodies (apply #'fn*
+                                           (common-lisp:cons name
+                                                             (mapcar (lambda (spec)
+                                                                       (case (function-bodies spec)
+                                                                         (:single-spread
+                                                                          (cl:apply #'dbind-fn (list (first spec)
+                                                                                                     `(progn ,@(rest spec)))))
+                                                                         (otherwise 
+                                                                          (cl:apply #'dbind-fn spec))))
+                                                                     specs)))))
+                     (fndef->sexp bodies))))))
+    `(,@res))))
 
 ;;def 
 ;;===
@@ -1753,6 +1782,8 @@
 
 ;;temporary work around while I patch tail cail detection
 ;;so we stop getting false positives.
+;;BEGIN COMMENT
+
 (defn dorun
     ((coll)
      (let (s (seq coll))
@@ -1771,10 +1802,11 @@
 ;; {:added "1.0"
 ;; :static true}
 
+;;this is ambiguous for us right now.
 (defn doall
-  ((coll)
-   (dorun coll)
-   coll)
+    ((coll)
+     (dorun coll)
+     coll)
   ((n coll)
    (dorun n coll)
    coll))
