@@ -4,9 +4,14 @@
 ;;then quicklisp can load it for us
 ;;easy...
 ;;(ql:quickload :clj)
+(asdf:defsystem :clclj/clj-parse
+  :depends-on (:smug)
+  :components ((:file "smugpatch") ;;our patch for smug.
+               (:file "clj-parse"   :depends-on ("smugpatch"))))
+  
 (asdf:defsystem :clclj
   :depends-on (:named-readtables :cl-package-locks :cl-murmurhash
-               :clj-con :cl-ppcre :clj-re :metabang-bind) ;copied from example. debate using :cl-hamt
+               :clj-con :cl-ppcre :clj-re :metabang-bind :clclj/clj-parse) ;copied from example. debate using :cl-hamt
   :components ((:file "common-utils")
                (:file "walk"        :depends-on ("common-utils"))
                (:file "sequences"   :depends-on  ("common-utils"))
