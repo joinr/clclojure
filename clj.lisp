@@ -315,7 +315,7 @@
   (defmacro  set! (&rest args)
     `(common-lisp:setf ,@args))
 
-  ;;convenient placeholder
+  ;;convenient placeholders
   ;;OUTDATED
   (defun ns (name &rest opts)    
     (eval `(progn (defpackage ,name
@@ -368,8 +368,10 @@
 ;;fn call), otherwise we splice an implicit progn in.
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   (defun read-fn (arg-vec body &optional name)
-    (cl:let ((new-body (if (cl:= (length body) 1)
-                        (cl:first body)
+    (cl:let ((new-body body #-sbcl(if (cl:= (length body) 1)
+                           (cl:first body)
+                           body
+                           #-sbcl
                         (cl:cons 'progn body))))
       (make-fn-def :name   name 
                    :args   arg-vec
@@ -434,9 +436,14 @@
   
   (defmethod  fndef->sexp ((fd fn-def))
     (with-slots (args body (nm name)) fd
-      (with-slots (lambda-list outer-let) (parse-args args)           
-        (cl:let ((interior (if outer-let `(let* ,outer-let ,body)
-                            body)))
+      (with-slots (lambda-list outer-let) (parse-args args)
+        (cl:let* ((body     (if (and  (listp body)
+                                      (cl:atom (cl:first body))
+                                      (cl:= (length body) 1))
+                                (cl:first body)
+                                body))
+                  (interior (if outer-let `(let* ,outer-let ,body)
+                               body)))
           `(named-fn ,nm ,lambda-list ,interior)))))
 
   (defmethod fndef->sexp ((fd common-lisp:cons))
@@ -579,14 +586,18 @@
   (defun dbind-fn (args body)
     (mbind:bind (((:keys parents compound rest-arg) (arg-binds args)))
       (if (null compound)
-          (list args body)
+          (cl:let ((tl (first body)))
+            (cl:list args tl)) ;;this condition will probably never be hit.  FIX
           (cl:let ((newargs (if rest-arg
                              (mapcan (lambda (x) (if (seql x rest-arg)
                                                      (list '&rest x)
                                                      (list  x)))
                                      parents)
-                             parents)))
-            `(,newargs (clclojure.lexical::unified-let* (,@compound) ,body))))))
+                             parents))
+                   (tl (cl:cond ((cl:atom body) (list body)) ;;implicit progn, splice.
+                                ;;imiplicit progn, spliceable.
+                                (t body))))
+            `(,newargs (clclojure.lexical::unified-let* (,@compound) ,@tl))))))
   
   ;;so clojure simplifies the dbinding process e.g. with loop/recur,
   ;; (loop ((x y) '(1 2) acc 0)
@@ -607,7 +618,7 @@
   ;;( ((arg1 arg2) body1)
   ;;  ((arg1 arg2 arg3) body2))
   ;;or if we have vector literals
-  ;; (([arg1 arg2] body)
+  ;; (([arg1 arg2] body)s
   ;;  ([arg1 arg2 arg3] body))
 
   #-sbcl
@@ -629,17 +640,22 @@
   ;;behavior we want wired in.  Right now, they are returning function
   ;;object from a labels definition.  We may just return a unified
   ;;lambda that invokes the labels function for us.
+
+  ;;we'll handle odd cases, like nil args (:EMPTY-LIST), etc.
   (defun dbind-fndef (fndef)
     (with-slots (name args body) fndef
-      (destructuring-bind (new-args new-body) (dbind-fn args body)
-        (make-fn-def :name name :args new-args :body new-body))))
+      (cl:let* ((nil-args (if (keywordp (cl:first args))
+                           nil
+                           args)))
+        (destructuring-bind (new-args new-body) (dbind-fn nil-args body)
+          (make-fn-def :name name :args new-args :body new-body)))))
   
   (defmacro fn (&rest specs)
-    (let* ( (fndef (parse-fn (cl:list* 'fn specs)) )
-               (res 
-                 (if (not (consp fndef))
-                     (fndef->sexp (dbind-fndef fndef))
-                     (fndef->sexp (mapcar #'dbind-fndef  fndef)))))
+    (let* ((fndef (parse-fn (cl:list* 'fn specs)))
+           (res 
+             (if (not (consp fndef))
+                 (fndef->sexp (dbind-fndef fndef))
+                 (fndef->sexp (mapcar #'dbind-fndef  fndef)))))
       `(,@res)))
 #-sbcl
 (defmacro fn (&rest specs)
