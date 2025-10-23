@@ -33,6 +33,15 @@
    :.defn-expr
    :.fn-expr))
 (in-package :clj-parse)
+
+(defun .sym (sym)
+  (.&  (.is #'symbolp)
+       (.func (x)  (string=  (string-downcase  (symbol-name x)) sym))))
+
+(defun .key (sym)
+  (let ((keyname (string-downcase (symbol-name sym))))
+    (.&  (.is #'keywordp)
+         (.func (x)  (string=  (string-downcase  (symbol-name x)) keyname)))))
 ;;we have a grammar for function bodies.
 ;; destructuring-bind-form :: 
 ;; dbind      :: destructuring-bind-form
@@ -63,6 +72,7 @@
   (.or (.is #'atom)
        (.is #'listp)))
 
+#-sbcl
 (defun .body ()
   (.or (.is #'atom)
        (.is #'listp)))
@@ -76,43 +86,107 @@
 ;; lambdalist :: (list* arg rest? options? keys?)
 
 ;;can't have symbol functions in args.
+#-sbcl
 (defun .normal ()
   (.let* ((arg-body (.item)))
     (if (and (listp arg-body)
-             (= (length arg-body) 2))
+             #-sbcl (= (length arg-body) 2))
         (let ((args (first  arg-body))
-              (body (second arg-body)))
+              (body (rest arg-body)))
           (if (and 
                (parse! (.args) (list  args))
                (parse! (.body) body))
               (.identity (list :normal (list  (list  :args args)  (list :body body))))
               (.fail)))
         (.fail))))
-
+#-sbcl
 (defun .normal2 ()
-  (.label :normal
+  (.label :normal2
           (.tuple  (.args)  (.label :body (.body)))))
+#-sbcl
+(defun .simplified-body ()
+  (.let* ((xs (.rest)))
+    (if (= (length xs) 1)
+        (.identity (first xs))
+        (.identity `(progn ,@xs)))))
+
+;;corresponds to a single function body,
+;;with (args &rest body) form.
+(defun .normaln ()
+  (.label :normal
+          (.tuple (.args)
+                  (.label :body (.rest)))))
+
+;;a variadic fn is just a list of normal fns.
+;;so instead of mapping over the rest of the input,
+;;we map new subparsings for each item in the list.
+
+;;given ((args1 body1 body1a) (args2 body2)) as specs
+;;we know - at least - each spec is a list.
+;;so we have a list of lists, which we want to sub-parse
+;;as normalns.
+
+;;maybe abstracted.
+#-sbcl
+(defun .one-of (p)
+  (.let* ((itm (.item)))
+    (let* ((res (parse! p itm)))
+      (if res
+          (.identity res)
+          (.fail)))))
+
+;;something like
+;;this is a pattern that could show up more,
+;;where we want to parse the item as if it's the
+;;parse context.
+(defun .funcspec ()
+  (.& (.is #'listp)
+      (.let* ((itm (.item)))
+        (let* ((res (parse! (.normaln) itm)))
+          (if res
+              (.identity res)
+              (.fail))))))
 
 ;;one or more normals,
 ;;where the arg lengths are distinct.
-
+;;problem - .rest will consume the parse tree.
+;;we need to structure it better, so that we're comparing multiple
+;;lists, and parsing them individually with normaln.
 (defun .variadic ()
-  (.let* ((defs  (.only  (.map 'list (.normal)))))
+  (.let* ((defs  (.only  (.map 'list (.funcspec)))))
     (let* ((args (mapcar (lambda (spec)
                            (destructuring-bind (tg ((ag xs) (b body))) spec
                              xs))
                          defs))
-           (counts (remove-duplicates  (mapcar #'length args))))
+           (counts (remove-duplicates  (mapcar (lambda (arglist)
+                                                 (if (keywordp (first arglist)) ;;:EMPTY-LIST
+                                                     0
+                                                     (length arglist))) args))))
       (if (= (length  counts) (length args))
           (.identity (list :variadic defs))
           (.fail)))))
 
+;;we allow a lame escape hatch where if caller
+;;supplies :multi after a fn definition, we
+;;branch into variadic pattern.
+;;We can throw in a warning about ambiguous parse too,
+;;if we parse a normal, we see if it could parse as
+;;multi body, and if so, warn user (or throw).
+(defun .explicit-multi ()
+  (.let* ((k  (.key :multi))
+          (body (.variadic)))
+    (if body
+        (.identity body)
+        (.fail))))
+
 ;;mildly janky....
 (defun .fn ()
-  (.or  (.only  (.normal))
-          (.variadic)
-          (.only (.normal2))))
+  (.or  (.explicit-multi)
+       ; (.only  (.normal))
+        (.variadic)
+        (.only (.normaln))))
 
+#-sbcl
 (defun .fn-all ()
   (.or (.variadic)
          (.only  (.normal))         
@@ -164,10 +238,6 @@
 ;;           (spec (.defn-args)))
 ;;     (if spec (.identity spec) (.fail))))
 
-(defun .sym (sym)
-  (.&  (.is #'symbolp)
-         (.func (x)  (string=  (string-downcase  (symbol-name x)) sym))))
-
 (defun .defn-expr ()
   (.and  (.sym "defn")
          (.defn-args)))
@@ -179,39 +249,39 @@
    ;;              :meta      (.optional (.is #'hash-table-p)) ;;will change to map? later...
                :fn-tail   (.fn))))
 
-;; (defparameter tst
-;;   '(defn interleave
-;;       (() '())
-;;     ((c1) (lazy-seq c1))
-;;     ((c1 c2)
-;;      (lazy-seq
-;;       (let (s1 (seq c1) s2 (seq c2))
-;;         (when (and s1 s2)
-;;           (cons (first s1) (cons (first s2)
-;;                                  (interleave (rest s1) (rest s2))))))))
-;;     ((c1 c2 &rest colls)
-;;      (lazy-seq
-;;       (let (ss (map seq (conj colls c2 c1)))
-;;         (when (every? identity ss)
-;;           (concat (map first ss) (apply interleave (seq->list  (map rest ss))))))))))
+(defparameter tst
+  '(defn interleave
+      (() nil)
+    ((c1) (lazy-seq c1))
+    ((c1 c2)
+     (lazy-seq
+      (let (s1 (seq c1) s2 (seq c2))
+        (when (and s1 s2)
+          (cons (first s1) (cons (first s2)
+                                 (interleave (rest s1) (rest s2))))))))
+    ((c1 c2 &rest colls)
+     (lazy-seq
+      (let (ss (map seq (conj colls c2 c1)))
+        (when (every? identity ss)
+          (concat (map first ss) (apply interleave (seq->list  (map rest ss))))))))))
 
-;; (defparameter tst2
-;;   (concatenate 'list
-;;     '(defn interleave)
-;;     (list "This is a docstring bro." (make-hash-table))
-;;     '((() '())
-;;       ((c1) (lazy-seq c1))
-;;       ((c1 c2)
-;;        (lazy-seq
-;;         (let (s1 (seq c1) s2 (seq c2))
-;;           (when (and s1 s2)
-;;             (cons (first s1) (cons (first s2)
-;;                                    (interleave (rest s1) (rest s2))))))))
-;;       ((c1 c2 &rest colls)
-;;        (lazy-seq
-;;         (let (ss (map seq (conj colls c2 c1)))
-;;           (when (every? identity ss)
-;;             (concat (map first ss) (apply interleave (seq->list  (map rest ss)))))))))))
+(defparameter tst2
+  (concatenate 'list
+    '(defn interleave)
+    (list "This is a docstring bro." (make-hash-table))
+    '((() nil)
+      ((c1) (lazy-seq c1))
+      ((c1 c2)
+       (lazy-seq
+        (let (s1 (seq c1) s2 (seq c2))
+          (when (and s1 s2)
+            (cons (first s1) (cons (first s2)
+                                   (interleave (rest s1) (rest s2))))))))
+      ((c1 c2 &rest colls)
+       (lazy-seq
+        (let (ss (map seq (conj colls c2 c1)))
+          (when (every? identity ss)
+            (concat (map first ss) (apply interleave (seq->list  (map rest ss)))))))))))
 
 ;;getting our asses kicked on this one.
 ;;we can't parse it right now.
@@ -231,6 +301,26 @@
 ;;args
 (defparameter ambig
   '(FN DOALL
+    ((COLL)     (DORUN COLL) COLL)
+    ((N COLL)  (DORUN N COLL) COLL)))
+
+;;we could side-step this ambiguity on the runtime side
+;;by signaling variadic at compile time in meta.
+
+;;since it will only matter for implementation and for ambiguous cases...
+;;maybe we can detect ambiguity and cry out?
+
+;;that seems cheaper than having to muck with the cl reader for now.
+;;e.g. it can provide a forced safety hatch to ensure parsing is correct
+;;when we need it.
+
+;;since this only matters for bootstrapping, user level code won't
+;;hit this ever (unless maybe doing interop where it's cl->clj invoking
+;;bootstrapped stuff?)
+
+(defparameter unambig
+  '(FN DOALL
+    :multi
     ((COLL)     (DORUN COLL) COLL)
     ((N COLL)  (DORUN N COLL) COLL)))
 

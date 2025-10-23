@@ -361,11 +361,19 @@
 ;;   `(make-fn-def :args   (quoted-vec ,arg-vec) 
 ;; 		:body   (quote ,body)))
 
+;;we do some minor processing of the function body here.
+;;since we have a list coming out of the parse,
+;;we look to see if it's a single entry.  If so,
+;;we can just return that (or else get an illegal
+;;fn call), otherwise we splice an implicit progn in.
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   (defun read-fn (arg-vec body &optional name)
-    (make-fn-def :name   name 
-                 :args   arg-vec
-                 :body   body)))
+    (cl:let ((new-body (if (cl:= (length body) 1)
+                        (cl:first body)
+                        (cl:cons 'progn body))))
+      (make-fn-def :name   name 
+                   :args   arg-vec
+                   :body   new-body))))
 
 (defgeneric arity (fd))
 (defmethod  arity ((fd sequence))  
@@ -2039,7 +2047,7 @@
 ;; {:added "1.0"
 ;; :static true}
 (defn interleave
-    (() nil)
+  (() nil)
   ((c1) (lazy-seq (seq  c1)))
   ((c1 c2)
        (lazy-seq
