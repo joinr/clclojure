@@ -388,8 +388,6 @@
 ;;compose multiple function (arg body) pairs into a list of function definitions.
 ;;We should then be able to dispatch on the count of args, simply invoking 
 ;;the appropriate function matched to arity.
-;; (defmacro fn* (&rest specs)	  
-;;   `(list ,@(mapcar (lambda (vb) `(read-fn ,(common-lisp:first vb) ,(second vb))) specs)))
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   (defun parse-fn (expr)
@@ -454,22 +452,6 @@
             ,name
             ,@(mapcar (lambda (body)
                         (common-lisp:rest (common-lisp:rest (fndef->sexp body)))) fd)))))
-  
-
-  ;;Clojure's anonymous function special form.
-  ;;Todo: support destructuring in the args.
-  ;; (defmacro fn (&rest specs)
-  ;;   (pprint specs)
-  ;;   (let* ((res 
-  ;;            (cond  ((symbolp (common-lisp:first specs))
-  ;;                    (fndef->sexp (fn*  (cons  (first specs) (list  (rest  specs))))))
-  ;;                   ((vector-form? (common-lisp:first specs))
-  ;;                   (fndef->sexp (fn*  specs)))
-
-  ;;                  ;;TODO get rid of this eval....
-  ;;                  (t
-  ;;                   (fndef->sexp (apply #'fn* specs))))))    
-  ;;     `(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))))
 
   ;;since we're ditching custom eval on this side, we can go back to regular bindings
   ;;and let*.
@@ -621,20 +603,6 @@
   ;; (([arg1 arg2] body)s
   ;;  ([arg1 arg2 arg3] body))
 
-  #-sbcl
-  (defmacro fn (&rest specs)
-    (let* ((hd    (common-lisp:first specs))
-           (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
-           (specs (if (actual hd) (common-lisp:rest specs) specs))
-           (res   (if (or  (vector-form? (common-lisp:first specs))
-                           (not (nested-list? (common-lisp:first specs)))) 
-                      (fndef->sexp (fn* name specs))
-                      ;;TODO get rid of this eval....
-                      (cl:let ((bodies (apply #'fn*  (common-lisp:cons name specs))))
-                        (fndef->sexp bodies)))))
-      ;;`(,@(clclojure.eval::custom-eval-bindings (sb-cltl2::macroexpand-all res) nil))
-      `(,@res)))
-
   ;;very close to destructuring fn forms + unified forms.
   ;;we need to mode common-utils:named-fn and named-fn* to get the
   ;;behavior we want wired in.  Right now, they are returning function
@@ -657,35 +625,6 @@
                  (fndef->sexp (dbind-fndef fndef))
                  (fndef->sexp (mapcar #'dbind-fndef  fndef)))))
       `(,@res)))
-#-sbcl
-(defmacro fn (&rest specs)
-  (let* ((hd    (common-lisp:first specs))
-         (name  (if (actual hd) hd (symb (symbol-name (gensym "fn_")))))
-         (specs (if (actual hd) (common-lisp:rest specs) specs))
-         (res   (cl:case (function-bodies specs)
-                  (1 (cl:let
-                         ((spec  (if  (cl:= (length specs) 1)
-                                      (cl:first specs)
-                                      specs)))
-                       (fndef->sexp (fn* name (cl:apply #'dbind-fn (if (cl:atom (cl:first spec))
-                                                                       (list spec nil)
-                                                                       spec))))))
-                  (:single-spread
-                   (mbind:bind (((args &rest body) specs))
-                     (fndef->sexp (fn* name (cl:apply #'dbind-fn (list args `(progn ,@body)))))))
-                  (otherwise 
-                   (cl:let ((bodies (apply #'fn*
-                                           (common-lisp:cons name
-                                                             (mapcar (lambda (spec)
-                                                                       (case (function-bodies spec)
-                                                                         (:single-spread
-                                                                          (cl:apply #'dbind-fn (list (first spec)
-                                                                                                     `(progn ,@(rest spec)))))
-                                                                         (otherwise 
-                                                                          (cl:apply #'dbind-fn spec))))
-                                                                     specs)))))
-                     (fndef->sexp bodies))))))
-    `(,@res))))
 
 ;;def 
 ;;===
@@ -2637,9 +2576,11 @@
 
 (def +empty-set+ (cowset. (hash-map) (hash-map) -1))
 
-(defn ->cowset (&rest args)
+;;temporary lame placeholder until we get better implementation.
+(defn hash-set (&rest args)
   (cowset. (apply #'hash-map (mapcan (lambda (x) (list x x)) args))
            (hash-map) -1))
+
 ;;destructuring junk.  not important yet.
 ;; (defn ds-pvec (bvec b val)
 ;;   (let (gvec (gensym "vec__")
