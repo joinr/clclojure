@@ -624,7 +624,7 @@
              (if (not (consp fndef))
                  (fndef->sexp (dbind-fndef fndef))
                  (fndef->sexp (mapcar #'dbind-fndef  fndef)))))
-      `(,@res)))
+      `(,@res))))
 
 ;;def 
 ;;===
@@ -2581,6 +2581,12 @@
   (cowset. (apply #'hash-map (mapcan (lambda (x) (list x x)) args))
            (hash-map) -1))
 
+(defn frequencies (xs)
+  (reduce (fn (acc x)
+              (if-let (n (get acc x))
+                (update acc x inc)
+                (assoc acc x 1)))
+          (hash-map) xs))
 ;;destructuring junk.  not important yet.
 ;; (defn ds-pvec (bvec b val)
 ;;   (let (gvec (gensym "vec__")
