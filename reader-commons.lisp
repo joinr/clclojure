@@ -165,6 +165,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;need to test these bro.
+;;_ is still being viewed as not ignorable, might be due to
+;;interning (metabang bind should take care of that though, meh.)
 (defn read-comment
     (rdr & _)
   (skip-line rdr))

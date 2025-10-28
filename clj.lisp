@@ -4,10 +4,10 @@
    :clclojure.lexical :clj-con
    :parse-float)
   (:shadow :deftype :keyword :atom :realized? :deref :char :str
-           :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
-           :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
-           :some :merge :pop :step) ;;forgot about shadowing-import-from....
-  (:shadowing-import-from :sequences :apply)
+   :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let
+   :vector :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
+   :some :merge :pop :step :apply) ;;forgot about shadowing-import-from....
+  ;;(:shadowing-import-from :sequences :apply)
   (:shadowing-import-from :clj-re :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq)
   (:local-nicknames
        (:re :clj-re)
@@ -506,7 +506,7 @@
       ((every (lambda (xs) (common-lisp:= (length xs) 2)) specs)
        (length specs))
       ;;if first arg is a list,
-      ((and (cl:listp (first specs))
+      ((and (cl:listp (cl:first specs))
             (> (count specs) 2))
        :single-spread)
       (:else (length specs))))
@@ -570,7 +570,7 @@
   (defun dbind-fn (args body)
     (mbind:bind (((:keys parents compound rest-arg) (arg-binds args)))
       (if (null compound)
-          (cl:let ((tl (first body)))
+          (cl:let ((tl (cl:first body)))
             (cl:list args tl)) ;;this condition will probably never be hit.  FIX
           (cl:let ((newargs (if rest-arg
                              (mapcan (lambda (x) (if (seql x rest-arg)
@@ -966,7 +966,21 @@
   ;;Not sure if CLJS has this, but it's useful
   ;;here.
   (defprotocol IString
-    (-to-string (this)))
+      (-to-string (this)))
+  ;;deviate from common-utils here on purpose.
+  ;;for now...we listify this.
+  ;;apply is eager.
+  ;;need to make apply work with seqables outright, right
+  ;;now sequences lib doesn't know about seqable.
+  (defun apply (f arg &rest args)
+    (if (null args)
+        (common-lisp:apply f (if (consp arg)
+                                 arg
+                                 (sequences::seq->list (-seq arg))))
+        (cl:let ((arglist (if (consp arg)
+                           (list*  arg args)
+                           (list*  (sequences::seq->list (-seq arg)) args))))
+          (common-lisp:apply f arglist)))))
   
   
   ;;Extending types to native structures and clojure literals:
@@ -1227,7 +1241,7 @@
      (-chunked-rest (coll) (error 'not-implemented))
      IChunkedNext
      (-chunked-next (coll) (error 'not-implemented))
-     )))
+     ))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   ;;list operations.
@@ -1406,7 +1420,6 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (declaim (inline equiv))
-  ;;deviate from common-utils here on purpose.
   (defn str
       (() "")
       ((x &rest xs)
@@ -2259,7 +2272,7 @@
     (integer (code-char x))
     (otherwise (throw (ex-info "cannot coerce to char!") (hash-map :in x)))))
 
-
+(defn char? (x) (typep x 'common-lisp:standard-char))
 
 ;; (defn keys (x)
 ;;   (->> x seq (map first)))
@@ -2613,6 +2626,16 @@
          (let (,x (first ,xs#))
            ,@body)))))
 
+;;this is a loose hack for now, but it works as a
+;;placeholder.
+;;we have to implement the gamut of readers in
+;;clojure.java.io. not hard, but tedious for rn.
+(defn slurp (f & opts)
+  (uiop/stream:read-file-string f))
+
+;;need readers for line-seq.
+;;we have an adaptation in clojure.tools.reader, but not
+;;quite enough for line-seq yet.
 
 ;;destructuring junk.  not important yet.
 ;; (defn ds-pvec (bvec b val)

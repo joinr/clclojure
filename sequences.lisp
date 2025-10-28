@@ -415,12 +415,15 @@
 ;;apply is eager.
 (defun apply (f arg &rest args)
   (if (null args)
-      (common-lisp:apply f (if (seq? arg)
-                               (seq->list arg)
-                               arg))
-      (let ((arglist (if (seq? arg)
-                         (list*  (seq->list arg) args)
-                         (list*  arg args))))
+      (common-lisp:apply f (cond ((seq? arg) (seq->list arg))
+                                 ((seqable? arg) (seq->list (seq arg)))
+                                 (t arg)))
+      (let ((arglist (cond ((seq? arg) 
+                            (list*  (seq->list arg) args))
+                           ((seqable? arg)
+                            (list*  (seq->list (seq  arg)) args))
+                           (t 
+                            (list*  arg args)))))
         (common-lisp:apply f arglist))))
 
 (defun* map

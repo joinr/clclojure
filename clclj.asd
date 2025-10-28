@@ -26,6 +26,7 @@
                ;(:file "lexical"  :depends-on ("keywordfunc"))
                (:file "protocols"  :depends-on ("common-utils" "pvector" "cowmap"))
 	       (:file "clj"        :depends-on ("common-utils" "protocols" "pvector" "cowmap" "lexical"))
+               (:file "string"     :depends-on ("clj"))
                ))
 
 (asdf:defsystem :clclj/tools.reader
@@ -35,5 +36,5 @@
                (:file "reader-types"   :depends-on ("reader-utils"))
                (:file "reader-inspect")
                (:file "reader-errors"  :depends-on ("reader-types" "reader-inspect"))
-               ;(:file "reader-commons" :depends-on ("reader-utils" "reader-errors" "reader-types"))
+               (:file "reader-commons" :depends-on ("reader-utils" "reader-errors" "reader-types"))
                ))
