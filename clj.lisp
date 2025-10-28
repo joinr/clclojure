@@ -1,12 +1,14 @@
 (defpackage :clclojure.base ;;might change this to clojure.lang at some point.
   (:use :common-lisp :common-utils
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols
-        :clclojure.lexical :clj-con)
+   :clclojure.lexical :clj-con
+   :parse-float)
   (:shadow :deftype :keyword :atom :realized? :deref :char :str
            :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector
            :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
            :some :merge :pop :step) ;;forgot about shadowing-import-from....
   (:shadowing-import-from :sequences :apply)
+  (:shadowing-import-from :clj-re :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq)
   (:local-nicknames
        (:re :clj-re)
        (:mbind :metabang-bind)
@@ -21,8 +23,8 @@
    ;;mostly (except atom) from clj-con 
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
-   :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj
-   :partial :list? :cond :peek :pop))
+   :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
+ :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :==))
 (in-package clclojure.base)
 
 ;;convenience for clj-re
@@ -1066,6 +1068,14 @@
      IIndexed
      (-nth  (coll n) (nth-vec coll n))
      (-nth  (coll n not-found) (nth-vec coll n))
+     ILookup
+     (-lookup (coll idx) (if (< -1 idx (vector-count coll))
+                             (nth-vec coll idx)
+                             nil))
+     (-lookup (coll idx not-found)
+              (if (< -1 idx (vector-count coll))
+                  (nth-vec coll idx)
+                  not-found))
      
      IEmptyableCollection
      (-empty (c) )
@@ -1485,7 +1495,9 @@
                (recur y (first more) (next more))
                (- y (first more)))
            nil)))
-
+  
+  ;;just leverage cl's numeric specialized form.
+  (setf (fdefinition '==) #'cl:=)
   (defn key (e) (-key e))
   (defn val (e) (-val e))
   (defn namespace (this) (sym-ns this))
@@ -2587,6 +2599,21 @@
                 (update acc x inc)
                 (assoc acc x 1)))
           (hash-map) xs))
+
+(defmacro if-not (test then &optional else)
+  `(if (not ,test) ,then ,(or  else nil)))
+
+(defmacro when-first  (bindings &rest body)
+  ;; (assert-args
+  ;;  (vector? bindings) "a vector for its binding"
+  ;;  (= 2 (count bindings)) "exactly 2 forms in binding vector")
+  (let ((x xs) bindings)
+    (with-gensyms (xs#)
+      `(when-let (,xs# (seq ,xs))
+         (let (,x (first ,xs#))
+           ,@body)))))
+
+
 ;;destructuring junk.  not important yet.
 ;; (defn ds-pvec (bvec b val)
 ;;   (let (gvec (gensym "vec__")
@@ -2687,15 +2714,6 @@
 
 ;;   Roughly the same as (when (seq xs) (let [x (first xs)] body)) but xs is evaluated only once"
 ;;  {:added "1.0"}
-(defmacro when-first  (bindings &rest body)
-  ;; (assert-args
-  ;;  (vector? bindings) "a vector for its binding"
-  ;;  (= 2 (count bindings)) "exactly 2 forms in binding vector")
-  (let ((x xs) bindings)
-    (with-gensyms (xs#)
-      `(when-let (,xs# (seq ,xs))
-         (let (,x (first ,xs#))
-           ,@body)))))
 
 ;;WORK IN PROGRESS.
 ;;implementing for is a good skill check due to all the destructuring, plus

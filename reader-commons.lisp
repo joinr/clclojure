@@ -15,13 +15,14 @@
 
 (defpackage cljs.tools.reader.impl.commons
   (:use :cl :clclojure.pvector :clclojure.cowmap :clclojure.protocols)
-  (:shadow :char)
-  (:import-from :clclojure.base
-   :def :defn :ex-info :instance? :defrecord :true :false :identical? :nil? :when-not
-   :hash-map :string? :keyword? :vector? :symbol?)
-  (:import-from :cljs.tools.reader.impl.errors :reader-error) ;;not ported
-  (:import-from :cljs.tools.reader.reader-types :peek-char :read-char) ;;not ported
-  (:import-from :cljs.tools.reader.impl.utils   :numeric? :newline? :char)
+  (:shadowing-import-from :clclojure.base
+   :def :fn :defn :ex-info :instance? :defrecord :true :false :identical? :nil? :when-not
+   :hash-map :string? :keyword? :vector? :symbol? :nth :vec :vector :let :cond :re-find
+   :re-matches :get :subs
+   :-> :parse-float :if-not :when-let :if-let := :== :count :char? :pos? :inc)
+  (:shadowing-import-from :cljs.tools.reader.impl.errors :reader-error)
+  (:shadowing-import-from :cljs.tools.reader.impl.reader-types :peek-char :read-char)
+  (:shadowing-import-from :cljs.tools.reader.impl.utils   :numeric? :newline? :char)
   (:local-nicknames (:base :clclojure.base)
                     (:re :cl-ppcre)))
 (in-package :cljs.tools.reader.impl.commons)
@@ -31,26 +32,27 @@
 ;; helpers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn ^boolean number-literal?
-  "Checks whether the reader is at the start of a number literal"
-  [^not-native reader initch]
+;;^boolean
+;;"Checks whether the reader is at the start of a number literal"
+(defn number-literal?
+  (reader initch)
   (or (numeric? initch)
-      (and (or (identical? \+ initch) (identical?  \- initch))
+      (and (or (identical? #\+ initch) (identical?  #\- initch))
            (numeric? (peek-char reader)))))
 
+;; "Read until first character that doesn't match pred, returning
+;;  char."
 (defn read-past
-  "Read until first character that doesn't match pred, returning
-   char."
-  [pred ^not-native rdr]
-  (loop [ch (read-char rdr)]
-        (if ^boolean (pred ch)
+  (pred  rdr)
+  (base:loop (ch (read-char rdr))
+        (if (pred ch) ;;^boolean
             (recur (read-char rdr))
             ch)))
 
+;;  "Advances the reader to the end of a line. Returns the reader"
 (defn skip-line
-  "Advances the reader to the end of a line. Returns the reader"
-  [^not-native reader]
-  (loop []
+  (reader)
+  (base:loop ()
         (when-not (newline? (read-char reader))
                   (recur)))
   reader)
@@ -59,48 +61,55 @@
 (def ratio-pattern #"([-+]?[0-9]+)/([0-9]+)")
 (def float-pattern #"([-+]?[0-9]+(\.[0-9]*)?([eE][-+]?[0-9]+)?)(M)?")
 
-(defn- match-int
-  [s]
-  (let [m (vec (re-find int-pattern s))]
-    (if-not (nil? (m 2))
+(defn match-int
+  (s)
+  (let (m (vec (re-find int-pattern s))) ;;maybe slowish...
+    (if-not (nil? (get m 2))
             0
-            (let [^boolean negate? (identical? "-" (m 1))
-              a (cond
-                  (not (nil? (m 3))) [(m 3) 10]
-                  (not (nil? (m 4))) [(m 4) 16]
-                  (not (nil? (m 5))) [(m 5) 8]
-                  (not (nil? (m 7))) [(m 7) (js/parseInt (m 6))]
-                  :else              [nil nil])
-              n (a 0)]
+            (let (negate? (base:= "-" (get m 1)) ;;^boolean, strings aren't identical in cl.
+                  a       (cond
+                            (not (nil? (get m 3))) (vector  (get m 3) 10)
+                            (not (nil? (get m 4))) (vector  (get m 4) 16)
+                            (not (nil? (get m 5))) (vector  (get m 5) 8)
+                            (not (nil? (get m 7))) (vector  (get m 7) (parse-integer (get m 6)))
+                            :else              (vector nil nil))
+                  n (get a 0))
               (when-not (nil? n)
-                        (let [bn (js/parseInt n (a 1))
-                          bn (if negate? (* -1 bn) bn)]
+                        (let (bn (parse-integer n :radix (get a 1))
+                              bn (if negate? (* -1 bn) bn))
+                          #-sbcl
                           (when-not (js/isNaN bn)
-                                    bn)))))))
+                                    bn)
+                          bn
+                          ))))))
 
-(defn- match-ratio
-  [s]
-  (let [m (vec (re-find ratio-pattern s))
-    numerator (m 1)
-    denominator (m 2)
-    numerator (if (re-find #"^\+" numerator)
-                  (subs numerator 1)
-                  numerator)]
-    (/ (-> numerator   js/parseInt) ;;; No ratio type in cljs
-       (-> denominator js/parseInt)))); So will convert to js/Number
+;;replacing numerator and denominator since CL has these bound.
+(defn match-ratio
+  (s)
+  (let (m (vec (re-find ratio-pattern s))
+        numer (get m 1)
+        denom (get m 2)
+        numer (if (re-find #"^\+" numer)
+                      (subs numer 1)
+                      numer))
+    (/ (-> numer   parse-integer) ;;; No ratio type in cljs
+       (-> denom parse-integer)))); So will convert to js/Number
 
-(defn- match-float
-  [s]
-  (let [m (vec (re-find float-pattern s))]
-    (if-not (nil? (m 4)) ;; for BigDecimal "10.03M", as all parsed to js/Number
-            (js/parseFloat (m 1))
-            (js/parseFloat s))))
+;;haven't thought about BigDecimals yet....we parse everything to CL numbers.
+(defn match-float
+  (s)
+  (let (m (vec (re-find float-pattern s)))
+    (if-not (nil? (get m 4)) ;; for BigDecimal "10.03M", as all parsed to js/Number
+            (parse-float (get m 1))
+            (parse-float s))))
 
-(defn ^boolean matches? [pattern s]
-  (let [[match] (re-find pattern s)]
-    (identical? match s)))
+;;^boolean
+;;need to munge dbind to convert & to &rest....
+(defn  matches? (pattern s)
+  (when-let (res (re-find pattern s))
+    (base:= (base:first res) s)))
 
-(defn match-number [s]
+(defn match-number (s)
   (if (matches? int-pattern s)
       (match-int s)
       (if (matches? float-pattern s)
@@ -108,38 +117,59 @@
           (when (matches? ratio-pattern s)
             (match-ratio s)))))
 
+;;migrate these to string ns.
+(defn ends-with? (x suffix)
+  (and (<= (count suffix) (count x))
+       (string= x suffix :start1  (- (length x) (length suffix)))))
+
+(defn starts-with? (x prefix)
+  (and (<= (count prefix) (count x))
+       (string= x prefix :end1 (length prefix))))
+
+;;a little compatibility function to work with .indexOf replacement.s
+(defn idx-of (x s)
+  (let (c (cond (char? s) s
+                (string? s) (nth s 0)
+                :else (base:throw (ex-info "invalid char|string" (hash-map :in s :x x)))))
+    (or (position c x)
+        -1)))
+
+;;clj version is closer.;
+;;"Parses a string into a vector of the namespace and symbol"
 (defn parse-symbol
-  "Parses a string into a vector of the namespace and symbol"
-  [token]
-  (when-not (or (identical? "" token)
-                (true? (.test #":$" token))
-                (true? (.test #"^::" token)))
-            (let [ns-idx (.indexOf token "/")
-              ns (when (pos? ns-idx)
-                   (subs token 0 ns-idx))]
-              (if-not (nil? ns)
-                      (let [ns-idx (inc ns-idx)]
-                        (when-not (== ns-idx (count token))
-                                  (let [sym (subs token ns-idx)]
-                                    (when (and (not (numeric? (nth sym 0)))
-                                               (not (identical? "" sym))
-                                               (false? (.test #":$" ns))
-                                               (or (identical? sym "/")
-                                                   (== -1 (.indexOf sym "/"))))
-                                      [ns sym]))))
-                      (when (or (identical? token "/")
-                                (== -1 (.indexOf token "/")))
-                        [nil token])))))
+  (token)
+  (when-not (or (= "" token)
+                (starts-with? token ":")
+                (starts-with? token "::"))
+            (let (ns-idx (idx-of token "/")) ;;equiv to index-of for /
+              (if-let (ns (and (pos? ns-idx)
+                               (subs token 0 ns-idx)))
+                (let (ns-idx (inc ns-idx))
+                  (when-not (== ns-idx (count token))
+                            (let (sym (subs token ns-idx))
+                              (cond
+                                (re-matches #"[1-9]" sym)
+                                (vector  ns sym)
+                                (and (not (numeric? (nth sym 0)))
+                                     (not (= "" sym))
+                                     (not (ends-with? ns ":"))
+                                     (or (= sym "/")
+                                         (== -1 (idx-of sym "/"))))
+                                (vector ns sym)))))
+                (when (or (= token "/")
+                          (== -1 (idx-of token "/")))
+                  (vector  nil token))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; readers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;need to test these bro.
 (defn read-comment
-  [rdr & _]
+    (rdr & _)
   (skip-line rdr))
 
 (defn throwing-reader
-  [msg]
-  (fn [rdr & _]
+  (msg)
+  (fn (rdr & _)
       (reader-error rdr msg)))

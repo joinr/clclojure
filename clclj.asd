@@ -11,7 +11,7 @@
   
 (asdf:defsystem :clclj
   :depends-on (:named-readtables :cl-package-locks :cl-murmurhash
-               :clj-con :cl-ppcre :clj-re :metabang-bind :clclj/clj-parse) ;copied from example. debate using :cl-hamt
+               :clj-con :cl-ppcre :clj-re :metabang-bind :clclj/clj-parse :parse-float) ;copied from example. debate using :cl-hamt
   :components ((:file "common-utils")
                (:file "walk"        :depends-on ("common-utils"))
                (:file "sequences"   :depends-on  ("common-utils"))
@@ -34,6 +34,6 @@
   :components ((:file "reader-utils")
                (:file "reader-types"   :depends-on ("reader-utils"))
                (:file "reader-inspect")
-               ;(:file "reader-errors"  :depends-on ("reader-types" "reader-inspect"))
+               (:file "reader-errors"  :depends-on ("reader-types" "reader-inspect"))
                ;(:file "reader-commons" :depends-on ("reader-utils" "reader-errors" "reader-types"))
                ))
