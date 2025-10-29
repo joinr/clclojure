@@ -2680,6 +2680,71 @@
 ;;we have an adaptation in clojure.tools.reader, but not
 ;;quite enough for line-seq yet.
 
+;;transient placeholders. we'll just have mutable
+;;junk for now.
+
+;;NOTE: right now extend-protocol and extend-typ
+;;will crap out
+;;on classes that have type specializers like
+;;simple-vector for reasons, but extend-type works.
+;;works fine with single-function protocols though, huh..
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (extend-protocol IEditableCollection
+     clclojure.pvector::pvec
+     (-as-transient (coll) (clclojure.pvector:vector-to-array coll))
+     clclojure.pvector::subvector
+     (-as-transient (coll) (clclojure.pvector:vector-to-array coll))
+     clclojure.cowmap::cowmap
+     (-as-transient (coll)
+        (common-utils::copy-hash-table
+         (slot-value coll 'clclojure.cowmap::table)))
+     )
+  #-sbcl
+  (extend-type 
+   simple-vector
+   ITransientCollection
+   (-conj (tcoll val)
+          (vector-push tcoll val) tcoll)
+   (-persistent! (tcoll)
+                 (into (vector) (seq  tcoll))) ;;LAME, but meh.
+   ITransientAssociative
+   (-assoc (tcoll key val)
+           (if (cl:= key (length tcoll))
+               (cl:vector-push tcoll val)
+               (setf (elt tcoll key) val))
+           tcoll)
+   ITransientVector
+   (-assoc-n! (tcoll n val)
+              (if (cl:= n (length tcoll))
+                  (cl:vector-push tcoll val)
+                  (setf (elt tcoll n) val))
+              tcoll)
+   (-pop! (tcoll) (cl:vector-pop tcoll) tcoll))
+  
+
+  (extend-type 
+   hash-table ;;hash-map
+   ITransientCollection
+   (-conj!       (tcoll val)
+                 (if (=  (count val) 2)
+                     (do (setf (gethash tcoll (nth val 1)) (nth val 0))
+                         tcoll)
+                     (throw (ex-info "expected a vector or list or map entry!" (hash-map :in val)))))
+   (-persistent! (tcoll)
+                 (into (hash-map)   (common-utils:hash-table->entries tcoll)))
+   ITransientAssociative
+   (-assoc! (tcoll key val)
+            (setf (gethash tcoll key) val)
+            tcoll)
+   ITransientMap
+   (-dissoc! (tcoll key)
+             (remhash key tcoll)
+             tcoll)))
+
+;; (defprotocol ITransientSet
+;;     (-disjoin! (tcoll v)))
+
 ;;destructuring junk.  not important yet.
 ;; (defn ds-pvec (bvec b val)
 ;;   (let (gvec (gensym "vec__")

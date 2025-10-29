@@ -37,7 +37,8 @@
    :defrecord :true :false :identical? :nil? :when-not :hash-map :string?
    :keyword? :vector? :symbol? :nth :vec :vector :let :cond :re-find
    :re-matches :get :subs :-> :parse-float :if-not :when-let :if-let
-   := :== :count :char? :pos? :inc :case :loop :re-pattern :subs)
+   := :== :count :char? :pos? :inc :case :loop :re-pattern :subs :first :second :into
+   :seq->list :seq)
   (:shadowing-import-from :cljs.tools.reader.impl.errors :reader-error)
   (:shadowing-import-from :cljs.tools.reader.impl.reader-types
    :read-char :unread :peek-char :indexing-reader? :get-line-number :get-column-number :get-file-name
@@ -268,7 +269,7 @@
   (when (indexing-reader? rdr)
     (vector  (get-line-number rdr)) (get-column-number rdr)))
 
-;;I think we just use gensym to create unique objects as sentinel
+;;I think we can just use gensym to create unique objects as sentinel
 ;;values.
 ;; (defonce ^:private READ_EOF (js/Object.))
 ;; (defonce ^:private READ_FINISHED (js/Object.))
@@ -276,11 +277,16 @@
 (def READ_FINISHED (gensym))
 
 (def *read-delim* false)
-
-(defn- read-delimited-internal [kind delim rdr opts pending-forms]
-  (let [[start-line start-column] (starting-line-col-info rdr)
-    delim (char delim)]
-    (loop [a (transient [])]
+;;should look into expanding def/defn to allow private functions.
+;;the mechanism is already there (no export).
+;;we don't have transients yet. hmmm.
+;;we can just fake it with a resizeable vector.
+;;bindings are seq aware right now with destructuring, so we
+;;have to coerce to list or break them apart.
+(defn read-delimited-internal (kind delim rdr opts pending-forms)
+  (let ((start-line start-column) (seq->list (starting-line-col-info rdr))
+        delim (char delim))
+    (loop (a (transient []))
           (let [form (read* rdr false READ_EOF delim opts pending-forms)]
             (if (identical? form READ_FINISHED)
                 (persistent! a)
