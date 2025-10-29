@@ -37,7 +37,7 @@
    :defrecord :true :false :identical? :nil? :when-not :hash-map :string?
    :keyword? :vector? :symbol? :nth :vec :vector :let :cond :re-find
    :re-matches :get :subs :-> :parse-float :if-not :when-let :if-let
-   := :== :count :char? :pos? :inc :case)
+   := :== :count :char? :pos? :inc :case :loop :re-pattern)
   (:shadowing-import-from :cljs.tools.reader.impl.errors :reader-error)
   (:shadowing-import-from :cljs.tools.reader.impl.reader-types
    :read-char :unread :peek-char :indexing-reader? :get-line-number :get-column-number :get-file-name
@@ -69,62 +69,83 @@
     (#\" #\; #\@ #\^ #\` #\~ #\( #\) #\[ #\] #\{ #\} #\\) true
     false))
 
-(def sb (StringBuffer.))
+(def sb (base::->string-builder))
 
-(defn- read-token
-  "Read in a single logical token from the reader"
-  [^not-native rdr kind initch]
+;;this is a polyfill for .clear
+(defn .clear (b)
+  (set!  (clclojure.base::stringbuilder-buff b) "")
+  b)
+
+(defn .toString (it)
+  (str it))
+
+;;mutable conj impl, sue me.
+(defn .append (sb itm) (conj sb itm))
+
+(defn StringBuffer. ()
+  (clclojure.base:->string-builder ))
+
+;;"Read in a single logical token from the reader"
+(defn read-token
+  (rdr kind initch)
   (if (nil? initch)
-      (err/throw-eof-at-start rdr kind)
+      (err:throw-eof-at-start rdr kind)
       (do
        (.clear sb)
-       (loop [ch initch]
+       (loop (ch initch)
              (if (or (whitespace? ch)
                      (macro-terminating? ch)
                      (nil? ch))
                  (do
                   (when-not (nil? ch)
                             (unread rdr ch))
-                  (.toString sb))
+                  (str sb))
                  (do
                   (.append sb ch)
                   (recur (read-char rdr))))))))
 
-(declare read-tagged)
+(declare-clj read-tagged)
 
-(defn- read-dispatch
-  [^not-native rdr _ opts pending-forms]
-  (if-let [ch (read-char rdr)]
-    (if-let [dm (dispatch-macros ch)]
+(defn read-dispatch
+  (rdr _ opts pending-forms)
+  (if-let (ch (read-char rdr))
+    (if-let (dm (dispatch-macros ch))
       (dm rdr ch opts pending-forms)
       (read-tagged (doto rdr (unread ch)) ch opts pending-forms)) ;; ctor reader is implemented as a tagged literal
-    (err/throw-eof-at-dispatch rdr)))
+    (err:throw-eof-at-dispatch rdr)))
 
-(defn- read-unmatched-delimiter
-  [rdr ch opts pending-forms]
-  (err/throw-unmatch-delimiter rdr ch))
+(defn read-unmatched-delimiter
+  (rdr ch opts pending-forms)
+  (err:throw-unmatch-delimiter rdr ch))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; readers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;copied for now. working, but the pattern passed to ppcre is
+;;going to elide escapes.  I'm guessing it has to do with
+;;regex pattern encoding and clojure strings.  We include the
+;;escaping for the regex for now in the above impl.  Will revisit
+;;as necessary.
+
 (defn read-regex
-  [^not-native rdr ch opts pending-forms]
-  (let [sb (StringBuffer.)]
-    (loop [ch (read-char rdr)]
-          (if (identical? \" ch)
+    (rdr ch opts pending-forms)
+  (let (sb (StringBuffer.))
+    (loop (ch (read-char rdr))
+          (if (identical? #\" ch)
               (re-pattern (str sb))
               (if (nil? ch)
-                  (err/throw-eof-reading rdr :regex sb)
+                  (err:throw-eof-reading rdr :regex sb)
                   (do
                    (.append sb ch )
-                   (when (identical? \\ ch)
-                     (let [ch (read-char rdr)]
+                   (when (identical? #\\ ch) ;;we don't escape these?
+                     (let (ch (read-char rdr))
                        (if (nil? ch)
-                           (err/throw-eof-reading rdr :regex sb))
+                           (err:throw-eof-reading rdr :regex sb))
                        (.append sb ch)))
                     (recur (read-char rdr))))))))
 
+;;(re-find  (read-regex  (string-push-back-reader (str #\\ "d+" #\")) nil nil nil) "123")
 (defn- read-unicode-char
     ([token offset length base]
             (let [l (+ offset length)]
@@ -156,6 +177,37 @@
                                               (err/throw-invalid-unicode-digit rdr ch)
                                               (recur (inc i) (+ d (* uc base)))))))
                                   (js/String.fromCharCode uc))))))
+;; (defn- read-unicode-char
+;;     ([token offset length base]
+;;             (let [l (+ offset length)]
+;;               (when-not (== (count token) l)
+;;                         (err/throw-invalid-unicode-literal nil token))
+;;               (loop [i offset uc 0]
+;;                     (if (== i l)
+;;                         (js/String.fromCharCode uc)
+;;                         (let [d (char-code (nth token i) base)]
+;;                           (if (== d -1)
+;;                               (err/throw-invalid-unicode-digit-in-token nil (nth token i) token)
+;;                               (recur (inc i) (+ d (* uc base)))))))))
+
+;;   ([^not-native rdr initch base length exact?]
+;;                 (loop [i 1 uc (char-code initch base)]
+;;                       (if (== uc -1)
+;;                           (err/throw-invalid-unicode-digit rdr initch)
+;;                           (if-not (== i length)
+;;                                   (let [ch (peek-char rdr)]
+;;                                     (if (or (whitespace? ch)
+;;                                             (macros ch)
+;;                                             (nil? ch))
+;;                                         (if exact?
+;;                                             (err/throw-invalid-unicode-len rdr i length)
+;;                                             (js/String.fromCharCode uc))
+;;                                         (let [d (char-code ch base)]
+;;                                           (read-char rdr)
+;;                                           (if (== d -1)
+;;                                               (err/throw-invalid-unicode-digit rdr ch)
+;;                                               (recur (inc i) (+ d (* uc base)))))))
+;;                                   (js/String.fromCharCode uc))))))
 
 (def ^:private ^:const upper-limit (.charCodeAt \uD7ff 0))
 (def ^:private ^:const lower-limit (.charCodeAt \uE000 0))

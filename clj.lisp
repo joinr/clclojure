@@ -448,13 +448,15 @@
   (defmethod  fndef->sexp ((fd fn-def))
     (with-slots (args body (nm name)) fd
       (with-slots (lambda-list outer-let) (parse-args args)
-        (cl:let* ((body     (if (and  (listp body)
-                                      (cl:atom (cl:first body))
-                                      (cl:= (length body) 1))
-                                (cl:first body)
-                                body))
+        (cl:let* ((body     (cl:cond ((and  (listp body)
+                                             (cl:atom (cl:first body))
+                                             (cl:= (length body) 1))
+                                      (cl:first body))
+                                     ((cl:= (length body) 1) (cl:first body))
+                                     (t                               body)))
                   (interior (if outer-let `(let* ,outer-let ,body)
-                               body)))
+                                body)))
+          ;(pprint (list :fndef->sexp :body body :args args))
           `(named-fn ,nm ,lambda-list ,interior)))))
 
   (defmethod fndef->sexp ((fd common-lisp:cons))
@@ -581,7 +583,10 @@
   (defun dbind-fn (args body)
     (mbind:bind (((:keys parents compound rest-arg) (arg-binds args)))
       (if (null compound)
-          (cl:let ((tl (cl:first body)))
+          (cl:let ((tl (if (cl:=  (length body) 1)
+                           body
+                           (cons 'progn  body)))) ;;if we have multiple exprs in body, it's progn.
+            ;;(pprint (list :no-compound :args args :tl tl :body body))
             (cl:list args tl)) ;;this condition will probably never be hit.  FIX
           (cl:let ((newargs (if rest-arg
                              (mapcan (lambda (x) (if (seql x rest-arg)
