@@ -1,3 +1,5 @@
+;;CL port by joinr
+
 ;;   Copyright (c) Nicola Mometto, Rich Hickey & contributors.
 ;;   The use and distribution terms for this software are covered by the
 ;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
@@ -23,6 +25,10 @@
    :zero? :when-let :assoc :dissoc :conj :disj :merge :with-meta :meta :subs)  
   (:shadowing-import-from :cljs.tools.reader.impl.utils :char :whitespace? :newline?)
   (:shadow :read-char :peek-char :read-line)
+  (:export :read-char :unread :peek-char :indexing-reader?
+           :get-line-number :get-column-number :get-file-name :string-push-back-reader
+           :indexing-pushback-reader :read-line :string-reader
+           )
   (:local-nicknames (:base :clclojure.base)
                     (:re   :cl-ppcre)
                     (:u    :cljs.tools.reader.impl.utils )))

@@ -14,6 +14,7 @@
   (:import-from :clclojure.base
    :def :defn :ex-info :instance? :defrecord :true :false :identical? :nil? :when-not
    :hash-map :string? :keyword? :vector? :symbol?)
+  (:export :char :ex-info? :whitespace? :numeric? :desugar-meta :namespace-keys :second> :char-code)
   (:local-nicknames (:base :clclojure.base)
                     (:re :cl-ppcre)))
 (in-package :cljs.tools.reader.impl.utils)

@@ -6,8 +6,8 @@
   (:shadow :deftype :keyword :atom :realized? :deref :char :str
    :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let
    :vector :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
-   :some :merge :pop :step :apply) ;;forgot about shadowing-import-from....
-  ;;(:shadowing-import-from :sequences :apply)
+   :some :merge :pop :step :apply :case) ;;forgot about shadowing-import-from....
+  ;;(:shadowing-import-from :sequences x:apply)
   (:shadowing-import-from :clj-re :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq)
   (:local-nicknames
        (:re :clj-re)
@@ -24,8 +24,19 @@
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
    :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
- :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :==))
+ :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case))
 (in-package clclojure.base)
+
+
+;;for portions of the code ported from jvm clj (primarily core library functions, macros, docstrings),
+;;where they are direct copies, they fall under the following legacy license
+;;   Copyright (c) Rich Hickey. All rights reserved.
+;;   The use and distribution terms for this software are covered by the
+;;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+;;   which can be found in the file epl-v10.html at the root of this distribution.
+;;   By using this software in any fashion, you are agreeing to be bound by
+;;   the terms of this license.
+;;   You must not remove this notice, or any other, from this software.
 
 ;;convenience for clj-re
 (named-readtables:in-readtable clj-re:readtable)
@@ -1676,7 +1687,17 @@
             (if (next clauses)
                 (common-lisp:second clauses)
                 (throw (ex-info "cond requires an even number of forms"  clclojure.cowmap:+empty-cowmap+)))
-            (cons 'clclojure.base:cond (next (next clauses)))))))
+            (cons 'clclojure.base:cond (next (next clauses))))))
+  ;;maybe implement clj-case?
+  ;;clj just un-nests the case clauses, so we can transform it into
+  ;;a cl case by re-nesting them.
+  ;;in clj, if case has even number of args, we just pack them into cons.
+  ;;if odd, last arg is (otherwise arg).
+  (defmacro case (keyform &rest clauses)
+    (cl:let* ((default (when (oddp (length clauses))
+                         (list 'otherwise  (cl:first  (cl:last clauses)))))
+              (args  (append  (common-utils:partition! 2 clauses) (list  default))))
+      `(cl:case ,keyform ,@args ))))
 
 (defn chunk-cons (chunk rest)
   (error 'not-implemented))
@@ -2313,11 +2334,11 @@
     (with-gensyms (k not-found exists res newmeta)
       `(ILookup
         (-lookup (,this ,k)
-                 (case ,k
+                 (cl:case ,k
                    ,@lookups              
                    (otherwise (get ,ext ,this))))
         (-lookup (,this ,k ,not-found)
-                 (case ,k
+                 (cl:case ,k
                    ,@lookups             
                    (otherwise
                     (multiple-value-bind (,v ,exists)
@@ -2332,7 +2353,7 @@
                      (when (not (eq ,res :not-found))
                          (vector ,k ,res))))
         (-assoc (,this ,k ,v)
-                (case ,k
+                (cl:case ,k
                   ,@adds
                   (otherwise (let (,res ,(emit-copy-instance `,nm `,this all-args))
                                (setf (slot-value ,res ',ext) (assoc (slot-value ,this ',ext) ,k ,v))
@@ -2625,6 +2646,23 @@
       `(when-let (,xs# (seq ,xs))
          (let (,x (first ,xs#))
            ,@body)))))
+
+;; "Evaluates x then calls all of the methods and functions with the
+;;   value of x supplied at the front of the given arguments.  The forms
+;;   are evaluated in order.  Returns x.
+
+;;   (doto (new java.util.HashMap) (.put \"a\" 1) (.put \"b\" 2))"
+(defmacro doto (x &rest forms)
+  (let (gx (gensym))
+    `(let (,gx ,x)
+       ,@(seq->list (map (fn (f)
+                              (with-meta
+                                  (if (seq? f)
+                                      `(,(first f) ,gx ,@(next f))
+                                      `(,f ,gx))
+                                (meta f)))
+                          forms))
+       ,gx)))
 
 ;;this is a loose hack for now, but it works as a
 ;;placeholder.
