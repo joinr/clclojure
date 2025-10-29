@@ -14,7 +14,7 @@
   (:import-from :clclojure.base
    :def :defn :ex-info :instance? :defrecord :true :false :identical? :nil? :when-not
    :hash-map :string? :keyword? :vector? :symbol?)
-  (:export :char :ex-info? :whitespace? :numeric? :desugar-meta :namespace-keys :second> :char-code)
+  (:export :char :ex-info? :whitespace? :numeric? :desugar-meta :namespace-keys :second> :char-code>)
   (:local-nicknames (:base :clclojure.base)
                     (:re :cl-ppcre)))
 (in-package :cljs.tools.reader.impl.utils)
@@ -139,8 +139,10 @@
 ;;do we need this?
 ;;I think we have this built-in already...
 ;;formerly char-code
-(defn char-code> (ch base)
-  (base:let (code (parse-integer (base:str ch) :radix 10 :junk-allowed t))
-    (if (not code)
-        -1
-        code)))
+(defn char-code>
+    ((ch) (cl:char-code ch))
+    ((ch base)
+     (base:let (code (parse-integer (base:str ch) :radix base :junk-allowed t))
+       (if (not code)
+           -1
+           code))))

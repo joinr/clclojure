@@ -5,7 +5,7 @@
    :do :def :defn :let :ex-info :instance? :defrecord :true :false :identical? :nil? :when-not
    :hash-map :string? :keyword? :vector? :symbol? :set! :inc :dec :str :throw :aget :aset
    :zero? :when-let :assoc :dissoc :conj :disj :merge :with-meta :meta :subs :cond :apply :seq
-   :loop :char :char? :next :first :-> :vector :vec :loop)  
+   :loop :char :char? :next :first :-> :vector :vec :loop :count)  
   (:shadow :read-char :peek-char :read-line)
   (:local-nicknames (:base :clclojure.base)
                     (:re   :cl-ppcre))

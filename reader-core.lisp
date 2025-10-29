@@ -37,17 +37,18 @@
    :defrecord :true :false :identical? :nil? :when-not :hash-map :string?
    :keyword? :vector? :symbol? :nth :vec :vector :let :cond :re-find
    :re-matches :get :subs :-> :parse-float :if-not :when-let :if-let
-   := :== :count :char? :pos? :inc :case :loop :re-pattern)
+   := :== :count :char? :pos? :inc :case :loop :re-pattern :subs)
   (:shadowing-import-from :cljs.tools.reader.impl.errors :reader-error)
   (:shadowing-import-from :cljs.tools.reader.impl.reader-types
    :read-char :unread :peek-char :indexing-reader? :get-line-number :get-column-number :get-file-name
    :string-push-back-reader)
   (:shadowing-import-from :cljs.tools.reader.impl.utils
    :char :ex-info? :whitespace? :numeric? :desugar-meta :next-id :namespace-keys :second>
-   :ReaderConditional :reader-conditional :reader-conditional? :char-code)
+   :ReaderConditional :reader-conditional :reader-conditional? :char-code>)
   (:shadowing-import-from :cljs.tools.reader.impl.commons
    :number-literal? :read-past :match-number :parse-symbol :read-comment :throwing-reader)
   (:local-nicknames (:base :clclojure.base)
+                    (:clj-str :clclojure.string)
                     (:re :cl-ppcre)
                     (:err :cljs.tools.reader.impl.errors)))
 (in-package :cljs.tools.reader)
@@ -145,131 +146,136 @@
                        (.append sb ch)))
                     (recur (read-char rdr))))))))
 
+;;works.
 ;;(re-find  (read-regex  (string-push-back-reader (str #\\ "d+" #\")) nil nil nil) "123")
-(defn- read-unicode-char
-    ([token offset length base]
-            (let [l (+ offset length)]
-              (when-not (== (count token) l)
-                        (err/throw-invalid-unicode-literal nil token))
-              (loop [i offset uc 0]
-                    (if (== i l)
-                        (js/String.fromCharCode uc)
-                        (let [d (char-code (nth token i) base)]
-                          (if (== d -1)
-                              (err/throw-invalid-unicode-digit-in-token nil (nth token i) token)
-                              (recur (inc i) (+ d (* uc base)))))))))
 
-  ([^not-native rdr initch base length exact?]
-                (loop [i 1 uc (char-code initch base)]
-                      (if (== uc -1)
-                          (err/throw-invalid-unicode-digit rdr initch)
-                          (if-not (== i length)
-                                  (let [ch (peek-char rdr)]
-                                    (if (or (whitespace? ch)
-                                            (macros ch)
-                                            (nil? ch))
-                                        (if exact?
-                                            (err/throw-invalid-unicode-len rdr i length)
-                                            (js/String.fromCharCode uc))
-                                        (let [d (char-code ch base)]
-                                          (read-char rdr)
-                                          (if (== d -1)
-                                              (err/throw-invalid-unicode-digit rdr ch)
-                                              (recur (inc i) (+ d (* uc base)))))))
-                                  (js/String.fromCharCode uc))))))
-;; (defn- read-unicode-char
-;;     ([token offset length base]
-;;             (let [l (+ offset length)]
-;;               (when-not (== (count token) l)
-;;                         (err/throw-invalid-unicode-literal nil token))
-;;               (loop [i offset uc 0]
-;;                     (if (== i l)
-;;                         (js/String.fromCharCode uc)
-;;                         (let [d (char-code (nth token i) base)]
-;;                           (if (== d -1)
-;;                               (err/throw-invalid-unicode-digit-in-token nil (nth token i) token)
-;;                               (recur (inc i) (+ d (* uc base)))))))))
+;;polyfill for unicode list -> string.  might be unnecessary.
+#-sbcl
+(defn String.fromCharCode (code & char-codes)
+  (let (char-objects (cl:map 'list #'code-char (cons code  char-codes)))
+    (coerce char-objects 'string)))
 
-;;   ([^not-native rdr initch base length exact?]
-;;                 (loop [i 1 uc (char-code initch base)]
-;;                       (if (== uc -1)
-;;                           (err/throw-invalid-unicode-digit rdr initch)
-;;                           (if-not (== i length)
-;;                                   (let [ch (peek-char rdr)]
-;;                                     (if (or (whitespace? ch)
-;;                                             (macros ch)
-;;                                             (nil? ch))
-;;                                         (if exact?
-;;                                             (err/throw-invalid-unicode-len rdr i length)
-;;                                             (js/String.fromCharCode uc))
-;;                                         (let [d (char-code ch base)]
-;;                                           (read-char rdr)
-;;                                           (if (== d -1)
-;;                                               (err/throw-invalid-unicode-digit rdr ch)
-;;                                               (recur (inc i) (+ d (* uc base)))))))
-;;                                   (js/String.fromCharCode uc))))))
+;;Not super confident on semantics here, will have to see!
+;;porting appears mechanically okay though!
+;;replaced String.fromCharCode with char for now.
+;;READER> (read-unicode-char "037" 0 3 8)
+;;#\Us
 
-(def ^:private ^:const upper-limit (.charCodeAt \uD7ff 0))
-(def ^:private ^:const lower-limit (.charCodeAt \uE000 0))
+(defn read-unicode-char
+    ((token offset len base)
+     (let (l (+ offset len))
+       (when-not (== (count token) l)
+                 (err:throw-invalid-unicode-literal nil token))
+       (loop (i offset uc 0)
+             (if (== i l)
+                 (char uc)
+                 (let (d (char-code> (nth token i) base))
+                   (if (== d -1)
+                       (err:throw-invalid-unicode-digit-in-token nil (nth token i) token)
+                       (recur (inc i) (+ d (* uc base)))))))))
 
-(defn- valid-octal? [token base]
-  (<= (js/parseInt token base) 0377))
+  ((rdr initch base len exact?)
+   (loop (i 1 uc (char-code> initch base))
+         (if (== uc -1)
+             (err:throw-invalid-unicode-digit rdr initch)
+             (if-not (== i len)
+                     (let (ch (peek-char rdr))]
+                       (if (or (whitespace? ch)
+                               (macros ch)
+                               (nil? ch))
+                           (if exact?
+                               (err:throw-invalid-unicode-len rdr i len)
+                               (char uc))
+                           (let (d (char-code> ch base))
+                             (read-char rdr)
+                             (if (== d -1)
+                                 (err:throw-invalid-unicode-digit rdr ch)
+                                 (recur (inc i) (+ d (* uc base)))))))
+                     (char uc))))))
 
-(defn- read-char*
-  "Read in a character literal"
-  [^not-native rdr backslash opts pending-forms]
-  (let [ch (read-char rdr)]
+;;(def ^:private ^:const upper-limit (.charCodeAt \uD7ff 0))
+;;(def ^:private ^:const lower-limit (.charCodeAt \uE000 0))
+
+;;from jvm v
+;;(def ^:private ^:const upper-limit (int \uD7ff))
+;;(def ^:private ^:const lower-limit (int \uE000))
+
+(def upper-limit (char-code #\uD7ff))
+(def lower-limit (char-code #\uE000))
+
+(defn valid-octal? (token base)
+  (<= (parse-integer token :radix base) 0377))
+
+;;maybe obsolete
+#-sbcl
+(defn char-code-at (s idx)
+  (char-code  (nth s  idx)))
+
+(defn integer-to-string (i radix)
+  (format nil "~VR" i radix))
+
+;;(read-token (string-push-back-reader "D7ff") :blah  #\u)
+;;(read-char*  (string-push-back-reader "uD7ff") #\\ nil nil)
+;;#\UD7FF
+
+;;"Read in a character literal"
+(defn read-char*
+  (rdr backslash opts pending-forms)
+  (let (ch (read-char rdr))
     (if-not (nil? ch)
-            (let [token (if (or (macro-terminating? ch)
-                                (whitespace? ch))
-                            (str ch)
-                            (read-token rdr :character ch))
-              token-len (. token -length)]
+            (let (token (if (or (macro-terminating? ch)
+                                 (whitespace? ch))
+                             (str ch)
+                             (read-token rdr :character ch))
+                  token-len (count  token))
               (cond
+                (== 1 token-len)  (nth token 0) ;;; no char type - so can't ensure/cache char
+                
+                (= token "newline")   #\newline
+                (= token "space")     #\space
+                (= token "tab")       #\tab
+                (= token "backspace") #\backspace
+                (= token "formfeed")  #\formfeed
+                (= token "return")    #\return
 
-                (== 1 token-len)  (.charAt token 0) ;;; no char type - so can't ensure/cache char
-
-                (= token "newline") \newline
-                (= token "space") \space
-                (= token "tab") \tab
-                (= token "backspace") \backspace
-                (= token "formfeed") \formfeed
-                (= token "return") \return
-
-                (gstring/startsWith token "u")
-                (let [c (read-unicode-char token 1 4 16)
-                  ic (.charCodeAt c 0)]
+                (clj-str:starts-with? token "u")
+                (let (c  (read-unicode-char token 1 4 16)
+                      ic (char-code c))
                   (if (and (> ic upper-limit)
                            (< ic lower-limit))
-                      (err/throw-invalid-character-literal rdr (.toString ic 16))
+                      (err:throw-invalid-character-literal rdr (integer-to-string ic 16))
                       c))
 
-                (gstring/startsWith token "o")
-                (let [len (dec token-len)]
+                (clj-str:starts-with? token "o")
+                (let (len (dec token-len))
                   (if (> len 3)
-                      (err/throw-invalid-octal-len rdr token)
-                      (let [offset 1
-                        base 8
-                        uc (read-unicode-char token offset len base)]
+                      (err:throw-invalid-octal-len rdr token)
+                      (let (offset 1
+                            base 8
+                            uc (read-unicode-char token offset len base))
                         (if-not (valid-octal? (subs token offset) base)
-                                (err/throw-bad-octal-number rdr)
+                                (err:throw-bad-octal-number rdr)
                                 uc))))
 
-                :else (err/throw-unsupported-character rdr token)))
-            (err/throw-eof-in-character rdr))))
+                :else (err:throw-unsupported-character rdr token)))
+            (err:throw-eof-in-character rdr))))
 
-(defn- starting-line-col-info [^not-native rdr]
+(defn starting-line-col-info (rdr)
   (when (indexing-reader? rdr)
-    [(get-line-number rdr) (int (dec (get-column-number rdr)))]))
+    (vector (get-line-number rdr) (dec (get-column-number rdr)))))
 
-(defn- ending-line-col-info [^not-native rdr]
+(defn ending-line-col-info (rdr)
   (when (indexing-reader? rdr)
-    [(get-line-number rdr) (get-column-number rdr)]))
+    (vector  (get-line-number rdr)) (get-column-number rdr)))
 
-(defonce ^:private READ_EOF (js/Object.))
-(defonce ^:private READ_FINISHED (js/Object.))
+;;I think we just use gensym to create unique objects as sentinel
+;;values.
+;; (defonce ^:private READ_EOF (js/Object.))
+;; (defonce ^:private READ_FINISHED (js/Object.))
+(def READ_EOF (gensym))
+(def READ_FINISHED (gensym))
 
-(def ^:dynamic *read-delim* false)
+(def *read-delim* false)
 
 (defn- read-delimited-internal [kind delim rdr opts pending-forms]
   (let [[start-line start-column] (starting-line-col-info rdr)
