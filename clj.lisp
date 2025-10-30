@@ -2689,6 +2689,25 @@
 ;;simple-vector for reasons, but extend-type works.
 ;;works fine with single-function protocols though, huh..
 
+;;compatibility with generic CL sequences.
+(defn sequencep (coll)
+  (isa? (type-of coll) 'sequence))
+
+;;this isn't in clojure proper, but it's helpful
+;;for working with mutable adjustable arrays.
+(defn array-list (size-or-seq)
+  (cond (number? size-or-seq)
+        (let (size size-or-seq)
+          (make-array size  :adjustable t :fill-pointer 0))
+        (sequencep size-or-seq)
+        (let (size (length size-or-seq))
+          (make-array size :adjustable t :fill-pointer size :initial-contents size-or-seq))
+        ;;should check if it's an array...
+        (seq size-or-seq)
+        (let (size (count size-or-seq))
+          (make-array size :adjustable t :fill-pointer size :initial-contents (seq->list size-or-seq)))
+        :else (throw (ex-info "expected a size or seq!" (hash-map :in size-or-seq)))))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (extend-protocol IEditableCollection
      clclojure.pvector::pvec
@@ -2705,19 +2724,19 @@
    simple-vector
    ITransientCollection
    (-conj (tcoll val)
-          (vector-push tcoll val) tcoll)
+          (vector-push val tcoll) tcoll)
    (-persistent! (tcoll)
                  (into (vector) (seq  tcoll))) ;;LAME, but meh.
    ITransientAssociative
    (-assoc (tcoll key val)
            (if (cl:= key (length tcoll))
-               (cl:vector-push tcoll val)
+               (cl:vector-push val tcoll)
                (setf (elt tcoll key) val))
            tcoll)
    ITransientVector
    (-assoc-n! (tcoll n val)
               (if (cl:= n (length tcoll))
-                  (cl:vector-push tcoll val)
+                  (cl:vector-push val tcoll)
                   (setf (elt tcoll n) val))
               tcoll)
    (-pop! (tcoll) (cl:vector-pop tcoll) tcoll))
