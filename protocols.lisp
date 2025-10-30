@@ -472,7 +472,7 @@
     `(let ((,quoted-imp (quote ,imp)))
        (if (funcall ,satvar ,quoted-imp)
            (emit-method ,name ,(first imp) ,imp)
-           (error 'missing-implementations ,msg)))))
+           (error 'missing-implementations :message ,msg)))))
   
 ;; (defmacro/literal-walker extend-protocol (name &rest typespecs)
 ;;   (let* ((imps       (parse-implementations typespecs))

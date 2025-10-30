@@ -2719,16 +2719,15 @@
         (common-utils::copy-hash-table
          (slot-value coll 'clclojure.cowmap::table)))
      )
-  #-sbcl
   (extend-type 
-   simple-vector
+   common-lisp:vector
    ITransientCollection
-   (-conj (tcoll val)
+   (-conj! (tcoll val)
           (vector-push val tcoll) tcoll)
    (-persistent! (tcoll)
                  (into (vector) (seq  tcoll))) ;;LAME, but meh.
    ITransientAssociative
-   (-assoc (tcoll key val)
+   (-assoc! (tcoll key val)
            (if (cl:= key (length tcoll))
                (cl:vector-push val tcoll)
                (setf (elt tcoll key) val))
@@ -2741,25 +2740,26 @@
               tcoll)
    (-pop! (tcoll) (cl:vector-pop tcoll) tcoll))
   
-
   (extend-type 
    hash-table ;;hash-map
    ITransientCollection
    (-conj!       (tcoll val)
                  (if (=  (count val) 2)
-                     (do (setf (gethash tcoll (nth val 1)) (nth val 0))
+                     (do (setf (gethash (nth val 1) tcoll) (nth val 0))
                          tcoll)
                      (throw (ex-info "expected a vector or list or map entry!" (hash-map :in val)))))
    (-persistent! (tcoll)
                  (into (hash-map)   (common-utils:hash-table->entries tcoll)))
    ITransientAssociative
    (-assoc! (tcoll key val)
-            (setf (gethash tcoll key) val)
-            tcoll)
+            (progn  ;;odd that we need this, should be implicit.
+              (setf (gethash key tcoll) val)
+              tcoll))
    ITransientMap
    (-dissoc! (tcoll key)
-             (remhash key tcoll)
-             tcoll)))
+             (progn 
+               (remhash key tcoll)
+               tcoll))))
 
 ;; (defprotocol ITransientSet
 ;;     (-disjoin! (tcoll v)))
