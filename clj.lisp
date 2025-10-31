@@ -6,7 +6,7 @@
   (:shadow :deftype :keyword :atom :realized? :deref :char :str
    :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let
    :vector :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
-   :some :merge :pop :step :apply :case) ;;forgot about shadowing-import-from....
+   :some :merge :pop :step :apply :case :class) ;;forgot about shadowing-import-from....
   ;;(:shadowing-import-from :sequences x:apply)
   (:shadowing-import-from :clj-re :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq)
   (:local-nicknames
@@ -24,7 +24,7 @@
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
    :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
- :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case))
+ :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case :transient :persistent! :char? :sequencep :slurp :binding))
 (in-package clclojure.base)
 
 
@@ -477,6 +477,7 @@
   ;;null, which is also a symbol.  so we can get confusion in named
   ;;function parsing (since we now admit common lisp function defs with
   ;;possibly empty arg lists).
+  ;;OBE, DELETE THIS
   (defun actual (x) (and (not (null x)) (symbolp x))) 
 
   ;;we can implement destructuring now by leveraging metabang-bind.
@@ -505,6 +506,7 @@
   ;;from CL in this form, then that adds a slight burden.
   ;;We can leverage metabang-bind's lambda-destructuring
   ;;form.
+  ;;OBE, DELETE THIS
   (defun function-bodies (specs)
     (common-lisp:cond
       ((cl:= (length specs) 2) ;;possibly ambiguous case.
@@ -1440,7 +1442,37 @@
       (() "")
       ((x &rest xs)
        (format nil "~{~a~}" (mapcar #'-to-string (cons x xs)))))
-  (defn seq (coll) (-seq coll))
+  ;;this isn't great....
+  ;;it's possible that the concrete type isn't covered under the protocol,
+  ;;but a base type is.  so we might want more of an exhaustive look through
+  ;;the precedence hierarchy.  Alternately, we can look for method-combinations.
+  (defn class  (obj) (class-of obj))
+  (defn class? (obj) (or  (typep obj 'common-lisp:standard-class)
+                          (typep obj 'common-lisp:structure-class)
+                          (typep obj 'common-lisp:built-in-class)))
+  (defn supers (cls) (sb-mop:class-precedence-list cls))
+  (defn bases  (cls) (sb-mop:class-direct-superclasses))
+  ;;since protocols are all generic functions, with some
+  ;;type registration, we check the protocol's chain of custody.
+  ;;we will need to revise protocol implementation later,
+  ;;due to the added ways implementations can be defined.
+  ;;in clj jvm, there is a map of class->implementation, as well
+  ;;as an interface.  there's also an option to allow metadata
+  ;;implementations.  right now, we limit to direct extension
+  ;;by subtyping (through clos generic functions).  that information
+  ;;is stored simply in a members list on the protocol struct.
+  #-sbcl ;;WIP
+  (defn find-protocol-impl (protocol x)
+    (let (c (class x)
+          impls (get protocol)
+          impl (fn (cls) (get (:impls protocol) cls)))
+      (or (impl c)
+          (and c (or (first (remove nil? (map impl (butlast (super-chain c)))))
+                     (when-let [t (reduce1 pref (filter impl (disj (supers c) Object)))]
+                       (impl t))
+                     (impl Object))))))
+  (defn implements? (p obj)  (satisfies? p obj))
+  (defn seq  (coll) (-seq coll))
   (defn seq? (coll) (implements? ISeq coll))
   (defn seqable? (coll) (implements? ISeqable coll))
   (defn vec (coll)
@@ -1473,10 +1505,6 @@
   ;;TBD fix this for an actual -next implementation.
   ;; "Returns a seq of the items after the first. Calls seq on its
   ;; argument.  If there are no more items, returns nil"
-
-  ;;this isn't great....
-  (defn implements? (p obj)
-    (satisfies? p obj))
 
   ;;tbd : get metadata reader working...
                                         ;^seq
@@ -1530,8 +1558,7 @@
   (defn key (e) (-key e))
   (defn val (e) (-val e))
   (defn namespace (this) (sym-ns this))
-  (defn name (x) (-name x))
-  )
+  (defn name (x) (-name x)))
 
 
 (defmacro when-let (binding &rest body)
@@ -2760,6 +2787,64 @@
              (progn 
                (remhash key tcoll)
                tcoll))))
+
+(defn transient (coll)
+  (-as-trasient coll))
+
+(defn persistent! (coll)
+  (-persistent! coll))
+
+;;fwiw, it looks like the binding form from clojure is already
+;;handled in let, since CL does dynamic binds / special variables
+;;natively.  I think the only area we might want to mess with this
+;;is if/when we have per-thread bindings, which is where we need
+;;to investigate a little more.  I know clojure has a set of bindings
+;;per thread that are copied around; I think CL does something similarly,
+;;but I'm weak on the semantics.  It doesn't matter for bootstrapping
+;;right now, but we'll account for it with a placeholder.
+;;https://lispcookbook.github.io/cl-cookbook/process.html
+
+;; (defmacro binding
+;;   {:added "1.0"}
+;;   [bindings & body]
+;;   (assert-args
+;;    (vector? bindings) "a vector for its binding"
+;;    (even? (count bindings)) "an even number of forms in binding vector")
+;;   (let [var-ize (fn [var-vals]
+;;                     (loop [ret [] vvs (seq var-vals)]
+;;                           (if vvs
+;;                               (recur  (conj (conj ret `(var ~(first vvs))) (second vvs))
+;;                                       (next (next vvs)))
+;;                               (seq ret))))]
+;;     `(let []
+;;        (push-thread-bindings (hash-map ~@(var-ize bindings)))
+;;        (try
+;;         ~@body
+;;         (finally
+;;          (pop-thread-bindings))))))
+
+;;   "binding => var-symbol init-expr
+
+;;   Creates new bindings for the (already-existing) vars, with the
+;;   supplied initial values, executes the exprs in an implicit do, then
+;;   re-establishes the bindings that existed before.  The new bindings
+;;   are made in parallel (unlike let); all init-exprs are evaluated
+;;   before the vars are bound to their new values."
+;;Need to [eventually] implement push-thread-bindings, pop-thread-bindings
+
+#-sbcl
+(defmacro push-thread-bindings (binds &rest body))
+#-sbcl
+(defmacro pop-thread-bindings ())
+
+;;we just substitute let for now, which should work fine with
+;;special variables (dynamic vars).
+(defmacro binding (binds &rest body)
+  `(clclojure.base:let ,binds ,@body))
+
+(defn counted? (coll)
+  (implements? ICounted coll))
+(defn empty? (coll))
 
 ;; (defprotocol ITransientSet
 ;;     (-disjoin! (tcoll v)))

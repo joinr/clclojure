@@ -183,9 +183,6 @@
 (defmethod  satisfies? ((p protocol) x)
   (not (null (find (type-of x) (protocol-members p)))))
 
-(defmethod  satisfies? ((p protocol) x)
-  (not (null (find (type-of x) (protocol-members p)))))
-
 (define-condition protocol-exists (error) 
   ((text :initarg :text :reader text)))
 

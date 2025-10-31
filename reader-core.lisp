@@ -38,7 +38,7 @@
    :keyword? :vector? :symbol? :nth :vec :vector :let :cond :re-find
    :re-matches :get :subs :-> :parse-float :if-not :when-let :if-let
    := :== :count :char? :pos? :inc :case :loop :re-pattern :subs :first :second :into
-   :seq->list :seq)
+   :seq->list :seq :transient :persistent! :binding)
   (:shadowing-import-from :cljs.tools.reader.impl.errors :reader-error)
   (:shadowing-import-from :cljs.tools.reader.impl.reader-types
    :read-char :unread :peek-char :indexing-reader? :get-line-number :get-column-number :get-file-name
@@ -106,7 +106,7 @@
                   (.append sb ch)
                   (recur (read-char rdr))))))))
 
-(declare-clj read-tagged)
+(base:declare-clj read-tagged)
 
 (defn read-dispatch
   (rdr _ opts pending-forms)
@@ -286,22 +286,22 @@
 (defn read-delimited-internal (kind delim rdr opts pending-forms)
   (let ((start-line start-column) (seq->list (starting-line-col-info rdr))
         delim (char delim))
-    (loop (a (transient []))
-          (let [form (read* rdr false READ_EOF delim opts pending-forms)]
+    (loop (a (transient (vector)))
+          (let (form (read* rdr false READ_EOF delim opts pending-forms))
             (if (identical? form READ_FINISHED)
                 (persistent! a)
                 (if (identical? form READ_EOF)
-                    (err/throw-eof-delimited rdr kind start-line start-column (count a))
+                    (err:throw-eof-delimited rdr kind start-line start-column (count a))
                     (recur (conj! a form))))))))
 
-(defn- read-delimited
-  "Reads and returns a collection ended with delim"
-  [kind delim rdr opts pending-forms]
-  (binding [*read-delim* true]
+;;"Reads and returns a collection ended with delim"
+(defn read-delimited
+    (kind delim rdr opts pending-forms)
+  (binding (*read-delim* true)
            (read-delimited-internal kind delim rdr opts pending-forms)))
 
+;;"Read in a list, including its location if the reader is an indexing reader"
 (defn- read-list
-  "Read in a list, including its location if the reader is an indexing reader"
   [rdr _ opts pending-forms]
   (let [[start-line start-column] (starting-line-col-info rdr)
     the-list (read-delimited :list \) rdr opts pending-forms)
