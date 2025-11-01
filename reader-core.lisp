@@ -38,7 +38,7 @@
    :keyword? :vector? :symbol? :nth :vec :vector :let :cond :re-find
    :re-matches :get :subs :-> :parse-float :if-not :when-let :if-let
    := :== :count :char? :pos? :inc :case :loop :re-pattern :subs :first :second :into
-   :seq->list :seq :transient :persistent! :binding)
+   :seq->list :seq :transient :persistent! :binding :satisfies?)
   (:shadowing-import-from :cljs.tools.reader.impl.errors :reader-error)
   (:shadowing-import-from :cljs.tools.reader.impl.reader-types
    :read-char :unread :peek-char :indexing-reader? :get-line-number :get-column-number :get-file-name
@@ -301,11 +301,11 @@
            (read-delimited-internal kind delim rdr opts pending-forms)))
 
 ;;"Read in a list, including its location if the reader is an indexing reader"
-(defn- read-list
-  [rdr _ opts pending-forms]
-  (let [[start-line start-column] (starting-line-col-info rdr)
-    the-list (read-delimited :list \) rdr opts pending-forms)
-    [end-line end-column] (ending-line-col-info rdr)]
+(defn read-list
+  (rdr _ opts pending-forms)
+  (let ((start-line start-column) (seq->list  (starting-line-col-info rdr))
+        the-list   (read-delimited :list #\) rdr opts pending-forms)
+        (end-line end-column)  (seq->list  (ending-line-col-info rdr)))
     (with-meta (if (empty? the-list)
                    '()
                    (apply list the-list))

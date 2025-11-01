@@ -68,6 +68,7 @@
    :->hash-table
    :lambda-list->args
    :normal-lambda?
+   :hash-table-iterator
    ))
 (in-package :common-utils)
 
@@ -252,6 +253,17 @@
           using (hash-value value)
           do (setf (gethash key ht) value)
           finally (return ht))))
+
+;;naive way to project onto a lazy iterator.
+;;seems work. we probably want generic iterables
+;;for everything we can get at some point...
+;;sb-impl has some iterators as BIFs.
+(defun hash-table-iterator (tbl)
+  (with-hash-table-iterator (f tbl)
+    (lambda ()
+      (multiple-value-bind
+            (more? k v) (f)
+        (when more? (list k v))))))
 
 (defun str (x &rest xs)
   (format nil "~{~a~}" (mapcar #'to-string (cons x xs))))

@@ -26,7 +26,7 @@
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
    :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
    :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case :transient :persistent! :char? :sequencep :slurp :binding :satisfies? :extends? :extenders :class :supers
-   :bases :class? :namespace :->string-builder))
+   :bases :class? :namespace :->string-builder :lazy-seq))
 (in-package clclojure.base)
 
 
@@ -1394,6 +1394,67 @@
    IKVReduce
    (-kv-reduce (coll f init) (error 'not-implemented)))
 
+  (extend-type
+   common-lisp:hash-table
+   
+   ICounted
+   (-count (c) (hash-table-size c))
+
+   IEmptyableCollection
+   (-empty (c) (common-utils:->hash-table))
+   
+   ;; ICollection ;;not writeable for now.
+   ;; (-conj (coll itm)
+   ;;        (if (typep itm 'clclojure.cowmap::cowmap)
+   ;;            ;;merge all the keys.  I missed that conj acts like this for maps man.
+   ;;            (->> (-seq itm)
+   ;;                 (sequences:reduce
+   ;;                  (fn (acc itm)
+   ;;                      (map-assoc acc (common-lisp:first itm) (common-lisp:second itm)))
+   ;;                  coll))
+   ;;            (map-assoc coll (common-lisp:first itm) (common-lisp:second itm))))
+
+   ISeqable
+   (-seq (coll)
+         (let (rator (common-utils:hash-table-iterator coll)
+               step  (fn step (it)
+                            (lazy-seq
+                             (let (entry (it))
+                               (when entry
+                                   (cons entry  
+                                         (step it)))))))
+           (step rator)))
+   
+   ILookup
+   (-lookup (o k)
+            (gethash k o))
+   (-lookup (o k not-found)
+            (gethash k o not-found))  
+   IAssociative
+   (-contains-key? (coll k)
+    (let ((:values _ present?) (gethash k coll))
+      present?))
+   (-entry-at (coll k)
+              (let ((:values v present?) (gethash k coll))
+                (when present? (list k v))))
+   (-assoc (coll k v)  (do  (setf (gethash k coll) v) coll))
+
+   IMap
+   (-assoc-ex (coll k v)  (error 'not-implemented)) ;;apparently vestigial
+   (-dissoc   (coll k)    (do  (remhash coll k) coll))
+
+   IMeta
+   (-meta (this) nil)
+   IWithMeta
+   (-with-meta (this m) (error 'not-implemented))
+   
+   IHash
+   (-hash (o)  (hash o))
+   IEquiv ;;TBD, probabl should be.
+   (-equiv (o other) (error 'not-implemented))
+   IKVReduce ;;SHOULD be implemented fwiw.
+   (-kv-reduce (coll f init) (error 'not-implemented)))
+
   (extend-type  number
                 IEquiv
                 (-equiv (l r)  (when (numberp r) (common-lisp:= l r)))
@@ -1468,9 +1529,9 @@
   ;;or if any of x's superclasses satisfy the protocol.
   ;;we need to cache/memoize going forward as well.
   ;;right now repeated lookups will be fine.  should be able to cache
-  ;;based on the protocol struct identity, and the class of x.
+  ;;based on the protocol struct identity, and the class of x.x
   (defn find-protocol-impl (protocol x)
-    (let (c       (class x)
+    (let (c       (if (class? x) x  (class x))
           ;;just  list of class syms, converted to hash-table:: k -> true|T
           impls   (uiop/utility:list-to-hash-set
                     (protocol-members protocol))
@@ -1480,8 +1541,33 @@
                            when   (impl (class-name  cls))
                            return cls)))
           (impl t))))
+  ;;unclear if a pair is fast to cache.  maybe.  meh.
+  ;;TODO migrate to nested hashtable.
+  (def cached-proto
+      (let (outer (make-hash-table :test 'eq)) ;;other option is nested ht.
+        (fn (proto cls)
+            (if-let (inner (-lookup outer proto))
+              (if-let (res (-lookup inner cls))
+                res
+                (let (res (find-protocol-impl proto cls))
+                  (do  (-assoc inner cls res)
+                       res)))
+              (let (inner (make-hash-table :test 'eq)
+                    res   (find-protocol-impl proto cls))
+                (do (setf (gethash proto outer) inner)
+                    (setf (gethash cls inner) res)
+                  res))))))
   ;;we probably want our own satisfies? that caches implementation
   ;;and wraps defprotocol:satisfies?
+
+  ;;memoize our implementation cache.
+  ;;naive hashtable with eq semantics.
+  
+  (defn satisfies? (p obj)
+    (cached-proto p (if (class?  obj) obj (class obj))))
+  
+  ;;cljs defines implements?, which we just wrap around our
+  ;;cached satisfies? implementation.
   (defn implements? (p obj)  (satisfies? p obj))
   (defn extenders   (p)      (protocol-members p))
 
@@ -1955,6 +2041,9 @@
 ;; An index function of two arguments: the sequence, the state value. The function should return the current iteration index, starting from zero.
 ;; An iterator copy function of two arguments: the sequence, the state value. The function should return a "fresh" iteration value.
 
+;;We can build on this, with common-utils:hash-table-iterator, etc.
+;;Might make sense to flesh out Iterables at some point, since they're generic and we
+;;appear to have support for them in the built-ins.
 (defn ->iterator (s)
   (multiple-value-bind
         (state from-end step end? read-elt write-elt index copy)
