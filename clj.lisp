@@ -154,12 +154,13 @@
         (format stream ":~A/~A" ns nm)
         (format stream ":~A" nm))))
 
-(defprotocol ISymbolic
-    (as-symbol (this)))
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
+  (defprotocol ISymbolic
+      (as-symbol (this)))
 
-(defprotocol ISymbol
-  (sym-name  (this))
-  (sym-ns    (this)))
+  (defprotocol ISymbol
+      (sym-name  (this))
+    (sym-ns    (this))))
 
 (extend-protocol
  ISymbol
@@ -203,17 +204,22 @@
   ((name)    (as-symbol name))
   ((ns name) (make-instance 'CljSymbol :name name :ns ns :meta nil)))
 
-;;copping some fundamental protocols for bootstrapping symbol/key/ns support.
-(defprotocol IHashcode
-    (-hashcode (this)))
+(EVAL-WHEN (:compile-toplevel :load-toplevel :execute) 
+  ;;copping some fundamental protocols for bootstrapping symbol/key/ns support.
+  (defprotocol IHashcode
+      (-hashcode (this)))
+  (defprotocol IHasheq
+      (-hasheq (this)))
+  (defprotocol IMeta
+      (-meta (o)))
+
+  (defprotocol IWithMeta
+      (-with-meta  (o meta))))
 
 (extend-protocol
  IHashcode
  T
  (-hashcode (this) (sxhash this)))
-
-(defprotocol IHasheq
-    (-hasheq (this)))
 
 ;;shouldn't matter if hashcode is synchronized,
 ;;it's ideal not to be actually.
@@ -231,12 +237,6 @@
                   (setf (slot-value this 'hasheq) newc)
                   newc)))))
 
-(defprotocol IMeta
-    (-meta (o)))
-
-(defprotocol IWithMeta
-    (-with-meta  (o meta)))
-
 (extend-type
  T
  IMeta
@@ -245,11 +245,11 @@
  (-with-meta (o meta) o)) ;;should probably throw on this...
 
 
-(defprotocol IDeref
-    (-deref (o)))
+;; (defprotocol IDeref
+;;     (-deref (o)))
 
-(defprotocol IDerefWithTimeout
-    (-deref-with-timeout (o msec timeout-val)))
+;; (defprotocol IDerefWithTimeout
+;;     (-deref-with-timeout (o msec timeout-val)))
 
 (defun symbol-equal (l r)
   (and (string-equal (sym-name l) (sym-name r))
@@ -884,11 +884,11 @@
   (defprotocol IDerefWithTimeout
       (-deref-with-timeout (o msec timeout-val)))
 
-  (defprotocol IMeta
-      (-meta (o)))
+  ;; (defprotocol IMeta
+  ;;     (-meta (o)))
 
-  (defprotocol IWithMeta
-      (-with-meta (o meta)))
+  ;; (defprotocol IWithMeta
+  ;;     (-with-meta (o meta)))
 
   (defprotocol IReduce
       (-reduce (coll f)
@@ -1504,7 +1504,7 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro if-let (binding body &rest false-body)
-    (let (binding (seq binding)        
+    (let (binding (-seq binding)        
           arg     (-first binding)
           expr    (-first (-rest  binding))
           tst     (gensym "tst")) 
