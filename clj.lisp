@@ -94,13 +94,16 @@
 
 (defmacro reify (&rest implementations)
   (cl:let ((classname (gentemp "REIFY"))
-        (ctor (gensym "CONSTRUCTOR")))
-    `(let ((,ctor (clojure-deftype ,classname ,'() ,@implementations)))
+           (ctor (gensym "CONSTRUCTOR")))
+    `(cl:let ((,ctor (clojure-deftype ,classname ,'() ,@implementations)))
        (funcall ,ctor))))
 
 ;;we're destructuring in let now, so no more interop with cl:let.
 (defmacro let (bindings &body body)
-  `(clclojure.lexical::unified-let* (,@(partition! 2 (as-list  bindings))) ,@body))
+  (cl:let* ((pairs (partition! 2 (as-list  bindings))))
+    (assert (evenp (length bindings)))
+    (assert (cl:= (length pairs) (cl:/ (length bindings) 2)))
+    `(clclojure.lexical::unified-let* (,@pairs) ,@body)))
 
 ;;we want protocols early.
 ;;need some bootstrapping stuff.
@@ -141,7 +144,7 @@
 
 (defmethod print-object ((obj Var) stream)
   (with-slots (ns sym) obj
-    (let ((outer ns))
+    (cl:let ((outer ns))
       (with-slots (ns (nm name)) sym
         (format stream "#'~A/~A" (or outer ns) nm)))))
 
@@ -177,7 +180,7 @@
                             (package-name (symbol-package this)))))
 
 (defun string->symbol (x)
-  (let ((res  (uiop:split-string x :separator "/")))
+  (cl:let ((res  (uiop:split-string x :separator "/")))
     (if (common-lisp:second res)
         (make-instance 'CljSymbol :ns (common-lisp:first res) :name (common-lisp:second res))
         (make-instance 'CljSymbol :ns nil :name x))))
@@ -220,11 +223,11 @@
  (-hasheq (this) (common-utils::hash-code this))
  CljSymbol
  (-hasheq (this)
-          (let ((hc (slot-value this 'hasheq)))
+          (cl:let ((hc (slot-value this 'hasheq)))
             (if (> hc -1)
                 hc
-                (let ((newc 
-                        (common-utils::hash-code (list (sym-ns this) (sym-name this)))))
+                (cl:let ((newc 
+                           (common-utils::hash-code (list (sym-ns this) (sym-name this)))))
                   (setf (slot-value this 'hasheq) newc)
                   newc)))))
 
@@ -277,9 +280,9 @@
 
 ;;we're hand-waving concurrency and meta at the moment.
 (defun intern-key (symb)
-  (let ((res (gethash  symb *keys*)))
+  (cl:let ((res (gethash  symb *keys*)))
     (if res res
-        (let ((kw (if (sym-ns symb)
+        (cl:let ((kw (if (sym-ns symb)
                       (clj-keyword (sym-ns symb) (sym-name symb))
                       (clj-keyword (sym-name symb)))))
           (setf (gethash symb *keys*) kw)
@@ -1661,15 +1664,14 @@
   (defn namespace (this) (sym-ns this))
   (defn name (x) (-name x)))
 
-
 (defmacro when-let (binding &rest body)
   (let (binding (seq binding)        
     arg     (-first binding)
     expr    (-first (-rest  binding))
     tst     (gensym "tst")) 
-    `(let ,(vector tst  (common-lisp:second binding))
+    `(let ,(list tst  (common-lisp:second binding))
        (when ,tst
-         (let ,(vector arg tst)
+         (let ,(list arg tst)
            ,@body)))))
 
 ;; (defmacro when-let (binding &rest body)
