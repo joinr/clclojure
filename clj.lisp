@@ -1461,17 +1461,29 @@
   ;;implementations.  right now, we limit to direct extension
   ;;by subtyping (through clos generic functions).  that information
   ;;is stored simply in a members list on the protocol struct.
-  #-sbcl ;;WIP
+  ;;we want to see if the class of x directly satisfies the protocol,
+  ;;e.g. is in the members slot of the protocol (a set encoded as a list),
+  ;;or if any of x's superclasses satisfy the protocol.
+  ;;we need to cache/memoize going forward as well.
+  ;;right now repeated lookups will be fine.  should be able to cache
+  ;;based on the protocol struct identity, and the class of x.
   (defn find-protocol-impl (protocol x)
-    (let (c (class x)
-          impls (get protocol)
-          impl (fn (cls) (get (:impls protocol) cls)))
+    (let (c       (class x)
+          ;;just  list of class syms, converted to hash-table:: k -> true|T
+          impls   (uiop/utility:list-to-hash-set
+                    (protocol-members protocol))
+          impl    (fn (cls) (gethash cls impls)))
+      (pprint (list :impls impls :base c :supers (cl:rest (supers c))))
       (or (impl c)
-          (and c (or (first (remove nil? (map impl (butlast (super-chain c)))))
-                     (when-let [t (reduce1 pref (filter impl (disj (supers c) Object)))]
-                       (impl t))
-                     (impl Object))))))
+          (and c (or (cl:loop for cls in (cl:rest (supers c))
+                           when   (impl (class-name  cls))
+                           return cls)))
+                     (impl t)))) 
   (defn implements? (p obj)  (satisfies? p obj))
+  (defn extenders   (p)      (protocol-members p))
+
+  (defn extends? (p cls) (member (class-name cls) (protocol-members p)))
+  
   (defn seq  (coll) (-seq coll))
   (defn seq? (coll) (implements? ISeq coll))
   (defn seqable? (coll) (implements? ISeqable coll))
@@ -1488,7 +1500,7 @@
   
   (defn identical? (l r)
     (common-lisp:eq l r))
-
+  ;;TBD replace with cl:null, might be faster.
   (defn nil? (x)
     (identical? x nil))
   ;;need to implement arrayseq...
