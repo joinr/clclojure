@@ -308,19 +308,20 @@
         (end-line end-column)  (seq->list  (ending-line-col-info rdr)))
     (with-meta (if (empty? the-list)
                    '()
-                   (apply list the-list))
+                   (apply #'list the-list))
       (when start-line
         (merge
-         (when-let [file (get-file-name rdr)]
-           {:file file})
-         {:line start-line
-         :column start-column
-         :end-line end-line
-         :end-column end-column})))))
+         (when-let (file (get-file-name rdr))
+           (hash-map  :file file))
+         (hash-map 
+          :line start-line
+          :column start-column
+          :end-line end-line
+          :end-column end-column))))))
 
+;;"Read in a vector, including its location if the reader is an indexing reader"
 (defn- read-vector
-  "Read in a vector, including its location if the reader is an indexing reader"
-  [rdr _ opts pending-forms]
+  (rdr _ opts pending-forms)
   (let [[start-line start-column] (starting-line-col-info rdr)
     the-vector (read-delimited :vector \] rdr opts pending-forms)
     [end-line end-column] (ending-line-col-info rdr)]

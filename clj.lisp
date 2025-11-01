@@ -1503,6 +1503,16 @@
 ;;========
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  (defmacro if-let (binding body &rest false-body)
+    (let (binding (seq binding)        
+          arg     (-first binding)
+          expr    (-first (-rest  binding))
+          tst     (gensym "tst")) 
+      `(let ,(list tst  (common-lisp:second binding))
+         (if ,tst
+             (let ,(list arg  tst)
+               ,body)
+             ,@false-body))))
   (declaim (inline equiv))
   (defn str
       (() "")
@@ -1674,41 +1684,6 @@
          (let ,(list arg tst)
            ,@body)))))
 
-;; (defmacro when-let (binding &rest body)
-;;   (let (binding (seq binding)        
-;;         arg     (-first binding)
-;;         expr    (-first (-rest  binding))
-;;         tst     (gensym "tst")) 
-;;     (clclojure.eval::recover-literals
-;;      `(let ,(vector tst  (common-lisp:second binding))
-;;         (when ,tst
-;;           (let ,(vector arg tst)
-;;             ,@body))))))
-
-(defmacro if-let (binding body &rest false-body)
-  (let (binding (seq binding)        
-    arg     (-first binding)
-    expr    (-first (-rest  binding))
-    tst     (gensym "tst")) 
-    `(let ,(list tst  (common-lisp:second binding))
-       (if ,tst
-           (let ,(list arg  tst)
-             ,body)
-           ,@false-body))))
-
-;; (defmacro if-let (binding body &rest false-body)
-;;   (let (binding (seq binding)        
-;;         arg     (-first binding)
-;;         expr    (-first (-rest  binding))
-;;         tst     (gensym "tst")) 
-;;     (clclojure.eval::recover-literals
-;;      `(let ,(vector tst  (common-lisp:second binding))
-;;         (if ,tst
-;;             (let ,(vector arg  tst)
-;;               ,body)
-;;             ,@false-body)))))
-
-
 
 ;;try-catch-finally...
 
@@ -1832,10 +1807,10 @@
     (cl:let* ((default (when (oddp (length clauses))
                          (list 'otherwise  (cl:first  (cl:last clauses)))))
               (args  (append  (common-utils:partition! 2 clauses) (list  default))))
-      `(cl:case ,keyform ,@args ))))
+      `(cl:case ,keyform ,@args )))
 
-(defn chunk-cons (chunk rest)
-  (error 'not-implemented))
+  (defn chunk-cons (chunk rest)
+    (error 'not-implemented)))
 
 (defn chunk-append (b x)
   (error 'not-implemented))
@@ -2895,7 +2870,7 @@
                tcoll))))
 
 (defn transient (coll)
-  (-as-trasient coll))
+  (-as-transient coll))
 
 (defn persistent! (coll)
   (-persistent! coll))
@@ -2951,6 +2926,100 @@
 (defn counted? (coll)
   (implements? ICounted coll))
 (defn empty? (coll))
+
+
+;;looks like we need persistent lists now,
+;;since we use metadata when parsing forms.
+;;we have no way to derive from cons since it's
+;;a built-in class.
+
+;;we CAN wrap cons cells though, in a struct,
+;;which has metadata, and we can define
+;;a constant empty-list ala clojure.
+
+#-sbcl
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (clojure-deftype
+   PersistentList (v more size _meta _hasheq)
+   ISeq
+   (-first (coll) v)
+   (-rest (coll)  more)
+   INext
+   (-next (coll) (when (> size 1) more))
+   ICollection
+   (-conj (coll o)
+          (PersistentList. o coll (inc size) nil -1))
+   IMeta
+   (-meta (this)  _meta)
+   IWithMeta
+   (-with-meta  (this newmeta)
+                (PersistentList. v more size newmeta _hasheq))
+   ISeqable
+   (-seq (this) this)
+   ICounted
+   (-count (this) size)
+   IString
+   (-to-string (this)
+               (str "(" (apply #'str (interpose " " (-seq this))) ")")))
+
+  (defmethod print-object ((obj PersistentList) stream)
+    (format stream "(~A)" (apply #'str (interpose " " (-seq obj)))))
+
+  (def +empty-list+ (PersistentList. nil nil 0 (hash-map) -1))
+
+  ;;temporary lame placeholder until we get better implementation.
+  (defn persistent-list (&rest args)
+    (if (null args)
+        +empty-list+
+        (let (in (nreverse args))
+          (loop (remaining in
+                           acc +empty-list+)
+                (if remaining
+                    (recur (cdr remaining)
+                           (conj acc (car remaining)))
+                    acc)))))
+
+  ;;unlike persistentlist, cons is an O(1) prepend onto
+  ;;a possibly unrealized lazy sequence.  We have to
+  ;;realize to find out stuff.  So that means
+  ;;invoking -seq on more.  similarly, size is -1
+  ;;unless we compute and cache it.
+  (clojure-deftype
+   CljCons (v more size _meta _hasheq)
+   ISeq
+   (-first (coll) v)
+   (-rest (coll) (if more (-seq more) +empty-list+))
+   INext
+   (-next (coll) (when more (-seq more)))
+   ICollection
+   (-conj (coll o)
+          (CljCons. o coll -1 nil -1))
+   IMeta
+   (-meta (this)  _meta)
+   IWithMeta
+   (-with-meta  (this newmeta)
+                (CljCons. v more size newmeta _hasheq))
+   ISeqable
+   (-seq (this) this)
+   ICounted
+   (-count (this) (if (neg? size)
+                      (let (res (inc  (-count more)))
+                        (set! size res)
+                        res)))
+   IString
+   (-to-string (this)
+               (str "(" (apply #'str (interpose " " (-seq this))) ")")))
+
+  (defmethod print-object ((obj CljCons) stream)
+    (format stream "(~A)" (apply #'str (interpose " " (-seq obj)))))
+
+  ;;"Returns a new seq where x is the first element and coll is the rest."
+  (defn cons
+      (x coll)
+    (cond
+      (nil? coll)             (persistent-list x)
+      (implements? ISeq coll) (CljCons. x coll -1 nil -1)
+      :default                (CljCons. x (seq  coll) -1 nil -1))))
 
 ;; (defprotocol ITransientSet
 ;;     (-disjoin! (tcoll v)))
