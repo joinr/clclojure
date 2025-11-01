@@ -3,10 +3,11 @@
         :clclojure.pvector :clclojure.cowmap :clclojure.protocols
    :clclojure.lexical :clj-con
    :parse-float)
+  ;;todo, migrate these to shadowing-import-from.
   (:shadow :deftype :keyword :atom :realized? :deref :char :str
    :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let
    :vector :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
-   :some :merge :pop :step :apply :case :class) ;;forgot about shadowing-import-from....
+   :some :merge :pop :step :apply :case :class :satisfies?) ;;forgot about shadowing-import-from....
   ;;(:shadowing-import-from :sequences x:apply)
   (:shadowing-import-from :clj-re :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq)
   (:local-nicknames
@@ -24,7 +25,8 @@
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
    :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
- :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case :transient :persistent! :char? :sequencep :slurp :binding))
+   :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case :transient :persistent! :char? :sequencep :slurp :binding :satisfies? :extends? :extenders :class :supers
+   :bases :class? :namespace :->string-builder))
 (in-package clclojure.base)
 
 
@@ -1473,12 +1475,13 @@
           impls   (uiop/utility:list-to-hash-set
                     (protocol-members protocol))
           impl    (fn (cls) (gethash cls impls)))
-      (pprint (list :impls impls :base c :supers (cl:rest (supers c))))
-      (or (impl c)
+      (or (impl (class-name  c))
           (and c (or (cl:loop for cls in (cl:rest (supers c))
                            when   (impl (class-name  cls))
                            return cls)))
-                     (impl t)))) 
+          (impl t))))
+  ;;we probably want our own satisfies? that caches implementation
+  ;;and wraps defprotocol:satisfies?
   (defn implements? (p obj)  (satisfies? p obj))
   (defn extenders   (p)      (protocol-members p))
 
