@@ -1780,6 +1780,20 @@
 
   (defn cons (x coll)
     (-conj coll x))
+
+  ;;generic seq printing...
+  (defn print-seq
+      ((s strm)
+       (do (write-char #\( strm) 
+           (loop (xs (-seq s))
+                 (when (-seq xs)
+                   (let (nxt (-rest xs))
+                     (write (-first xs) :stream strm :readably nil)
+                     (when (-seq  nxt) (write-char #\space strm))
+                     (recur nxt))))
+         (write-char #\) strm)
+        nil))
+    ((s) (print-seq s *standard-output*)))
   
   (defmacro lazy-seq (&rest body)
     `(sequences::lazy-seq ,@body))
