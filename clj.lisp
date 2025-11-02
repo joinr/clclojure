@@ -2159,13 +2159,14 @@
 
 ;; "Returns a lazy seq of the first item in each coll, then the common-lisp:second etc."
 ;; {:added "1.0"
-;; :static true}
+;; :static true
 (defn interleave
   (() nil)
   ((c1) (lazy-seq (seq  c1)))
   ((c1 c2)
        (lazy-seq
         (let (s1 (seq c1) s2 (seq c2))
+          (pprint (list :s1 (first s1) :s2 (first s2)))
           (when (and s1 s2)
             (cons (first s1) (cons (first s2) 
                                    (interleave (rest s1) (rest s2))))))))
@@ -2664,7 +2665,7 @@
 
 ;;"Returns a lazy seq of the first item in each coll, then the second etc."
 (defn interleave
-  (() '())
+  (() nil)
   ((c1) (lazy-seq c1))
   ((c1 c2)
        (lazy-seq
@@ -2937,7 +2938,6 @@
 ;;which has metadata, and we can define
 ;;a constant empty-list ala clojure.
 
-#-sbcl
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (clojure-deftype
    PersistentList (v more size _meta _hasheq)
@@ -2955,7 +2955,7 @@
    (-with-meta  (this newmeta)
                 (PersistentList. v more size newmeta _hasheq))
    ISeqable
-   (-seq (this) this)
+   (-seq (this) (when (pos? size) this))
    ICounted
    (-count (this) size)
    IString
@@ -3014,7 +3014,7 @@
     (format stream "(~A)" (apply #'str (interpose " " (-seq obj)))))
 
   ;;"Returns a new seq where x is the first element and coll is the rest."
-  (defn cons
+  (defn clj-cons
       (x coll)
     (cond
       (nil? coll)             (persistent-list x)
