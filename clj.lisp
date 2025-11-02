@@ -1711,8 +1711,31 @@
              (def ~name ~expr)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute) 
-  (defn count (coll)
-    (-count coll))) 
+  (defn count (coll)  (-count coll))
+  ;; "Takes a set of test/expr pairs. It evaluates each test one at a
+  ;;   time.  If a test returns logical true, cond evaluates and returns
+  ;;   the value of the corresponding expr and doesn't evaluate any of the
+  ;;   other tests or exprs. (cond) returns nil."
+  ;; {:added "1.0"}
+
+  ;;need to implement throw for most of the stdlib.
+  (defmacro cond  (&rest clauses)
+    (when (seq  clauses)
+      (list 'if (first clauses)
+            (if (next clauses)
+                (common-lisp:second clauses)
+                (throw (ex-info "cond requires an even number of forms"  clclojure.cowmap:+empty-cowmap+)))
+            (cl:cons 'clclojure.base:cond (next (next clauses))))))
+  ;;maybe implement clj-case?
+  ;;clj just un-nests the case clauses, so we can transform it into
+  ;;a cl case by re-nesting them.
+  ;;in clj, if case has even number of args, we just pack them into cons.
+  ;;if odd, last arg is (otherwise arg).
+  (defmacro case (keyform &rest clauses)
+    (cl:let* ((default (when (oddp (length clauses))
+                         (list 'otherwise  (cl:first  (cl:last clauses)))))
+              (args  (append  (common-utils:partition! 2 clauses) (list  default))))
+      `(cl:case ,keyform ,@args )))) 
 
 (defn nth
   ((coll index)
@@ -1777,9 +1800,8 @@
   (defn chunk-rest   (coll)  (-chunked-rest coll))
   (defn chunk-buffer (coll)  nil)
   (defn seq->list (xs) (sequences::seq->list (seq xs)))
-
-  (defn cons (x coll)
-    (-conj coll x))
+  (defmacro lazy-seq (&rest body)
+    `(sequences::lazy-seq ,@body))
 
   ;;generic seq printing...
   (defn print-seq
@@ -1794,37 +1816,125 @@
          (write-char #\) strm)
         nil))
     ((s) (print-seq s *standard-output*)))
+
+  ;;looks like we need persistent lists now,
+  ;;since we use metadata when parsing forms.
+  ;;we have no way to derive from cons since it's
+  ;;a built-in class.
+
+  ;;we CAN wrap cons cells though, in a struct,
+  ;;which has metadata, and we can define
+  ;;a constant empty-list ala clojure.
+
+  (clojure-deftype
+   PersistentList (v more size _meta _hasheq)
+   ISeq
+   (-first (coll) v)
+   (-rest (coll)  more)
+   INext
+   (-next (coll) (when (> size 1) more))
+   ICollection
+   (-conj (coll o)
+          (PersistentList. o coll (inc size) nil -1))
+   IMeta
+   (-meta (this)  _meta)
+   IWithMeta
+   (-with-meta  (this newmeta)
+                (PersistentList. v more size newmeta _hasheq))
+   ISeqable
+   (-seq (this) (when (pos? size) this))
+   ICounted
+   (-count (this) size)
+   IString
+   (-to-string (this)
+               (with-output-to-string (res)
+                 (print-seq this res)))) 
+
+   (defmethod print-object ((obj PersistentList) stream)
+     (print-seq obj stream))
+
+   (def +empty-list+ (PersistentList. nil nil 0 (hash-map) -1))
+
+  ;;temporary lame placeholder until we get better implementation.
+
+  (defn persistent-list (&rest args)
+    (if (null args)
+        +empty-list+
+        (let (in (nreverse args))
+          (loop (remaining in
+                           acc +empty-list+)
+                (if remaining
+                    (recur (cdr remaining)
+                           (conj acc (car remaining)))
+                    acc)))))
+
+  ;;unlike persistentlist, cons is an O(1) prepend onto
+  ;;a possibly unrealized lazy sequence.  We have to
+  ;;realize to find out stuff.  So that means
+  ;;invoking -seq on more.  similarly, size is -1
+  ;;unless we compute and cache it.
+
+  (clojure-deftype
+   CljCons (v more size _meta _hasheq)
+   ISeq
+   (-first (coll) v)
+   (-rest (coll) (if more (-seq more) +empty-list+))
+   INext
+   (-next (coll) (when more (-seq more)))
+   ICollection
+   (-conj (coll o)
+          (CljCons. o coll -1 nil -1))
+   IMeta
+   (-meta (this)  _meta)
+   IWithMeta
+   (-with-meta  (this newmeta)
+                (CljCons. v more size newmeta _hasheq))
+   ISeqable
+   (-seq (this) this)
+   ICounted
+   (-count (this) (if (neg? size)
+                      (let (res (inc  (-count more)))
+                        (set! size res)
+                        res)))
+   IString
+   (-to-string (this)
+               (with-output-to-string (res)
+                 (print-seq this res))))
   
-  (defmacro lazy-seq (&rest body)
-    `(sequences::lazy-seq ,@body))
 
-  ;; "Takes a set of test/expr pairs. It evaluates each test one at a
-  ;;   time.  If a test returns logical true, cond evaluates and returns
-  ;;   the value of the corresponding expr and doesn't evaluate any of the
-  ;;   other tests or exprs. (cond) returns nil."
-  ;; {:added "1.0"}
+  (defmethod print-object ((obj CljCons) stream)
+    (print-seq obj stream))  
 
-  ;;need to implement throw for most of the stdlib.
-  (defmacro cond  (&rest clauses)
-    (when (seq  clauses)
-      (list 'if (first clauses)
-            (if (next clauses)
-                (common-lisp:second clauses)
-                (throw (ex-info "cond requires an even number of forms"  clclojure.cowmap:+empty-cowmap+)))
-            (cons 'clclojure.base:cond (next (next clauses))))))
-  ;;maybe implement clj-case?
-  ;;clj just un-nests the case clauses, so we can transform it into
-  ;;a cl case by re-nesting them.
-  ;;in clj, if case has even number of args, we just pack them into cons.
-  ;;if odd, last arg is (otherwise arg).
-  (defmacro case (keyform &rest clauses)
-    (cl:let* ((default (when (oddp (length clauses))
-                         (list 'otherwise  (cl:first  (cl:last clauses)))))
-              (args  (append  (common-utils:partition! 2 clauses) (list  default))))
-      `(cl:case ,keyform ,@args )))
+  ;;"Returns a new seq where x is the first element and coll is the rest."
+  (defn cons (x coll)
+    (cond
+      (nil? coll)             (persistent-list x)
+      (implements? ISeq coll) (CljCons. x coll -1 nil -1)
+      :default                (CljCons. x (seq  coll) -1 nil -1)))
 
-  (defn chunk-cons (chunk rest)
-    (error 'not-implemented)))
+  ;;we have a minor booboo, since we're blending our seq protocols
+  ;;with the existing layer in sequences, we have some duplication of
+  ;;effort that shows up between the generic functions from 2013 lol.
+  ;;the better solution will be to define the fundamental sequence
+  ;;protocols elsewhere, and refactor sequences.lisp to then leverage
+  ;;a shared protocol with clclojure.base.  for now, we can work
+  ;;around the legacy bolt-on problem by providing implementations for
+  ;;the sequences stuff.  we could also go the clj jvm route with
+  ;;inheritance, but meh.
+  (cl:defmethod sequences::seq ((xs CljCons))
+    (-seq xs))
+  (cl:defmethod sequences::seq-first ((obj CljCons))
+    (-first obj))
+  (cl:defmethod sequences::seq-rest ((obj CljCons))
+    (-rest obj))
+  )
+
+;;TODO, since we have cons in place, we need to shadow
+;;list with persistent-list, and ensure every reference
+;;above is for cl:list.
+
+(defn chunk-cons (chunk rest)
+    (error 'not-implemented))
 
 (defn chunk-append (b x)
   (error 'not-implemented))
@@ -2941,99 +3051,6 @@
 (defn counted? (coll)
   (implements? ICounted coll))
 (defn empty? (coll))
-
-
-;;looks like we need persistent lists now,
-;;since we use metadata when parsing forms.
-;;we have no way to derive from cons since it's
-;;a built-in class.
-
-;;we CAN wrap cons cells though, in a struct,
-;;which has metadata, and we can define
-;;a constant empty-list ala clojure.
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (clojure-deftype
-   PersistentList (v more size _meta _hasheq)
-   ISeq
-   (-first (coll) v)
-   (-rest (coll)  more)
-   INext
-   (-next (coll) (when (> size 1) more))
-   ICollection
-   (-conj (coll o)
-          (PersistentList. o coll (inc size) nil -1))
-   IMeta
-   (-meta (this)  _meta)
-   IWithMeta
-   (-with-meta  (this newmeta)
-                (PersistentList. v more size newmeta _hasheq))
-   ISeqable
-   (-seq (this) (when (pos? size) this))
-   ICounted
-   (-count (this) size)
-   IString
-   (-to-string (this)
-               (str "(" (apply #'str (interpose " " (-seq this))) ")")))
-
-  (defmethod print-object ((obj PersistentList) stream)
-    (format stream "(~A)" (apply #'str (interpose " " (-seq obj)))))
-
-  (def +empty-list+ (PersistentList. nil nil 0 (hash-map) -1))
-
-  ;;temporary lame placeholder until we get better implementation.
-  (defn persistent-list (&rest args)
-    (if (null args)
-        +empty-list+
-        (let (in (nreverse args))
-          (loop (remaining in
-                           acc +empty-list+)
-                (if remaining
-                    (recur (cdr remaining)
-                           (conj acc (car remaining)))
-                    acc)))))
-
-  ;;unlike persistentlist, cons is an O(1) prepend onto
-  ;;a possibly unrealized lazy sequence.  We have to
-  ;;realize to find out stuff.  So that means
-  ;;invoking -seq on more.  similarly, size is -1
-  ;;unless we compute and cache it.
-  (clojure-deftype
-   CljCons (v more size _meta _hasheq)
-   ISeq
-   (-first (coll) v)
-   (-rest (coll) (if more (-seq more) +empty-list+))
-   INext
-   (-next (coll) (when more (-seq more)))
-   ICollection
-   (-conj (coll o)
-          (CljCons. o coll -1 nil -1))
-   IMeta
-   (-meta (this)  _meta)
-   IWithMeta
-   (-with-meta  (this newmeta)
-                (CljCons. v more size newmeta _hasheq))
-   ISeqable
-   (-seq (this) this)
-   ICounted
-   (-count (this) (if (neg? size)
-                      (let (res (inc  (-count more)))
-                        (set! size res)
-                        res)))
-   IString
-   (-to-string (this)
-               (str "(" (apply #'str (interpose " " (-seq this))) ")")))
-
-  (defmethod print-object ((obj CljCons) stream)
-    (format stream "(~A)" (apply #'str (interpose " " (-seq obj)))))
-
-  ;;"Returns a new seq where x is the first element and coll is the rest."
-  (defn clj-cons
-      (x coll)
-    (cond
-      (nil? coll)             (persistent-list x)
-      (implements? ISeq coll) (CljCons. x coll -1 nil -1)
-      :default                (CljCons. x (seq  coll) -1 nil -1))))
 
 ;; (defprotocol ITransientSet
 ;;     (-disjoin! (tcoll v)))
