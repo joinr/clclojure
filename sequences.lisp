@@ -48,6 +48,26 @@
   (or  (eq (type-of s) 'LazySeq)
        (eq (type-of s) 'FuncSeq)))
 
+(defun method-args (method)
+  (length (sb-mop::generic-function-lambda-list method)))
+
+(defun ts (n)
+  (loop for i from 1 to n
+        collect (quote  t)))
+
+;;this only works for single-arity stuff....
+(defun implements? (method x)
+  (find-method method '() (list*  (class-of x) (ts (1- (method-args method)))) nil))
+
+;;general lazy sequence constructors.
+;;Coerce a thing into a LazySeq
+(defgeneric seq (xs))
+;;maybe inefficient unless we
+;;memoize, but fine for bootstrapping.
+(defun seqable? (x)
+  (or (seq? x)
+      (when (implements? #'seq x))
+      t))
 
 (defmacro lazy-seq (&rest body)
   `(make-instance 'FuncSeq
@@ -81,6 +101,8 @@
           sequence)
         sequence)))
 
+(defmethod seq ((xs LazySeq)) xs)
+
 ;;sb-sequence claims these are its fundamental protocol:
 
 ;;Ugh....It's easier to just define our own stuff and use that internally.
@@ -110,29 +132,6 @@
   (common-lisp:rest obj))
 (defmethod seq-rest ((obj FuncSeq))
   (seq-rest (seq obj)))
-
-(defun method-args (method)
-  (length (sb-mop::generic-function-lambda-list method)))
-
-(defun ts (n)
-  (loop for i from 1 to n
-        collect (quote  t)))
-
-;;this only works for single-arity stuff....
-(defun implements? (method x)
-  (find-method method '() (list*  (class-of x) (ts (1- (method-args method)))) nil))
-
-;;general lazy sequence constructors.
-;;Coerce a thing into a LazySeq
-(defgeneric seq (xs))
-;;maybe inefficient unless we
-;;memoize, but fine for bootstrapping.
-(defun seqable? (x)
-  (or (seq? x)
-      (when (implements? #'seq x))
-        t))
-
-(defmethod seq ((xs LazySeq)) xs)
 
 (defmacro lazy-cons (x y)
   "Creates a LazySeq from x and y."
@@ -347,9 +346,14 @@
         finally (return acc)))
 
 ;;default behavior is to coerce to seq.
+#-sbcl
 (defmethod internal-reduce (obj f)
   (internal-reduce (seq obj) f))
 
+;;mild infinite loop here when we have
+;;object types that are sequences themselves.
+;;namely when we hit Cons or PersistentList
+#-sbcl
 (defmethod init-reduce  (obj f init)
   (init-reduce (seq obj) f init))
 

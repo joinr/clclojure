@@ -1517,7 +1517,7 @@
   (defn str
       (() "")
       ((x &rest xs)
-       (format nil "~{~a~}" (mapcar #'-to-string (cons x xs)))))
+       (format nil "~{~a~}" (mapcar #'-to-string (cl:cons x xs)))))
   ;;this isn't great....
   ;;it's possible that the concrete type isn't covered under the protocol,
   ;;but a base type is.  so we might want more of an exhaustive look through
@@ -1921,12 +1921,26 @@
   ;;around the legacy bolt-on problem by providing implementations for
   ;;the sequences stuff.  we could also go the clj jvm route with
   ;;inheritance, but meh.
-  (cl:defmethod sequences::seq ((xs CljCons))
+  ;; (cl:defmethod sequences::seq ((xs CljCons))
+  ;;   (-seq xs))
+  ;; (cl:defmethod sequences::seq-first ((obj CljCons))
+  ;;   (-first obj))
+  ;; (cl:defmethod sequences::seq-rest ((obj CljCons))
+  ;;   (-rest obj))
+
+  ;;to patch around this for the time being, we'll just extend
+  ;;legacy seq implementations to object and have it dispatch
+  ;;on our seq protocol here. muahahaahah.
+  (cl:defmethod sequences::seq ((xs t))
     (-seq xs))
-  (cl:defmethod sequences::seq-first ((obj CljCons))
-    (-first obj))
-  (cl:defmethod sequences::seq-rest ((obj CljCons))
-    (-rest obj))
+  (cl:defmethod sequences::seq-first ((xs t))
+    (-first xs))
+  (cl:defmethod sequences::seq-rest  ((xs t))
+    (-rest xs))
+  ;;(defmethod sequences::empty?    ((xs t)) (-empty xs))
+  ;;(defmethod sequences::internal-reduce ((xs t)))
+  (cl:defmethod sequences::init-reduce   ((xs t) f init)
+    (-reduce xs f init))
   )
 
 ;;TODO, since we have cons in place, we need to shadow
@@ -2158,9 +2172,43 @@
                :index     index
                :copy      copy)))
 
-;;We're doing a lot of runtime checks that
-;;may be suboptimal time-wise.  Could cache
-;;the implements? function, or move to protocol...
+
+;;need early return.  we have this implemented in sequences.lisp..
+(defn seq-reduce
+    ((f coll)
+     (loop (acc (first coll)
+            xs  (rest coll))
+           (if (seq xs)
+                       (recur (f acc (first xs))
+                              (rest xs))
+                       acc)))
+  ((f init coll)
+   (loop (acc init
+          xs  coll)
+         (if (seq xs)
+             (recur (f acc (first xs))
+                    (rest xs))
+             acc))))
+
+(extend-protocol
+ IReduce
+ PersistentList
+ (-reduce (coll f)
+          (seq-reduce f coll))
+ (-reduce (coll f start)
+          (seq-reduce f coll start))
+ CljCons
+ (-reduce (coll f)
+          (seq-reduce f coll))
+ (-reduce (coll f start)
+          (seq-reduce f coll start))
+ )
+                 
+;;we temporarily wrap the implementation in sequences.lisp.
+;;can also define our seq-reduce here on our protocols...
+;;this goes back to rewriting/refactoring sequences.lisp,
+;;it's legacy cruft.
+;;maybe we unify under iterables.
 (defn reduce
     ((f coll)
         (if (sequences:internal-reduce? coll)
@@ -2633,6 +2681,7 @@
   (let (all-args (nreverse  (into '() (concat args '(_ext _meta))))
         ctor (intern  (str  "->" name ))
         ks   (map (fn (x) (alexandria:make-keyword x)) args))
+    (print (list :all-args all-args :ks ks))
     `(progn  (clojure-deftype ,name
                               ,all-args
                               ,@impls
