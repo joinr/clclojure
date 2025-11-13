@@ -1735,7 +1735,45 @@
     (cl:let* ((default (when (oddp (length clauses))
                          (list 'otherwise  (cl:first  (cl:last clauses)))))
               (args  (append  (common-utils:partition! 2 clauses) (list  default))))
-      `(cl:case ,keyform ,@args )))) 
+      `(cl:case ,keyform ,@args )))
+  (defmacro loop* (bindings &rest body)
+    (assert (or  (vector? bindings)
+                 (not (nested-list? bindings))))
+    (assert (even? (count bindings)))
+    `(with-recur ,(seq->list bindings)
+       ,@body))
+
+  ;; "Evaluates the exprs in a lexical context in which the symbols in
+  ;;   the binding-forms are bound to their respective init-exprs or parts
+  ;;   therein. Acts as a recur target."
+
+  ;; (defmacro loop
+  ;;   "Evaluates the exprs in a lexical context in which the symbols in
+  ;;   the binding-forms are bound to their respective init-exprs or parts
+  ;;   therein. Acts as a recur target."
+  ;;   {:added "1.0", :special-form true, :forms '((loop (bindings*) exprs*))}
+  ;;   (bindings & body)
+  ;;   (assert-args
+  ;;    (vector? bindings) "a vector for its binding"
+  ;;    (even? (count bindings)) "an even number of forms in binding vector")
+  ;;   (let (db (destructure bindings))
+  ;;     (if (= db bindings)
+  ;;         `(loop* ~bindings ~@body)
+  ;;         (let (vs (take-nth 2 (drop 1 bindings))
+  ;;           bs (take-nth 2 bindings)
+  ;;           gs (map (fn (b) (if (symbol? b) b (gensym))) bs)
+  ;;           bfs (reduce1 (fn (ret (b v g))
+  ;;                            (if (symbol? b)
+  ;;                                (conj ret g v)
+  ;;                                (conj ret g v b g)))
+  ;;                        () (map vector bs vs gs)))
+  ;;           `(let ~bfs
+  ;;              (loop* ~(vec (interleave gs gs))
+  ;;                     (let ~(vec (interleave bs gs))
+  ;;                       ~@body)))))))
+
+  (defmacro loop (bindings &rest body)
+    `(loop* ,bindings ,@body))) 
 
 (defn nth
   ((coll index)
@@ -1802,7 +1840,7 @@
   (defn seq->list (xs) (sequences::seq->list (seq xs)))
   (defmacro lazy-seq (&rest body)
     `(sequences::lazy-seq ,@body))
-
+  
   ;;generic seq printing...
   (defn print-seq
       ((s strm)
@@ -1979,46 +2017,6 @@
   ((a b c args) (cons a (cons b (cons c args))))
   ((a b c d & more)
    (cons a (cons b (cons c (cons d (spread more)))))))
-
-(defmacro loop* (bindings &rest body)
-  (assert (or  (vector? bindings)
-               (not (nested-list? bindings))))
-  (assert (even? (count bindings)))
-  `(with-recur ,(seq->list bindings)
-     ,@body))
-
-;; "Evaluates the exprs in a lexical context in which the symbols in
-;;   the binding-forms are bound to their respective init-exprs or parts
-;;   therein. Acts as a recur target."
-
-;; (defmacro loop
-;;   "Evaluates the exprs in a lexical context in which the symbols in
-;;   the binding-forms are bound to their respective init-exprs or parts
-;;   therein. Acts as a recur target."
-;;   {:added "1.0", :special-form true, :forms '((loop (bindings*) exprs*))}
-;;   (bindings & body)
-;;   (assert-args
-;;    (vector? bindings) "a vector for its binding"
-;;    (even? (count bindings)) "an even number of forms in binding vector")
-;;   (let (db (destructure bindings))
-;;     (if (= db bindings)
-;;         `(loop* ~bindings ~@body)
-;;         (let (vs (take-nth 2 (drop 1 bindings))
-;;           bs (take-nth 2 bindings)
-;;           gs (map (fn (b) (if (symbol? b) b (gensym))) bs)
-;;           bfs (reduce1 (fn (ret (b v g))
-;;                            (if (symbol? b)
-;;                                (conj ret g v)
-;;                                (conj ret g v b g)))
-;;                        () (map vector bs vs gs)))
-;;           `(let ~bfs
-;;              (loop* ~(vec (interleave gs gs))
-;;                     (let ~(vec (interleave bs gs))
-;;                       ~@body)))))))
-
-(defmacro loop (bindings &rest body)
-  `(loop* ,bindings ,@body))
-
 
 ;; "When lazy sequences are produced via functions that have side
 ;;   effects, any effects other than those needed to produce the first

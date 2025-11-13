@@ -181,19 +181,22 @@
 
 ;;temporary printing helper
 ;;we'd really like to lazily print.
-(defun seq->list (lz)   
-  (loop with head = (seq lz) 
-        until   (null head)
-        collect (seq-first head)
-        do      (setf head (seq-rest head))))
+;;this falls down with our updated definition
+;;of seqable persistent lists.  we just pivot to the
+;;tail recursive variant.
+;; (defun seq->list (lz)   
+;;   (loop with head = (seq lz) 
+;;         until   (null head)
+;;         collect (seq-first head)
+;;         do      (setf head (seq-rest head))))
 
 ;;I like this one way better.
-;; (defun seq->list (lz)   
-;;   (labels ((aux (acc xs)
-;;              (if (seq xs)
-;;                  (aux (cons (seq-first xs) acc) (seq-rest xs))
-;;                  acc)))
-;;     (nreverse (aux '() lz))))
+(defun seq->list (lz)   
+  (labels ((aux (acc xs)
+             (if (seq xs)
+                 (aux (cons (seq-first xs) acc) (seq-rest xs))
+                 acc)))
+    (nreverse (aux '() lz))))
 
 ;;naive eager version.
 (defun print-seq (s &optional (stream t))
