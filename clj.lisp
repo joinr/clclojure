@@ -27,7 +27,7 @@
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
    :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
    :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case :transient :persistent! :char? :sequencep :slurp :binding :satisfies? :extends? :extenders :class :supers
-   :bases :class? :namespace :->string-builder :lazy-seq))
+   :bases :class? :namespace :->string-builder :lazy-seq :empty? :counted?))
 (in-package clclojure.base)
 
 
@@ -1117,7 +1117,7 @@
                   not-found))
      
      IEmptyableCollection
-     (-empty (c) )
+     (-empty (c) +empty-pvec+)
      ICollection
      (-conj (coll itm) (vector-conj coll itm))
      IVector
@@ -1698,7 +1698,6 @@
        (when ,tst
          (let ,(list arg tst)
            ,@body)))))
-
 
 ;;try-catch-finally...
 
@@ -2471,6 +2470,8 @@
 
 (defparameter *default-hierarchy* nil)
 ;;we can pack the multimethod into a struct.
+;;if we put this in class, we can make it funcallable.  hmm.
+;;don't really care to right now, but it's possible...
 (defstruct multimethod name doc meta default dispatch-fn methodcache hierarchy)
 ;;ignore hierarchy for now, keep it simple with doc and meta.
 (defun make-multi (name dispatch-fn &key doc meta default hierarchy)
@@ -3113,7 +3114,15 @@
 
 (defn counted? (coll)
   (implements? ICounted coll))
-(defn empty? (coll))
+;; "Returns true if coll has no items. To check the emptiness of a seq,
+;;   please use the idiom (seq x) rather than (not (empty? x))"
+;; {:added "1.0"
+;; :static true}
+(defn empty? (coll) 
+  (if (counted? coll)
+      (zero? (count coll))
+      (not (seq coll))))
+
 
 ;; (defprotocol ITransientSet
 ;;     (-disjoin! (tcoll v)))

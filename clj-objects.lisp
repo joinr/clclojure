@@ -41,3 +41,6 @@
 ;;keywords, namespaces, etc. if we want to have funcallability from CL.
 ;;This isn't a deal breaker - it's probably more useful if you want to have
 ;;clojure datastructure semantics in CL (e.g. funcall convenience).
+
+;;would be nice to have iterators/iterables somewhere here.
+;;so we can extend them to vectors and maps etc.
