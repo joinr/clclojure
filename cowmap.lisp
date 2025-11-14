@@ -5,7 +5,7 @@
 ;;lazy.  Uses copies for otherwise destructive operations.
 ;;Wraps a mutable hashtable.
 (defpackage :clclojure.cowmap
-  (:use :common-lisp)
+  (:use :common-lisp :clj-objects)
   (:export :persistent-map
 	   :empty-map?
 	   :map-count
@@ -24,10 +24,11 @@
 (in-package clclojure.cowmap)
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  (defstruct cowmap
+  (defstruct (cowmap (:include cljstruct))
     (table (make-hash-table))
-    (_meta nil)
-    (_hasheq -1))
+    ;(_meta nil)
+    ;(_hasheq -1)
+    )
   
 ;;From stack overflow.  It looks like the compiler needs a hint if we're 
 ;;defining struct/class literals and using them as constants.
@@ -81,13 +82,13 @@
 (defun map-assoc (m k v)
   (let ((tbl (common-utils::copy-hash-table (cowmap-table m))))
     (setf (gethash k tbl) v)
-    (make-cowmap :table tbl :_meta (cowmap-_meta m))))
+    (make-cowmap :table tbl :_meta (cljstruct-_meta m))))
 
 (defun map-dissoc (m k)
   (if (map-contains? m k)      
       (let ((tbl (common-utils::copy-hash-table (cowmap-table m))))
         (remhash k tbl)
-        (make-cowmap :table tbl :_meta (cowmap-_meta m)))
+        (make-cowmap :table tbl :_meta (cljstruct-_meta m)))
       m))
 
 (defun map-seq (m)

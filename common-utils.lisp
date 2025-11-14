@@ -1,8 +1,9 @@
 ;;A package for useful library utilities that come up during the course
 ;;of implementing clclojure.
 (defpackage :common-utils
-  (:use :common-lisp :cl-murmurhash)
-  (:local-nicknames (:mbind :metabang-bind))
+  (:use :common-lisp)
+  (:local-nicknames (:mbind :metabang-bind)
+                                (:murmur :cl-murmurhash))
   (:export  
    :comment
    :symbol?
@@ -108,7 +109,7 @@
          (listp x)
          (listp (first x))))
 
-  (defun hash-code (obj) (cl-murmurhash:murmurhash obj))
+  (defun hash-code (obj) (murmur:murmurhash obj))
   (defun quote-sym (sym) `(quote ,sym))
   ;;this keeps args in order....we nreverse all over the place.
   ;;Since we prototyped using lists, and now the vector

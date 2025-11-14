@@ -1,6 +1,6 @@
 (defpackage :clclojure.base ;;might change this to clojure.lang at some point.
   (:use :common-lisp :common-utils
-        :clclojure.pvector :clclojure.cowmap :clclojure.protocols
+   :clclojure.pvector :clclojure.cowmap :clclojure.protocols
    :clclojure.lexical :clj-con
    :parse-float)
   ;;todo, migrate these to shadowing-import-from.
@@ -13,7 +13,8 @@
   (:local-nicknames
        (:re :clj-re)
        (:mbind :metabang-bind)
-       (:parse :clj-parse))
+       (:parse :clj-parse)
+       (:clj-objects :clj-objects))
   (:export :apply :def :defn :fn :meta :with-meta :str :symbol? :instance? :first :rest :second :next :char
    :deftype :defprotocol :reify :extend-type :nil? :identical?
    :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count
@@ -241,9 +242,10 @@
  T
  IMeta
  (-meta (o) nil)
+ #-sbcl
  IWithMeta
- (-with-meta (o meta) o)) ;;should probably throw on this...
-
+ #-sbcl
+ (-with-meta (o meta) o))
 
 ;; (defprotocol IDeref
 ;;     (-deref (o)))
@@ -1300,7 +1302,7 @@
    (-count (c) (sequences:seq-count c))
 
    IEmptyableCollection
-   (-empty (c) '())
+   (-empty (c) (error 'not-implemented)) ;;should be persistent list.
    ICollection
    (-conj (coll itm) (sequences::cons itm coll))
    IStack
@@ -1318,6 +1320,13 @@
    ISeq
    (-first (coll)  (sequences::first coll))
    (-rest  (coll)  (sequences::rest coll))
+   IMeta
+   (-meta (o) (clj-objects:_meta o))
+   IWithMeta
+   (-with-meta (o meta)
+               (with-slots (pending val clj-objects:_meta) o 
+                 (make-instance 'sequences::LazySeq :pending pending :val val :_meta clj-objects:_meta)))
+
    )
 
   (extend-type
@@ -1326,7 +1335,7 @@
     (-count (c) (sequences:seq-count c))
 
    IEmptyableCollection
-   (-empty (c) '())
+   (-empty (c) (error 'not-implemented)) ;;should be persistent-list!
    ICollection
    (-conj (coll itm) (sequences::cons itm coll))
    IStack
@@ -1344,6 +1353,12 @@
    ISeq
    (-first (coll)  (sequences::first coll))
    (-rest  (coll)  (sequences::rest coll))
+   IMeta
+   (-meta (o) (clj-objects:_meta o))
+   IWithMeta
+   (-with-meta (o meta)
+               (with-slots (sequence sval seed clj-objects:_meta) o 
+                 (make-instance 'sequences::FuncSeq :sequence sequence :sval sval :seed seed :_meta clj-objects:_meta)))
    )
 
   (extend-type
@@ -1976,7 +1991,8 @@
   (cl:defmethod sequences::seq-rest  ((xs t))
     (-rest xs))
   ;;(defmethod sequences::empty?    ((xs t)) (-empty xs))
-  ;;(defmethod sequences::internal-reduce ((xs t)))
+  (cl:defmethod sequences::internal-reduce ((xs t) f)
+    (-reduce xs f))
   (cl:defmethod sequences::init-reduce   ((xs t) f init)
     (-reduce xs f init))
   )
@@ -2194,12 +2210,12 @@
  (-reduce (coll f)
           (seq-reduce f coll))
  (-reduce (coll f start)
-          (seq-reduce f coll start))
+          (seq-reduce f  start coll))
  CljCons
  (-reduce (coll f)
           (seq-reduce f coll))
  (-reduce (coll f start)
-          (seq-reduce f coll start))
+          (seq-reduce f  start coll))
  )
                  
 ;;we temporarily wrap the implementation in sequences.lisp.

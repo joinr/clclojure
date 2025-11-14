@@ -13,19 +13,20 @@
   :depends-on (:named-readtables :cl-package-locks :cl-murmurhash
                :clj-con :cl-ppcre :clj-re :metabang-bind :clclj/clj-parse :parse-float) ;copied from example. debate using :cl-hamt
   :components ((:file "common-utils")
+                           (:file "clj-objects")
                (:file "walk"        :depends-on ("common-utils"))
-               (:file "sequences"   :depends-on  ("common-utils"))
+               (:file "sequences"   :depends-on  ("common-utils" "clj-objects"))
                ;(:file "reader" :depends-on ("pvector" "cowmap" "sequences"))
                ;(:file "eval"   :depends-on ("common-utils" "walk" "reader"))
                ;(:file "literals"  :depends-on ("eval" "pvector" "cowmap"))
                (:file "keywordfunc")
                (:file "lexical"
                 :depends-on ("keywordfunc"))
-               (:file "pvector")
-               (:file "cowmap")
+               (:file "pvector" :depends-on ("clj-objects"))
+               (:file "cowmap" :depends-on ("clj-objects"))
                ;(:file "lexical"  :depends-on ("keywordfunc"))
                (:file "protocols"  :depends-on ("common-utils" "pvector" "cowmap"))
-	       (:file "clj"        :depends-on ("common-utils" "protocols" "pvector" "cowmap" "lexical"))
+	       (:file "clj"        :depends-on ("common-utils" "protocols" "pvector" "cowmap" "lexical" "clj-objects"))
                (:file "string"     :depends-on ("clj"))
                ))
 

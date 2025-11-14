@@ -1,5 +1,5 @@
 (defpackage :sequences
-  (:use :common-lisp :common-utils)
+  (:use :common-lisp :common-utils :clj-objects)
   (:shadow :first :rest :second :map :filter :reduce :cons :flatten :apply)
   (:export
    :apply
@@ -35,11 +35,11 @@
 ;;I had this deriving from sbcl's extensible sequence deal,
 ;;but ran into problems with method dispatch causing things to
 ;;break (like literally crashing sbcl).  Removed for now.
-(defclass  LazySeq ()                   ;(sequence standard-object)
+(defclass  LazySeq (cljclass)                   ;(sequence standard-object)
   ((value       :initarg :value)
    (pending     :initarg :pending)))
 
-(defclass FuncSeq ()
+(defclass FuncSeq (cljclass)
   ((sequence     :initarg :sequence)
    (sval         :initarg :sval)
    (seed         :initarg :seed)))
