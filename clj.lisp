@@ -799,7 +799,10 @@
 ;;The biggest example is IFn though.
 
 ;;Need to get back to this guy...multiple arity is not yet implemented
-;;perfectly for protocol fns.
+;;perfectly for protocol fns.  if we just want (-invoke (this) :return)
+;;we currently have to do (-invoke (this &rest args) :return) to get
+;;0-arity invocation.  SAD.  discrete arities work fine though, just
+;;not 0-arity. TODO
 (eval-when (:compile-toplevel :load-toplevel :execute) 
 
   (defprotocol IFn
@@ -2696,7 +2699,6 @@
   (let (all-args (nreverse  (into '() (concat args '(_ext _meta))))
         ctor (intern  (str  "->" name ))
         ks   (map (fn (x) (alexandria:make-keyword x)) args))
-    (print (list :all-args all-args :ks ks))
     `(progn  (clojure-deftype ,name
                               ,all-args
                               ,@impls
