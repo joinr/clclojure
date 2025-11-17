@@ -193,7 +193,15 @@
  String
  (as-symbol (this) (string->symbol this))
  CljSymbol
- (as-symbol (this) this))
+ (as-symbol (this) this)
+ cl:symbol
+ (as-symbol (this)
+            (make-instance 'CljSymbol :name (sym-name this) :ns nil
+                    :meta
+                    (clclojure.cowmap:persistent-map
+                     :cl-symbol this
+                     :cl-package (symbol-package this)
+                     :cl-name (symbol-name this)))))
 
 ;;We plan to maintain our own registry of namespaces
 ;;and keywords.  Ideally, we "could" try to inherit
@@ -282,6 +290,7 @@
 ;;we can also define synchronized hash tables in sbcl,
 ;;or alternately use a library (at least one exists)
 (defparameter *keys* (symbol-hashtable))
+(defparameter *symbols* (symbol-hashtable))
 
 ;;keywords are interned (cached) based on the symbol
 ;;symbols can have meta though, so we want them without meta.
@@ -334,8 +343,11 @@
     (with-slots ((ns-name  name)) obj
       (format stream "#<Namespace ~A>" ns-name)))
 
-  ;;this should be a concurrent hashtable.
-  (defparameter *namespaces* (common-utils:->hash-table))
+  ;;this should be a concurrent hashtable.  need to flesh out the api then,
+  ;;using with-locked-hashtable etc.
+  (defparameter *namespaces* (symbol-hashtable))
+  (defun find-ns (k)    (gethash k *namespaces*))
+  (defun ns-name (ns) (slot-value ns ))
   )
 
 ;;note: we can pull in a bunch of the stuff from proto clojure and use
@@ -1077,7 +1089,10 @@
      (-first (o) nil)
      (-rest  (o) nil)
      IReversible
-     (-rseq (coll) nil))
+     (-rseq (coll) nil)
+     ILookup
+     (-lookup (this k) nil)
+     (-lookup (this k not-found) not-found))
 
     ;;We got a ton of goodies from
     ;;sb-sequences namespace to leverage here.

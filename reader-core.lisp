@@ -439,9 +439,9 @@
                 (string= token   "/") '/
                 :else (let (p (parse-symbol token))
                         (if-not (nil? p)
-                                (let (sym (symbol (nth p 0) (nth p 1)))
+                                (let (sym (base::clj-symbol (nth p 0) (nth p 1)))
                                   (-with-meta sym (loc-info rdr line column)))
-                                (err/throw-invalid rdr :symbol token)))))))
+                                (err:throw-invalid rdr :symbol token)))))))
 #-sbcl
 (defn read-symbol
     (rdr initch)
@@ -470,11 +470,10 @@
   (get *alias-map* sym))
 
 ;;need to implement find-ns infra.
-#-sbcl
 (defn resolve-ns (sym)
   (or (resolve-alias sym)
-      (when-let (ns (find-ns sym))
-        (base::clj-symbol (ns-name ns)))))
+      (when-let (ns (base::find-ns sym))
+        (base::clj-symbol (base::ns-name ns)))))
 
 ;; (defn- read-keyword
 ;;   [^not-native reader initch opts pending-forms]
