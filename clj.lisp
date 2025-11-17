@@ -7,7 +7,7 @@
   (:shadow :deftype :keyword :atom :realized? :deref :char :str
    :let :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let
    :vector :odd? :even? :zero? :identity :filter :loop :if-let :throw :list* :cond := ;:defmethod
-   :some :merge :pop :step :apply :case :class :satisfies?) ;;forgot about shadowing-import-from....
+   :some :merge :pop :step :apply :case :class :satisfies? :set) ;;forgot about shadowing-import-from....
   ;;(:shadowing-import-from :sequences x:apply)
   (:shadowing-import-from :clj-re :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq)
   (:local-nicknames
@@ -27,7 +27,7 @@
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
    :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
    :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case :transient :persistent! :char? :sequencep :slurp :binding :satisfies? :extends? :extenders :class :supers
-   :bases :class? :namespace :->string-builder :lazy-seq :empty? :counted? :take-nth :keys :vals))
+   :bases :class? :namespace :->string-builder :lazy-seq :empty? :counted? :take-nth :keys :vals :set))
 (in-package clclojure.base)
 
 
@@ -2509,10 +2509,23 @@
 ;; {:A T :B T}
 
 ;;implementation of clojure's . special form on top of CLOS.
+;;with the generic slot-access provided by reflection::slot,
+;;we can have interchangeable code with clojure where
+;;we don't care about interned symbols (rather, we can
+;;handle the case where we have symbol-name = symbols
+;;for a slot, e.g. invoking from a symbol interned in a different
+;;package).
+;;e.g., we can access the internal table slot for a cowmap via:
+;;(-. (hash-map :a 2) :table)
+;;or
+;;(-. (hash-map :a 2) table)
+;;and similarly, pull out nested slots:
+;; (-.. (hash-map :a 2) :table :test)
+;; (-.. (hash-map :a 2) table test)
 (defmacro -. (instance member &rest args)
   (if (null args)
-      `(slot-value ,instance ',member)
-      `(funcall (slot-value ,instance ',member) ,@args)))
+      `(reflection::slot ,instance ',member)
+      `(funcall (reflection::slot ,instance ',member) ,@args)))
 
 ;; "form => fieldName-symbol or (instanceMethodName-symbol args*)
 
@@ -3151,7 +3164,9 @@
      (-as-transient (coll)
         (common-utils::copy-hash-table
          (slot-value coll 'clclojure.cowmap::table)))
-     )
+     clclojure.base::cowset
+     (-as-transient (coll)
+                    (TransientHashSet. (-as-transient  (slot-value coll 'entries)))) )
   (extend-type 
    common-lisp:vector
    ITransientCollection

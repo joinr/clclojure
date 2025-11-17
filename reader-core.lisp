@@ -339,30 +339,30 @@
           :end-column end-column))))))
 
 ;;"Read in a map, including its location if the reader is an indexing reader"
-(defn read-map
-    (rdr _ opts pending-forms)
-  (let ((start-line start-column) (seq->list (starting-line-col-info rdr))
-        the-map   (read-delimited :map #\} rdr opts pending-forms)
-        map-count (count the-map)
-        ks (take-nth 2 the-map)
-        key-set (set ks)
-        [end-line end-column] (ending-line-col-info rdr))
-    (when (odd? map-count)
-      (err/throw-odd-map rdr start-line start-column the-map))
-    (when-not (= (count key-set) (count ks))
-              (err/throw-dup-keys rdr :map ks))
-    (with-meta
-        (if (<= map-count (* 2 (.-HASHMAP-THRESHOLD cljs.core/PersistentArrayMap)))
-            (.fromArray cljs.core/PersistentArrayMap (to-array the-map) true true)
-            (.fromArray cljs.core/PersistentHashMap (to-array the-map) true))
-      (when start-line
-        (merge
-         (when-let [file (get-file-name rdr)]
-           {:file file})
-         {:line start-line
-         :column start-column
-         :end-line end-line
-         :end-column end-column})))))
+;; (defn read-map
+;;     (rdr _ opts pending-forms)
+;;   (let ((start-line start-column) (seq->list (starting-line-col-info rdr))
+;;         the-map   (read-delimited :map #\} rdr opts pending-forms)
+;;         map-count (count the-map)
+;;         ks (take-nth 2 the-map)
+;;         key-set (set ks)
+;;         [end-line end-column] (ending-line-col-info rdr))
+;;     (when (odd? map-count)
+;;       (err/throw-odd-map rdr start-line start-column the-map))
+;;     (when-not (= (count key-set) (count ks))
+;;               (err/throw-dup-keys rdr :map ks))
+;;     (with-meta
+;;         (if (<= map-count (* 2 (.-HASHMAP-THRESHOLD cljs.core/PersistentArrayMap)))
+;;             (.fromArray cljs.core/PersistentArrayMap (to-array the-map) true true)
+;;             (.fromArray cljs.core/PersistentHashMap (to-array the-map) true))
+;;       (when start-line
+;;         (merge
+;;          (when-let [file (get-file-name rdr)]
+;;            {:file file})
+;;          {:line start-line
+;;          :column start-column
+;;          :end-line end-line
+;;          :end-column end-column})))))
 
 ;; (defn- read-number
 ;;   [^not-native rdr initch]
