@@ -469,6 +469,8 @@
 (defn resolve-alias (sym) 
   (get *alias-map* sym))
 
+;;need to implement find-ns infra.
+#-sbcl
 (defn resolve-ns (sym)
   (or (resolve-alias sym)
       (when-let (ns (find-ns sym))
