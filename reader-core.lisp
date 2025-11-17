@@ -38,7 +38,7 @@
    :keyword? :vector? :symbol? :nth :vec :vector :let :cond :re-find
    :re-matches :get :subs :-> :parse-float :if-not :when-let :if-let
    := :== :count :char? :pos? :inc :case :loop :re-pattern :subs :first :second :into
-   :seq->list :seq :transient :persistent! :binding :satisfies? :take-nth)
+   :seq->list :seq :transient :persistent! :binding :satisfies? :take-nth :set :doto)
   (:shadowing-import-from :cljs.tools.reader.impl.errors :reader-error)
   (:shadowing-import-from :cljs.tools.reader.impl.reader-types
    :read-char :unread :peek-char :indexing-reader? :get-line-number :get-column-number :get-file-name
@@ -339,120 +339,140 @@
           :end-column end-column))))))
 
 ;;"Read in a map, including its location if the reader is an indexing reader"
-;; (defn read-map
-;;     (rdr _ opts pending-forms)
-;;   (let ((start-line start-column) (seq->list (starting-line-col-info rdr))
-;;         the-map   (read-delimited :map #\} rdr opts pending-forms)
-;;         map-count (count the-map)
-;;         ks (take-nth 2 the-map)
-;;         key-set (set ks)
-;;         [end-line end-column] (ending-line-col-info rdr))
-;;     (when (odd? map-count)
-;;       (err/throw-odd-map rdr start-line start-column the-map))
-;;     (when-not (= (count key-set) (count ks))
-;;               (err/throw-dup-keys rdr :map ks))
-;;     (with-meta
-;;         (if (<= map-count (* 2 (.-HASHMAP-THRESHOLD cljs.core/PersistentArrayMap)))
-;;             (.fromArray cljs.core/PersistentArrayMap (to-array the-map) true true)
-;;             (.fromArray cljs.core/PersistentHashMap (to-array the-map) true))
-;;       (when start-line
-;;         (merge
-;;          (when-let [file (get-file-name rdr)]
-;;            {:file file})
-;;          {:line start-line
-;;          :column start-column
-;;          :end-line end-line
-;;          :end-column end-column})))))
+(defn read-map
+    (rdr _ opts pending-forms)
+  (let ((start-line start-column) (seq->list (starting-line-col-info rdr))
+          the-map   (read-delimited :map #\} rdr opts pending-forms)
+          map-count (count the-map)
+          ks (take-nth 2 the-map)
+          key-set (set ks)
+        (end-line end-column)  (seq->list  (ending-line-col-info rdr)))
+    (when (odd? map-count)
+      (err/throw-odd-map rdr start-line start-column the-map))
+    (when-not (= (count key-set) (count ks))
+              (err:throw-dup-keys rdr :map ks))
+    (with-meta
+        (apply base:hash-map the-map)         ;;We temporarily bypass this optimization. TODO: specialize array map.
+        #-sbcl
+        (if (<= map-count (* 2 (.-HASHMAP-THRESHOLD cljs.core/PersistentArrayMap)))
+            (.fromArray cljs.core/PersistentArrayMap (to-array the-map) true true)
+            (.fromArray cljs.core/PersistentHashMap (to-array the-map) true))
+      (when start-line
+        (merge
+         (when-let (file (get-file-name rdr))
+           (hash-map  :file file))
+         (hash-map 
+          :line start-line
+          :column start-column
+          :end-line end-line
+          :end-column end-column))))))
 
-;; (defn- read-number
-;;   [^not-native rdr initch]
-;;   (loop [sb (doto (StringBuffer.) (.append initch))
-;;         ch (read-char rdr)]
-;;         (if (or (whitespace? ch) (macros ch) (nil? ch))
-;;             (let [s (str sb)]
-;;               (when-not (nil? ch)
-;;                         (unread rdr ch))
-;;               (or (match-number s)
-;;                   (err/throw-invalid-number rdr s)))
-;;             (recur (doto sb (.append ch)) (read-char rdr)))))
+(defn read-number
+    (rdr initch)
+  (loop (sb (doto (StringBuffer.) (.append initch))
+            ch (read-char rdr))
+        (if (or (whitespace? ch) (macros ch) (nil? ch))
+            (let (s (str sb))
+              (when-not (nil? ch)
+                        (unread rdr ch))
+              (or (match-number s)
+                  (err:throw-invalid-number rdr s)))
+            (recur (doto sb (.append ch)) (read-char rdr)))))
 
-;; (defn- escape-char [sb ^not-native rdr]
-;;   (let [ch (read-char rdr)]
-;;     (case ch
-;;       \t "\t"
-;;       \r "\r"
-;;       \n "\n"
-;;       \\ "\\"
-;;       \" "\""
-;;       \b "\b"
-;;       \f "\f"
-;;       \u (let [ch (read-char rdr)]
-;;            (if (== -1 (js/parseInt (int ch) 16))
-;;                (err/throw-invalid-unicode-escape rdr ch)
-;;                (read-unicode-char rdr ch 16 4 true)))
-;;       (if (numeric? ch)
-;;           (let [ch (read-unicode-char rdr ch 8 3 false)]
-;;             (if (> (int ch) 0377)
-;;                 (err/throw-bad-octal-number rdr)
-;;                 ch))
-;;           (err/throw-bad-escape-char rdr ch)))))
+(defn escape-char (sb rdr)
+  (let (ch (read-char rdr))
+    (case ch
+      #\t "\t"
+      #\r "\r"
+      #\n "\n"
+      #\\ "\\"
+      #\" "\""
+      #\b "\b"
+      #\f "\f"
+      #\u
+      (let (ch (read-char rdr))
+            (if (digit-char-p #\1 16)  #-sbcl(== -1 (js/parseInt (int ch) 16))
+                (err:throw-invalid-unicode-escape rdr ch)
+                (read-unicode-char rdr ch 16 4 true)))
+      (if (numeric? ch)
+          (let (ch (read-unicode-char rdr ch 8 3 false))
+            (if (>  (char-code ch) #-sbcl(int ch) 0377)
+                (err:throw-bad-octal-number rdr)
+                ch))
+          (err:throw-bad-escape-char rdr ch)))))
 
-;; (defn- read-string*
-;;   [^not-native reader _ opts pending-forms]
-;;   (loop [sb (StringBuffer.)
-;;         ch (read-char reader)]
-;;         (if (nil? ch)
-;;             (err/throw-eof-reading reader :string \" sb)
-;;             (case ch
-;;               \\ (recur (doto sb (.append (escape-char sb reader)))
-;;                   (read-char reader))
-;;               \" (str sb)
-;;               (recur (doto sb (.append ch)) (read-char reader))))))
+(defn read-string*
+    (reader _ opts pending-forms)
+  (loop (sb (StringBuffer.)
+            ch (read-char reader))
+        (if (nil? ch)
+            (err:throw-eof-reading reader :string #\" sb)
+            (case ch
+              #\\ (recur (doto sb (.append (escape-char sb reader)))
+                               (read-char reader))
+              #\" (str sb)
+              (recur (doto sb (.append ch)) (read-char reader))))))
 
-;; (defn- loc-info [rdr line column]
-;;   (when-not (nil? line)
-;;             (let [file (get-file-name rdr)
-;;               filem (when-not (nil? file) {:file file})
-;;               [end-line end-column] (ending-line-col-info rdr)
-;;               lcm {:line line
-;;               :column column
-;;               :end-line end-line
-;;               :end-column end-column}]
-;;               (merge filem lcm))))
+(defn loc-info (rdr line column)
+  (when-not (nil? line)
+            (let (file (get-file-name rdr)
+                  filem (when-not (nil? file) (hash-map  :file file))
+                  (end-line end-column)  (seq->list  (ending-line-col-info rdr))
+                  lcm-info (hash-map  :line line  :column column
+                                      :end-line end-line  :end-column end-column))
+              (merge filem lcm-info))))
 
-;; (defn- read-symbol
-;;   [rdr initch]
-;;   (let [[line column] (starting-line-col-info rdr)
-;;     token (read-token rdr :symbol initch)]
-;;     (when-not (nil? token)
-;;               (case token
+;;cl case doesn't support strings natively, have to use 3rd party libs.
+;;since we're comparing strings here though, we can deviate for the reader
+;;bootstrap.
 
-;;                 ;; special symbols
-;;                 "nil" nil
-;;                 "true" true
-;;                 "false" false
-;;                 "/" '/
+(defn read-symbol
+    (rdr initch)
+  (let ((line column) (seq->list (starting-line-col-info rdr))
+          token (read-token rdr :symbol initch))
+    (when-not (nil? token)
+              (cond 
+                ;; special symbols
+                (string= token "nil") nil
+                (string= token  "true") true
+                (string= token   "false") false
+                (string= token   "/") '/
+                :else (let (p (parse-symbol token))
+                        (if-not (nil? p)
+                                (let (sym (symbol (nth p 0) (nth p 1)))
+                                  (-with-meta sym (loc-info rdr line column)))
+                                (err/throw-invalid rdr :symbol token)))))))
+#-sbcl
+(defn read-symbol
+    (rdr initch)
+  (let ((line column) (seq->list (starting-line-col-info rdr))
+        token (read-token rdr :symbol initch))
+    (when-not (nil? token)
+              (case token
+                ;; special symbols
+                "nil" nil
+                "true" true
+                "false" false
+                "/" '/
+                (let [^not-native p (parse-symbol token)]
+                  (if-not (nil? p)
+                          (let [^not-native sym (symbol (-nth p 0) (-nth p 1))]
+                            (-with-meta sym (loc-info rdr line column)))
+                          (err/throw-invalid rdr :symbol token)))))))
 
-;;                 (let [^not-native p (parse-symbol token)]
-;;                   (if-not (nil? p)
-;;                           (let [^not-native sym (symbol (-nth p 0) (-nth p 1))]
-;;                             (-with-meta sym (loc-info rdr line column)))
-;;                           (err/throw-invalid rdr :symbol token)))))))
-
-;; (def ^:dynamic *alias-map*
-;;   "Map from ns alias to ns, if non-nil, it will be used to resolve read-time
+;; "Map from ns alias to ns, if non-nil, it will be used to resolve read-time
 ;;    ns aliases.
 
 ;;    Defaults to nil"
-;;   nil)
+(def *alias-map*  nil)
 
-;; (defn- resolve-alias [sym]
-;;   (get *alias-map* sym))
+(defn resolve-alias (sym) 
+  (get *alias-map* sym))
 
-;; (defn- resolve-ns [sym]
-;;   (or (resolve-alias sym)
-;;       (when-let [ns (find-ns sym)]
-;;         (symbol (ns-name ns)))))
+(defn resolve-ns (sym)
+  (or (resolve-alias sym)
+      (when-let (ns (find-ns sym))
+        (base::clj-symbol (ns-name ns)))))
 
 ;; (defn- read-keyword
 ;;   [^not-native reader initch opts pending-forms]

@@ -27,7 +27,7 @@
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
    :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
    :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case :transient :persistent! :char? :sequencep :slurp :binding :satisfies? :extends? :extenders :class :supers
-   :bases :class? :namespace :->string-builder :lazy-seq :empty? :counted? :take-nth :keys :vals :set))
+   :bases :class? :namespace :->string-builder :lazy-seq :empty? :counted? :take-nth :keys :vals :set :doto))
 (in-package clclojure.base)
 
 
@@ -113,7 +113,7 @@
 
 ;;maybe revisit this later.
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
-  (defclass CljObj ()
+  (defclass CljObj ()  ;;this is probably now in clj-objects, we should use that.
     ((meta :initarg :meta :initform nil)))
 
   (defclass  Var (CljObj)
@@ -241,11 +241,20 @@
 (extend-type
  T
  IMeta
- (-meta (o) nil)
- #-sbcl
- IWithMeta
- #-sbcl
- (-with-meta (o meta) o))
+ (-meta (o) nil))
+
+ ;;meta stuff 
+ (extend-type
+  CljSymbol
+  IMeta
+  (-meta (o) (slot-value o 'meta))
+  IWithMeta
+  (-with-meta (sym mnew)
+      (with-slots (ns (nm name) (m meta)) sym
+          (cl:let ((s (clj-symbol  ns nm)))
+            (progn 
+              (setf (slot-value s 'meta) mnew)
+              s)))))
 
 ;; (defprotocol IDeref
 ;;     (-deref (o)))
@@ -315,6 +324,7 @@
 
 
 (eval-when  (:compile-toplevel :load-toplevel :execute)
+  ;;need to start porting clojure.lang.Namespace here.
   (defclass NameSpace ()
     ((name     :initarg :name)
      (aliases  :initarg :aliases)
@@ -322,7 +332,11 @@
 
   (defmethod print-object ((obj Namespace) stream)
     (with-slots ((ns-name  name)) obj
-      (format stream "#<Namespace ~A>" ns-name))))
+      (format stream "#<Namespace ~A>" ns-name)))
+
+  ;;this should be a concurrent hashtable.
+  (defparameter *namespaces* (common-utils:->hash-table))
+  )
 
 ;;note: we can pull in a bunch of the stuff from proto clojure and use
 ;;that for implementing the reader.
@@ -339,7 +353,8 @@
   (defparameter lookup-sentinel (gensym))
   ;;convenient placeholders
   ;;OUTDATED
-  (defun ns (name &rest opts)    
+  (defun ns (name &rest opts)
+    (throw (ex-info "namespaces not implemented fully" nil))
     (eval `(progn (defpackage ,name
                     (:use :clclojure.base :common-lisp)
                     (:shadowing-import-from :clclojure.base :let :deftype :defmacro :map :reduce :first :rest :second :dotimes :nth :cons :count :do :get :assoc :when-let :vector))
@@ -1750,11 +1765,18 @@
   ;;a cl case by re-nesting them.
   ;;in clj, if case has even number of args, we just pack them into cons.
   ;;if odd, last arg is (otherwise arg).
+  ;;there's an interesting problem here; clojure allows mixing test literals in a case
+  ;;macro.  cl defaults to eql (I think).  so you can do symbols, numbers, chars, but not
+  ;;strings or structurally equal things.  We will have to implement our own version
+  ;;at some point.
   (defmacro case (keyform &rest clauses)
     (cl:let* ((default (when (oddp (length clauses))
                          (list 'otherwise  (cl:first  (cl:last clauses)))))
-              (args  (append  (common-utils:partition! 2 clauses) (list  default))))
+              (knowns (common-utils:partition! 2 clauses))
+              (args  (if default  (append  knowns (list  default))
+                         knowns)))
       `(cl:case ,keyform ,@args )))
+  
   (defmacro loop* (bindings &rest body)
     (assert (or  (vector? bindings)
                  (not (nested-list? bindings))))
@@ -2973,47 +2995,49 @@
 
 ;;cheap stand-in, copy-on-write hashset built on hashmaps.
 ;;good enough for bootstrapping and implementation can be replaced trivially.
-(clojure-deftype cowset (entries _meta _hasheq)
-  ISeq
-  (-first (coll) (first (-seq coll)))
-  (-rest (coll)  (rest (-seq coll)))
-  INext
-  (-next (coll) (next (-seq coll)))
-  ICollection
-  (-conj (coll o)
-         (let (res (-assoc entries o o))
-           (if (identical? res entries)
-               coll
-               (cowset. res _meta -1))))
-  ILookup
-  (-lookup (this k)
-     (-lookup entries k))
-  (-lookup (this k not-found)
-     (-lookup entries k not-found))
-  IMeta
-  (-meta (this)  _meta)
-  IWithMeta
-  (-with-meta  (this newmeta)
-  (cowset. entries newmeta -1))
-  ISeqable
-  (-seq (this)
-        (->> (-seq entries)
-             (map first)))
-  ICounted
-  (-count (this)
-          (-count entries))
-  ISet
-  (-disjoin (coll v)
-    (let (res (dissoc entries v))
-      (if (identical? res entries)
-          coll
-          (cowset. res _meta -1))))
-  IString
-  (-to-string (this)
-              (str "#{" (apply #'str (interpose " " (-seq this))) "}")))
 
-(defmethod print-object ((obj cowset) stream)
-  (format stream "#{~A}" (apply #'str (interpose " " (-seq obj)))))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (clojure-deftype cowset (entries _meta _hasheq)
+                   ISeq
+                   (-first (coll) (first (-seq coll)))
+                   (-rest (coll)  (rest (-seq coll)))
+                   INext
+                   (-next (coll) (next (-seq coll)))
+                   ICollection
+                   (-conj (coll o)
+                          (let (res (-assoc entries o o))
+                            (if (identical? res entries)
+                                coll
+                                (cowset. res _meta -1))))
+                   ILookup
+                   (-lookup (this k)
+                            (-lookup entries k))
+                   (-lookup (this k not-found)
+                            (-lookup entries k not-found))
+                   IMeta
+                   (-meta (this)  _meta)
+                   IWithMeta
+                   (-with-meta  (this newmeta)
+                                (cowset. entries newmeta -1))
+                   ISeqable
+                   (-seq (this)
+                         (->> (-seq entries)
+                              (map first)))
+                   ICounted
+                   (-count (this)
+                           (-count entries))
+                   ISet
+                   (-disjoin (coll v)
+                             (let (res (dissoc entries v))
+                               (if (identical? res entries)
+                                   coll
+                                   (cowset. res _meta -1))))
+                   IString
+                   (-to-string (this)
+                               (str "#{" (apply #'str (interpose " " (-seq this))) "}")))
+
+  (defmethod print-object ((obj cowset) stream)
+    (format stream "#{~A}" (apply #'str (interpose " " (-seq obj))))))
 
 (def +empty-set+ (cowset. (hash-map) (hash-map) -1))
 
@@ -3103,16 +3127,32 @@
 ;;   are evaluated in order.  Returns x.
 
 ;;   (doto (new java.util.HashMap) (.put \"a\" 1) (.put \"b\" 2))"
+;;   we can't do meta on forms here, since we have to have persistent lists
+;;   in defmacro, and we aren't there "yet".  Persistent Lists can't be eval'd
+;;   in sbcl right now (don't feel like hacking the evaluator either),
+;;   but metadata won't typically matter for eval, really for special forms
+;;   and macros.  We can probably ditch it for now.
+#-sbcl
 (defmacro doto (x &rest forms)
   (let (gx (gensym))
     `(let (,gx ,x)
        ,@(seq->list (map (fn (f)
-                              (with-meta
+                             (with-meta
                                   (if (seq? f)
                                       `(,(first f) ,gx ,@(next f))
                                       `(,f ,gx))
                                 (meta f)))
                           forms))
+       ,gx)))
+(defmacro doto (x &rest forms)
+  (let (gx (gensym))
+    `(let (,gx ,x)
+       ,@(seq->list
+                (map (fn (f)
+                             (if (seq? f)
+                                 `(,(first f) ,gx ,@(next f))
+                                 `(,f ,gx)))
+                         forms))
        ,gx)))
 
 ;;this is a loose hack for now, but it works as a
