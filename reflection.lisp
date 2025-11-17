@@ -18,20 +18,6 @@
   (with-slots (message data cause) obj
     (format stream "#error~%{:type slot-reflection-error~%:message ~A~%:cause ~A~%:data ~A}" message cause data)))
 
-;; (defgeneric list-slots (obj))
-;; (defmethod list-slots ((obj standard-class))
-;;   (sb-mop:class-slots obj))
-;; (defmethod list-slots ((obj structure-class))
-;;   #-sbcl
-;;   (sb-pcl::structure-type-slot-description-list  (type-of obj))
-;;   (sb-mop:class-slots obj))
-
-;; (defgeneric slot-name (obj))
-;; (defmethod slot-name ((obj sb-kernel:defstruct-slot-description))
-;;   (slot-value obj 'sb-kernel::name))
-;; (defmethod slot-name ((obj sb-pcl:slot-definition))
-;;   (sb-pcl:slot-definition-name obj))
-
 ;;use the MOP (or the pcl package) to find all direct slots
 ;;where the symbol possibly matches the slotname.
 (defun possible-slots (symbol klass)
@@ -116,11 +102,3 @@
         res))))
 
 (defsetf slot set-slot)
-
-#-sbcl
-(defun find-slot (symbol klass)
-(cl:find 'test-fun
-         (sb-pcl:class-slots
-          (find-class 'hash-table))
-         :key #'sb-pcl:slot-definition-name
-         :test #'string-equal))
