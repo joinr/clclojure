@@ -27,7 +27,7 @@
    :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
    :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
    :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case :transient :persistent! :char? :sequencep :slurp :binding :satisfies? :extends? :extenders :class :supers
-   :bases :class? :namespace :->string-builder :lazy-seq :empty? :counted?))
+   :bases :class? :namespace :->string-builder :lazy-seq :empty? :counted? :take-nth :keys :vals))
 (in-package clclojure.base)
 
 
@@ -334,7 +334,9 @@
   (define-symbol-macro false nil)
   (defmacro  set! (&rest args)
     `(common-lisp:setf ,@args))
-
+  ;;cljs core uses lookup-sentinel for several datastructure implementations.
+  ;;we can get an equivalent to jsObj by gensyming unique symbols.
+  (defparameter lookup-sentinel (gensym))
   ;;convenient placeholders
   ;;OUTDATED
   (defun ns (name &rest opts)    
@@ -1419,7 +1421,7 @@
    common-lisp:hash-table
    
    ICounted
-   (-count (c) (hash-table-size c))
+   (-count (c) (hash-table-count c))
 
    IEmptyableCollection
    (-empty (c) (common-utils:->hash-table))
@@ -1800,6 +1802,26 @@
 
 (defn take (n coll)
   (sequences:take n (seq  coll)))
+
+;; "Returns a lazy seq of every nth item in coll.  Returns a stateful
+;;   transducer when no collection is provided."
+(defn take-nth
+    #-sbcl
+    ((n)
+     (fn (rf)
+         (let (iv (volatile! -1))
+           (fn
+            (() (rf))
+            ((result) (rf result))
+            ((result input)
+             (let (i (vswap! iv inc))
+               (if (zero? (rem i n))
+                   (rf result input)
+                   result)))))))
+    ((n coll)
+      (lazy-seq
+       (when-let (s (seq coll))
+         (cons (first s) (take-nth n (drop n s)))))))
 
 (defn drop (n coll)
   (sequences:drop n (seq coll)))
@@ -2385,6 +2407,18 @@
 (declaim (inline peek pop))
 (defn peek (coll) (-peek coll))
 (defn pop (coll) (-pop coll))
+;;very lame placeholders.
+;;this is similar to what cljs does, although
+;;these are ctors for KeySeq and ValSeq.
+;;we'll port those later.
+(defn keys (m)
+  (->> m
+       (-seq)
+       (map -key)))
+(defn vals (m)
+  (->>  m
+        (-seq)
+        (map -val)))
 ;;for now, we don't have qualified keywords...
 ;;we "could" encode that information in the
 ;;keyword name somewhere (like a central db),
@@ -2466,6 +2500,50 @@
 
 (defmacro new (klass &rest args)
   `(make-instance (quote ,klass) ,@args))
+
+;;I think we can implement . and .. in terms of
+;;slot-value and friends.
+;;we can't get . because of the reader right now,
+;;but we can implement it.
+;; BASE> (-.  (TransientHashSet. (transient (hash-map :a true :b true))) transient-map)
+;; {:A T :B T}
+
+;;implementation of clojure's . special form on top of CLOS.
+(defmacro -. (instance member &rest args)
+  (if (null args)
+      `(slot-value ,instance ',member)
+      `(funcall (slot-value ,instance ',member) ,@args)))
+
+;; "form => fieldName-symbol or (instanceMethodName-symbol args*)
+
+;;   Expands into a member access (.) of the first member on the first
+;;   argument, followed by the next member on the result, etc. For
+;;   instance:
+
+;;   (.. System (getProperties) (get \"os.name\"))
+
+;;   expands to:
+
+;;   (. (. System (getProperties)) (get \"os.name\"))
+
+;;   but is easier to write, read, and understand."
+;;I think this is equivalent, could be wrong.
+(defmacro -.. (x form &rest more)
+  (labels ((aux (x frm remaining)
+             (if (null remaining)
+                 `(-. ,x ,frm)
+                 (aux `(-. ,x ,frm) (cl:first remaining) (cl:rest remaining)))))
+    (aux x form more)))
+
+;;interesting note on slot-value.  we can try to do runtime reflection
+;;on instances if the package-local symbol can't be resolved, e.g. if the
+;;type is unspecified.  This equates to using sb-mop:class-direct-slots
+;;to try to find a slot-name compatible with the symbol-name value,
+;;which elides the package-name junk.  We can handle this at compile
+;;time if we know the type of course (assuming nothing in CLOS changes
+;;out from under us with the classes).
+;;clojure will end up doing this a lot, since untyped reflection
+;;is a thing.
 
 ;;lame multimethods?
 ;;we need a methodcache
@@ -2930,6 +3008,62 @@
 (defn hash-set (&rest args)
   (cowset. (apply #'hash-map (mapcan (lambda (x) (list x x)) args))
            (hash-map) -1))
+
+;;adapted from cljs core.
+(clojure-deftype
+ TransientHashSet
+ (transient-map)
+  ITransientCollection
+  (-conj! (tcoll o)
+          (set! transient-map (-assoc! transient-map o nil))
+          tcoll)
+
+  (-persistent! (tcoll)
+                #-sbcl(PersistentHashSet. nil (-persistent! transient-map) nil)
+                (cowset. (-persistent! transient-map) nil -1))
+
+  ITransientSet
+  (-disjoin! (tcoll v)
+             (set! transient-map (-dissoc! transient-map v))
+             tcoll)
+
+  ICounted
+  (-count (tcoll) (-count transient-map))
+
+  ILookup
+  (-lookup (tcoll v)
+           (-lookup tcoll v nil))
+
+  (-lookup (tcoll v not-found)
+           (if (identical? (-lookup transient-map v lookup-sentinel) lookup-sentinel)
+               not-found
+               v))
+
+  IFn
+  (-invoke (tcoll k)
+           (if (identical? (-lookup transient-map k lookup-sentinel) lookup-sentinel)
+               nil
+               k))
+
+  (-invoke (tcoll k not-found)
+           (if (identical? (-lookup transient-map k lookup-sentinel) lookup-sentinel)
+               not-found
+               k)))
+;;can change this later.  clojure doesn't have transients
+;;readable on purpose.  we flake out a bit for now for testing.
+(defmethod print-object ((obj TransientHashSet) stream)
+  (->>  (slot-value obj 'transient-map)
+        (keys)
+        (interpose " ")
+        (apply #'str )
+        (format stream "#TransientHashSet{~A}")))
+
+;;"Returns a set of the distinct elements of coll."
+(defn set
+  (coll)
+  (if (set? coll)
+      (with-meta coll nil)
+      (persistent! (reduce -conj! (transient +empty-set+) coll))))
 
 (defn frequencies (xs)
   (reduce (fn (acc x)

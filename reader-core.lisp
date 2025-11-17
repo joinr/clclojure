@@ -38,7 +38,7 @@
    :keyword? :vector? :symbol? :nth :vec :vector :let :cond :re-find
    :re-matches :get :subs :-> :parse-float :if-not :when-let :if-let
    := :== :count :char? :pos? :inc :case :loop :re-pattern :subs :first :second :into
-   :seq->list :seq :transient :persistent! :binding :satisfies?)
+   :seq->list :seq :transient :persistent! :binding :satisfies? :take-nth)
   (:shadowing-import-from :cljs.tools.reader.impl.errors :reader-error)
   (:shadowing-import-from :cljs.tools.reader.impl.reader-types
    :read-char :unread :peek-char :indexing-reader? :get-line-number :get-column-number :get-file-name
@@ -322,46 +322,47 @@
           :end-column end-column))))))
 
 ;; ;;"Read in a vector, including its location if the reader is an indexing reader"
-;; (defn- read-vector
-;;   (rdr _ opts pending-forms)
-;;   (let [[start-line start-column] (starting-line-col-info rdr)
-;;     the-vector (read-delimited :vector \] rdr opts pending-forms)
-;;     [end-line end-column] (ending-line-col-info rdr)]
-;;     (with-meta the-vector
-;;       (when start-line
-;;         (merge
-;;          (when-let [file (get-file-name rdr)]
-;;            {:file file})
-;;          {:line start-line
-;;          :column start-column
-;;          :end-line end-line
-;;          :end-column end-column})))))
+(defn read-vector
+  (rdr _ opts pending-forms)
+  (let ((start-line start-column) (seq->list (starting-line-col-info rdr))
+        the-vector                (read-delimited :vector #\] rdr opts pending-forms)
+        (end-line end-column)     (seq->list (ending-line-col-info rdr)))
+    (with-meta the-vector
+      (when start-line
+        (merge
+         (when-let (file (get-file-name rdr))
+           (hash-map  :file file))
+         (hash-map  
+          :line start-line
+          :column start-column
+          :end-line end-line
+          :end-column end-column))))))
 
-;; (defn- read-map
-;;   "Read in a map, including its location if the reader is an indexing reader"
-;;   [rdr _ opts pending-forms]
-;;   (let [[start-line start-column] (starting-line-col-info rdr)
-;;     the-map (read-delimited :map \} rdr opts pending-forms)
-;;     map-count (count the-map)
-;;     ks (take-nth 2 the-map)
-;;     key-set (set ks)
-;;     [end-line end-column] (ending-line-col-info rdr)]
-;;     (when (odd? map-count)
-;;       (err/throw-odd-map rdr start-line start-column the-map))
-;;     (when-not (= (count key-set) (count ks))
-;;               (err/throw-dup-keys rdr :map ks))
-;;     (with-meta
-;;         (if (<= map-count (* 2 (.-HASHMAP-THRESHOLD cljs.core/PersistentArrayMap)))
-;;             (.fromArray cljs.core/PersistentArrayMap (to-array the-map) true true)
-;;             (.fromArray cljs.core/PersistentHashMap (to-array the-map) true))
-;;       (when start-line
-;;         (merge
-;;          (when-let [file (get-file-name rdr)]
-;;            {:file file})
-;;          {:line start-line
-;;          :column start-column
-;;          :end-line end-line
-;;          :end-column end-column})))))
+;;"Read in a map, including its location if the reader is an indexing reader"
+(defn read-map
+    (rdr _ opts pending-forms)
+  (let ((start-line start-column) (seq->list (starting-line-col-info rdr))
+        the-map   (read-delimited :map #\} rdr opts pending-forms)
+        map-count (count the-map)
+        ks (take-nth 2 the-map)
+        key-set (set ks)
+        [end-line end-column] (ending-line-col-info rdr))
+    (when (odd? map-count)
+      (err/throw-odd-map rdr start-line start-column the-map))
+    (when-not (= (count key-set) (count ks))
+              (err/throw-dup-keys rdr :map ks))
+    (with-meta
+        (if (<= map-count (* 2 (.-HASHMAP-THRESHOLD cljs.core/PersistentArrayMap)))
+            (.fromArray cljs.core/PersistentArrayMap (to-array the-map) true true)
+            (.fromArray cljs.core/PersistentHashMap (to-array the-map) true))
+      (when start-line
+        (merge
+         (when-let [file (get-file-name rdr)]
+           {:file file})
+         {:line start-line
+         :column start-column
+         :end-line end-line
+         :end-column end-column})))))
 
 ;; (defn- read-number
 ;;   [^not-native rdr initch]
