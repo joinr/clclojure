@@ -242,3 +242,30 @@ symbol as a top-level def/defn.
 
 Looking for a work around.
 
+* equality/equiv 
+We have a lot of interim datastructures for bootstrapping, like cowmap, where we just
+sit on top of custom hash tables.  Even when reading clojure source via tools.reader,
+we end up looking into maps a lot to resolve clojure symbols ("maybe" cl at some point).
+Our symbol resolution (as with jvm clj) rests in persistent hash-maps with equiv equality
+semantics from clojure, which is generic over clojure symbols and the like.  They also
+leverage hasheq for hashing...
+** Equiv  / Hasheq in the bootstrap
+We need our collections to leverage these guys early on (or be able to specify
+the hash and collision tests after the fact) so that we can have cheap implementations
+of persistent maps for e.g. namespace mappings, aliases, imports et.,  A lot of the
+clojure implementation is nested maps of (clojure) symbols to stuff.
+
+cl-custom-hash-table is a generic option, but we should be able to sit on
+top of sbcl directly.
+
+https://clojure.org/guides/equality
+** Symbol mismatch
+We have a custom cljsymbol, cljkeyword, and namespace implementation.
+The intent is to sort of live parallel to CL, with perhaps the ability to export or
+project clojure namespaces into CL packages (likely just maintaining a projection
+into a CL package implicitly).  We need a place for vars to be bound and the like.
+Right now, the bootstrap lives in CL packages and emits code for binding via
+CL vars.
+
+Note: nothing stops up from defining clojure packages in their own partition, where
+the namespace symbols can be exposed.  More to think on.

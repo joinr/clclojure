@@ -287,6 +287,10 @@
 
 (defun symbol-hashtable ()
   (make-hash-table :test 'symbol-equal))
+;;this gets us persistent maps with -hasheq testing.
+(defun symbol-hashmap ()
+  (clclojure.cowmap::make-cowmap :table (symbol-hashtable) ))
+
 ;;we can also define synchronized hash tables in sbcl,
 ;;or alternately use a library (at least one exists)
 (defparameter *keys* (symbol-hashtable))
@@ -1531,7 +1535,7 @@
    (-rest  (coll)  (sequences::rest coll))
    IEquiv
    (-equiv (this other)
-     (and (stringp other) (string-equal this other))))
+     (and (stringp other) (string= this other))))
   )
 ;; IChunk
 ;; (-drop-first (coll) (error 'not-implemented))

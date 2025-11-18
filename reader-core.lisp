@@ -466,7 +466,8 @@
 ;;    Defaults to nil"
 (def *alias-map*  nil)
 
-(defn resolve-alias (sym) 
+;;contains aliased namespaces in the current ns.
+(defn resolve-alias (sym)
   (get *alias-map* sym))
 
 ;;need to implement find-ns infra.
