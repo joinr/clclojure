@@ -223,7 +223,20 @@
       (-meta (o)))
 
   (defprotocol IWithMeta
-      (-with-meta  (o meta))))
+      (-with-meta  (o meta)))
+  (defprotocol IEquiv
+      (-equiv (o other)))
+  ;;TODO look at optimizing this.
+  ;;We are probably waaaaay slow.
+  ;;guessing this is a Good Thing  
+  (defun equiv (x y)
+    (if (and (numberp x) (numberp y))
+        (common-lisp:= x y)
+        (or (eq x y)
+            (-equiv x y))))
+  (sb-ext:define-hash-table-test equiv -hasheq)
+  (defun symbol-hashtable ()
+    (make-hash-table  :test 'equiv)))
 
 (extend-protocol
  IHashcode
@@ -283,13 +296,10 @@
 ;;we'll leverage sbcl's extensions to provide custom tests.
 ;;We could leverage equiv here eventually.
 
-(sb-ext:define-hash-table-test symbol-equal -hasheq)
-
-(defun symbol-hashtable ()
-  (make-hash-table :test 'symbol-equal))
-;;this gets us persistent maps with -hasheq testing.
-(defun symbol-hashmap ()
-  (clclojure.cowmap::make-cowmap :table (symbol-hashtable) ))
+(eval-when  (:compile-toplevel :load-toplevel :execute)
+  ;;this gets us persistent maps with -hasheq testing.
+  (defun symbol-hashmap ()
+    (clclojure.cowmap::make-cowmap :table (symbol-hashtable) )))
 
 ;;we can also define synchronized hash tables in sbcl,
 ;;or alternately use a library (at least one exists)
@@ -935,6 +945,7 @@
   (defprotocol IKVReduce
       (-kv-reduce (coll f init)))
 
+  #-sbcl
   (defprotocol IEquiv
       (-equiv (o other)))
 
@@ -1701,21 +1712,13 @@
   (def zero? #'common-utils:zero?)
   (defn inc (x) (1+ x))
   (defn dec (x) (1- x))
-  ;;TODO look at optimizing this.
-  ;;We are probably waaaaay slow.
-  ;;guessing this is a Good Thing  
-  (defn equiv (x y)
-    (if (and (numberp x) (numberp y))
-        (common-lisp:= x y)
-        (or (identical? x y)
-            (-equiv x y))))
   
   (defn =
       ((x)   true)
       ((x y)
        (equiv x y))
       ((x y & more)
-       (if (-equiv x y)
+       (if (equiv x y)
            (if (next more)
                (recur y (first more) (next more))
                (- y (first more)))

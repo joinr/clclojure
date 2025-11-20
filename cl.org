@@ -269,3 +269,8 @@ CL vars.
 
 Note: nothing stops up from defining clojure packages in their own partition, where
 the namespace symbols can be exposed.  More to think on.
+
+We should probably lift out our equivalence into a fundamental package
+that we can use for our data structures (maybe).
+
+That or just implement pmap instead of cowmap early, and use that.
