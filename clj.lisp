@@ -10,23 +10,26 @@
    :some :merge :pop :step :apply :case :class :satisfies? :set) ;;forgot about shadowing-import-from....
   ;;(:shadowing-import-from :sequences x:apply)
   (:shadowing-import-from :clj-re :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq)
+  ;;pull our protocols in from here, allows us to use them for cowmap for bootstrapping.
+  (:shadowing-import-from :clclojure.equivalence
+   :IHashCode :-hashcode :IHasheq :-hasheq :IEquiv :-equiv :equiv)
   (:local-nicknames
-       (:re :clj-re)
-       (:mbind :metabang-bind)
-       (:parse :clj-parse)
-       (:clj-objects :clj-objects))
+   (:re :clj-re)
+   (:mbind :metabang-bind)
+   (:parse :clj-parse)
+   (:clj-objects :clj-objects))
   (:export :apply :def :defn :fn :meta :with-meta :str :symbol? :instance? :first :rest :second :next :char
-   :deftype :defprotocol :reify :extend-type :nil? :identical?
-   :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count
+           :deftype :defprotocol :reify :extend-type :nil? :identical?
+           :extend-protocol :let :into :take :drop :filter :seq :vec :empty :conj :concat :map :reduce :dotimes :nth :cons :count
    :do :get :assoc :when-let   :if-let :ns :even? :pos? :zero? :odd? :vector :hash-map :inc :dec :identity :loop  :chunk-first
-   :doall  :chunk-buffer :every? :chunk-rest :interleave :ffirst :partition :seq->list :fnext :chunk-cons :nthrest
+           :doall  :chunk-buffer :every? :chunk-rest :interleave :ffirst :partition :seq->list :fnext :chunk-cons :nthrest
    :dorun  :chunked-seq? :->iterator :chunk-append :throw :ex-info :ex-cause :ex-message :ex-data :list* :cond :try := :true :false
-   :defmulti :defmethod-clj :isa? :equiv :nnext :dissoc :implements? :partition-all :name :keyword? :val :key :when-not
-   ;;mostly (except atom) from clj-con 
+           :defmulti :defmethod-clj :isa? :equiv :nnext :dissoc :implements? :partition-all :name :keyword? :val :key :when-not
+           ;;mostly (except atom) from clj-con 
    :atom :atom? :compare-and-set! :deliver :deref :future :future-call :future-cancel :future-cancelled? :future-done? :future?           
-   :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
-   :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
-   :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case :transient :persistent! :char? :sequencep :slurp :binding :satisfies? :extends? :extenders :class :supers
+           :promise :realized? :reset! :reset-vals! :swap! :swap-vals! :ex-info :throw :defrecord :pr-writer
+           :keyword? :symbol? :string? :vector? :list? :map? :number? :aget :aset :set! :some :merge :disj :subs :object-array :update :update-in :declare-clj :frequencies :set? :seq? :repeat :hash-set :juxt :seqable? :interpose
+           :partial :list? :cond :peek :pop :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq :parse-float :== :case :transient :persistent! :char? :sequencep :slurp :binding :satisfies? :extends? :extenders :class :supers
    :bases :class? :namespace :->string-builder :lazy-seq :empty? :counted? :take-nth :keys :vals :set :doto))
 (in-package clclojure.base)
 
@@ -214,27 +217,27 @@
   ((ns name) (make-instance 'CljSymbol :name name :ns ns :meta nil)))
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute) 
-  ;;copping some fundamental protocols for bootstrapping symbol/key/ns support.
-  (defprotocol IHashcode
-      (-hashcode (this)))
-  (defprotocol IHasheq
-      (-hasheq (this)))
   (defprotocol IMeta
       (-meta (o)))
-
   (defprotocol IWithMeta
       (-with-meta  (o meta)))
-  (defprotocol IEquiv
-      (-equiv (o other)))
-  ;;TODO look at optimizing this.
-  ;;We are probably waaaaay slow.
-  ;;guessing this is a Good Thing  
-  (defun equiv (x y)
-    (if (and (numberp x) (numberp y))
-        (common-lisp:= x y)
-        (or (eq x y)
-            (-equiv x y))))
-  (sb-ext:define-hash-table-test equiv -hasheq)
+  ;;copping some fundamental protocols for bootstrapping symbol/key/ns support.
+  ;;THESE ARE MOVE TO clclojure.equivalence
+  ;; (defprotocol IHashcode
+  ;;     (-hashcode (this)))
+  ;; (defprotocol IHasheq
+  ;;     (-hasheq (this)))
+  ;; (defprotocol IEquiv
+  ;;     (-equiv (o other)))
+  ;; ;;TODO look at optimizing this.
+  ;; ;;We are probably waaaaay slow.
+  ;; ;;guessing this is a Good Thing  
+  ;; (defun equiv (x y)
+  ;;   (if (and (numberp x) (numberp y))
+  ;;       (common-lisp:= x y)
+  ;;       (or (eq x y)
+  ;;           (-equiv x y))))
+  ;; (sb-ext:define-hash-table-test equiv -hasheq)
   (defun symbol-hashtable ()
     (make-hash-table  :test 'equiv)))
 
@@ -333,7 +336,7 @@
     ((name)    (typecase name
                  (CljKey name)
                  (string  (intern-key (clj-symbol name)))
-                 (common-lisp:keyword name)
+                 (common-lisp:keyword name) ;;dubious...
                  (otherwise (throw (ex-info "unknown symbol-string-or-key!" name)))))
   ((name ns) (intern-key (clj-symbol name ns))))
 
@@ -1469,7 +1472,8 @@
    (-count (c) (hash-table-count c))
 
    IEmptyableCollection
-   (-empty (c) (common-utils:->hash-table))
+   (-empty (c)
+      (make-hash-table :test (hash-table-test c)))
    
    ;; ICollection ;;not writeable for now.
    ;; (-conj (coll itm)

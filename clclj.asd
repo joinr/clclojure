@@ -21,12 +21,12 @@
                                         ;(:file "reader" :depends-on ("pvector" "cowmap" "sequences"))
                                         ;(:file "eval"   :depends-on ("common-utils" "walk" "reader"))
                                         ;(:file "literals"  :depends-on ("eval" "pvector" "cowmap"))
-   (:file "keywordfunc")
-   (:file "lexical"   :depends-on ("keywordfunc"))
+   (:file "keywordfunc") ;;probably obe.
+   (:file "lexical"   :depends-on ("keywordfunc")) ;;probably obe.
    (:file "pvector" :depends-on ("clj-objects"))
-   (:file "cowmap" :depends-on ("clj-objects"))
-                                        ;(:file "lexical"  :depends-on ("keywordfunc"))
-   (:file "protocols"  :depends-on ("common-utils" "pvector" "cowmap"))
+   (:file "protocols"  :depends-on ("common-utils" "pvector"))
+   (:file "equivalence" :depends-on ("protocols"))
+   (:file "cowmap" :depends-on     ("clj-objects" "equivalence"))
    (:file "clj"        :depends-on ("common-utils" "protocols" "pvector" "cowmap" "lexical" "clj-objects" "reflection"))
    (:file "string"     :depends-on ("clj"))))
 

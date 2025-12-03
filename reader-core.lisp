@@ -426,6 +426,9 @@
 ;;since we're comparing strings here though, we can deviate for the reader
 ;;bootstrap.
 
+;;note: we might put in some rough plumbing for reading
+;;common lisp symbols later; maybe we just have a generic
+;;reader escape hatch like #cl....
 (defn read-symbol
     (rdr initch)
   (let ((line column) (seq->list (starting-line-col-info rdr))

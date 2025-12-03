@@ -6,6 +6,8 @@
 ;;Wraps a mutable hashtable.
 (defpackage :clclojure.cowmap
   (:use :common-lisp :clj-objects)
+  (:shadowing-import-from  :clclojure.equivalence
+   :IHashCode :-hashcode :IHasheq :-hasheq :IEquiv :-equiv :equiv)
   (:export :persistent-map
 	   :empty-map?
 	   :map-count
@@ -25,7 +27,7 @@
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   (defstruct (cowmap (:include cljstruct))
-    (table (make-hash-table))
+    (table (make-hash-table :test 'equiv))
     ;(_meta nil)
     ;(_hasheq -1)
     )
