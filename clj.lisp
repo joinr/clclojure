@@ -133,7 +133,7 @@
   (defclass CljKey ()
     ((ns     :initarg :ns :initform nil)
      (name   :initarg :name)
-     (hasheq :initarg :hasheq))))
+     (hasheq :initarg :hasheq :initform -1))))
 
 ;;naive eager version.
 ;; (defun print-seq (s &optional (stream t))
@@ -197,7 +197,7 @@
  (as-symbol (this) (string->symbol this))
  CljSymbol
  (as-symbol (this) this)
- cl:symbol
+ cl:symbol  ;;this applies to keywords and symbols...
  (as-symbol (this)
             (make-instance 'CljSymbol :name (sym-name this) :ns nil
                     :meta
@@ -221,26 +221,20 @@
       (-meta (o)))
   (defprotocol IWithMeta
       (-with-meta  (o meta)))
-  ;;copping some fundamental protocols for bootstrapping symbol/key/ns support.
-  ;;THESE ARE MOVE TO clclojure.equivalence
-  ;; (defprotocol IHashcode
-  ;;     (-hashcode (this)))
-  ;; (defprotocol IHasheq
-  ;;     (-hasheq (this)))
-  ;; (defprotocol IEquiv
-  ;;     (-equiv (o other)))
-  ;; ;;TODO look at optimizing this.
-  ;; ;;We are probably waaaaay slow.
-  ;; ;;guessing this is a Good Thing  
-  ;; (defun equiv (x y)
-  ;;   (if (and (numberp x) (numberp y))
-  ;;       (common-lisp:= x y)
-  ;;       (or (eq x y)
-  ;;           (-equiv x y))))
-  ;; (sb-ext:define-hash-table-test equiv -hasheq)
   (defun symbol-hashtable ()
     (make-hash-table  :test 'equiv)))
 
+;; static public int hashCombine(int seed, int hash){
+;; //a la boost
+;; seed ^= hash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+;; return seed;
+;; }
+
+;;this is terrible for perf right now, need types.
+(defun hash-combine (seed hash)
+  (logxor seed  (+  hash  #x9e3779b9 (ash seed 6)  (ash seed  -2))))
+
+;;not really used hmm...
 (extend-protocol
  IHashcode
  T
@@ -249,18 +243,27 @@
 ;;shouldn't matter if hashcode is synchronized,
 ;;it's ideal not to be actually.
 (extend-protocol
- IHasheq
+ IHash
  T
- (-hasheq (this) (common-utils::hash-code this))
+ (-hash (this) (common-utils::hash-code this))
  CljSymbol
- (-hasheq (this)
+ (-hash (this)
           (cl:let ((hc (slot-value this 'hasheq)))
             (if (> hc -1)
                 hc
                 (cl:let ((newc 
                            (common-utils::hash-code (list (sym-ns this) (sym-name this)))))
                   (setf (slot-value this 'hasheq) newc)
-                  newc)))))
+                  newc))))
+ CljKey
+ (-hash (this)
+        (cl:let ((hc (slot-value this 'hasheq)))
+          (if (> hc -1)
+              hc
+              (cl:let ((newc 
+                         (common-utils::hash-code (list (sym-ns this) (sym-name this)))))
+                (setf (slot-value this 'hasheq) newc)
+                newc)))))
 
 (extend-type
  T
@@ -307,11 +310,11 @@
 ;;we can also define synchronized hash tables in sbcl,
 ;;or alternately use a library (at least one exists)
 (defparameter *keys* (symbol-hashtable))
-(defparameter *symbols* (symbol-hashtable))
 
 ;;keywords are interned (cached) based on the symbol
 ;;symbols can have meta though, so we want them without meta.
-(defun* clj-keyword
+;;clojure doesn't expose the ctor, this is for bootstrapping.
+(defun* ->keyword
     ((name)    (make-instance 'CljKey :name name :ns nil))
     ((ns name) (make-instance 'CljKey :name name :ns ns)))
 
@@ -320,10 +323,21 @@
   (cl:let ((res (gethash  symb *keys*)))
     (if res res
         (cl:let ((kw (if (sym-ns symb)
-                      (clj-keyword (sym-ns symb) (sym-name symb))
-                      (clj-keyword (sym-name symb)))))
+                      (->keyword (sym-ns symb) (sym-name symb))
+                      (->keyword (sym-name symb)))))
           (setf (gethash symb *keys*) kw)
           kw))))
+
+;;do we want to project common lisp keys into
+;;clojure keys?
+(defun* clj-keyword
+    ((name)    (typecase name
+                 (CljKey name)
+                 (string  (intern-key (clj-symbol name)))
+                 (common-lisp:keyword (clj-symbol (symbol-name name))) ;;dubious...
+                 (otherwise (throw (ex-info "unknown symbol-string-or-key!" name)))))
+    ;;should type check these as strings
+    ((ns name) (intern-key (clj-symbol ns name))))
 
 (defun throw (e)
   (error e))
@@ -951,13 +965,13 @@
   #-sbcl
   (defprotocol IEquiv
       (-equiv (o other)))
-
-  (defprotocol IHash
+  ;;note: cljs has this, where clojure has hasheq and hashcode.
+  ;;moving -hash to equivalence.clj, translating -hashcode to -hash.
+  #-sbcl
+  (defprotocol IHash 
       (-hash (o)))
   (defprotocol ISeqable
       (-seq (o)))
-  
-
 
   (defprotocol ISequential
     "Marker interface indicating a persistent collection of sequential items")
@@ -1249,8 +1263,8 @@
      ;;This is just to paper over the bootstrapping
      ;;process....              
      (-equiv (l r) (or (eq l r)))
-     IHash
-     (-hash (k) (hash-code k))
+    ;;IHash
+    ;;(-hash (k) (hash-code k))
      INamed
      (-name (k) (slot-value k 'name))
      )
@@ -1259,8 +1273,8 @@
      IEquiv
      ;;same as above...this a dirty hack for now.
      (-equiv (l r) (or (eq l r)))
-     IHash
-     (-hash (k) (hash-code k))
+     ;;IHash
+     ;;(-hash (k) (hash-code k))
      INamed
      (-name (k) (slot-value k 'name))
      )
@@ -1269,8 +1283,8 @@
      IEquiv
      ;;same as above...this a dirty hack for now.
      (-equiv (l r) (or (eq l r)))
-     IHash
-     (-hash (k) (hash-code k))
+     ;;IHash
+     ;;(-hash (k) (hash-code k))
      INamed
      (-name (k) (slot-value k 'name))
      )

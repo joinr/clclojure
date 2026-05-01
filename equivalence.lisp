@@ -1,15 +1,23 @@
 (defpackage :clclojure.equivalence ;;might change this to clojure.lang at some point.
   (:use :common-lisp :common-utils :clclojure.protocols)
-  (:export :IHashCode :-hashcode :IHasheq :-hasheq :IEquiv :-equiv :equiv))
+  (:export :IHashCode :-hashcode :IHash :-hash :IEquiv :-equiv :equiv))
 (in-package :clclojure.equivalence)
 
 ;;copping some fundamental protocols for bootstrapping symbol/key/ns support.
 ;;putting them here allows for bootstrapping elsewhere, specifically for cowmap
 ;;and hashtable interop.
-(defprotocol IHashcode
+;;note: CLJS uses IHash with -hash,
+;;so we need to either collapse this hierarchy or fall in on
+;;it...
+;;this is from jvm interop.  do want to retain?
+;;is there a reason to distinguish between hashing in cl sxhash
+;;and clj?
+(defprotocol IHashcode 
     (-hashcode (this)))
-(defprotocol IHasheq
-    (-hasheq (this)))
+
+;;this is identical to cljs -hash
+(defprotocol IHash
+    (-hash (this)))
 (defprotocol IEquiv
     (-equiv (o other)))
 ;;TODO look at optimizing this.
