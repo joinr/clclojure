@@ -31,4 +31,4 @@
 ;;lets us have interop with legacy hash tables.
 ;;on jvm this was accomplished through hashCode and
 ;;equals. we may not need to do that here.
-(sb-ext:define-hash-table-test equiv -hasheq)
+(sb-ext:define-hash-table-test equiv -hash)

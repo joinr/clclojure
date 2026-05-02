@@ -7,7 +7,7 @@
 (defpackage :clclojure.cowmap
   (:use :common-lisp :clj-objects)
   (:shadowing-import-from  :clclojure.equivalence
-   :IHashCode :-hashcode :IHasheq :-hasheq :IEquiv :-equiv :equiv)
+   :IHashCode :-hashcode :IHash :-hash :IEquiv :-equiv :equiv)
   (:export :persistent-map
 	   :empty-map?
 	   :map-count

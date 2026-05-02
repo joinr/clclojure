@@ -12,7 +12,7 @@
   (:shadowing-import-from :clj-re :re-find :re-groups :re-matcher :re-matches :re-pattern :re-seq)
   ;;pull our protocols in from here, allows us to use them for cowmap for bootstrapping.
   (:shadowing-import-from :clclojure.equivalence
-   :IHashCode :-hashcode :IHasheq :-hasheq :IEquiv :-equiv :equiv)
+   :IHashCode :-hashcode :IHash :-hash :IEquiv :-equiv :equiv)
   (:local-nicknames
    (:re :clj-re)
    (:mbind :metabang-bind)
@@ -129,10 +129,13 @@
     ((ns     :initarg :ns)
      (name   :initarg :name)
      (hasheq :initarg :hasheq :initform -1)))
-
+  ;;redefine to be closer to clojure.
+  ;;we just wrap a symbol reference and delegate key/ns there.
   (defclass CljKey ()
-    ((ns     :initarg :ns :initform nil)
-     (name   :initarg :name)
+    (;;(ns     :initarg :ns :initform nil)
+     ;;(name   :initarg :name)
+     (sym :initarg :sym :initform nil)
+     (string :initarg :string :initform nil)
      (hasheq :initarg :hasheq :initform -1))))
 
 ;;naive eager version.
@@ -153,10 +156,11 @@
         (format stream "#'~A/~A" (or outer ns) nm)))))
 
 (defmethod print-object ((obj CljKey) stream)
-  (with-slots (ns (nm  name)) obj
-    (if ns 
-        (format stream ":~A/~A" ns nm)
-        (format stream ":~A" nm))))
+  (with-slots (sym) obj
+    (with-slots (ns (nm  name)) sym
+      (if ns 
+          (format stream ":~A/~A" ns nm)
+          (format stream ":~A" nm)))))
 
 (EVAL-WHEN (:compile-toplevel :load-toplevel :execute)
   (defprotocol ISymbolic
@@ -164,7 +168,7 @@
 
   (defprotocol ISymbol
       (sym-name  (this))
-    (sym-ns    (this))))
+      (sym-ns    (this))))
 
 (extend-protocol
  ISymbol
@@ -172,8 +176,8 @@
  (sym-name (this) (slot-value this 'name))
  (sym-ns   (this) (slot-value this 'ns))
  CljKey
- (sym-name (this) (slot-value this 'name))
- (sym-ns   (this) (slot-value this 'ns))
+ (sym-name (this) (sym-name  (slot-value this 'sym)))
+ (sym-ns   (this) (sym-ns    (slot-value this 'sym)))
  ;;right now we interop with cl symbols by mapping
  ;;to their package names, except for keywords.
  ;;will probably revisit this.  maybe we can encode
@@ -199,7 +203,7 @@
  (as-symbol (this) this)
  cl:symbol  ;;this applies to keywords and symbols...
  (as-symbol (this)
-            (make-instance 'CljSymbol :name (sym-name this) :ns nil
+            (make-instance 'CljSymbol :name (sym-name this) :ns (sym-ns this)
                     :meta
                     (clclojure.cowmap:persistent-map
                      :cl-symbol this
@@ -210,7 +214,8 @@
 ;;and keywords.  Ideally, we "could" try to inherit
 ;;from CL's stuff, but that route was already rough.
 ;;We'll just encapsulate our own stuff and figure out
-;;how to interop later.
+;;how to interop later.  Maybe there's a way to bridge
+;;the ns/package gap, but right now it's not obvious.
 
 (defun* clj-symbol
   ((name)    (as-symbol name))
@@ -290,8 +295,9 @@
 ;;     (-deref-with-timeout (o msec timeout-val)))
 
 (defun symbol-equal (l r)
-  (and (string-equal (sym-name l) (sym-name r))
-       (string-equal (sym-ns   l) (sym-ns   r))))
+  (or (eq l r)
+      (and (string-equal (sym-name l) (sym-name r))
+           (string-equal (sym-ns   l) (sym-ns   r)))))
 
 ;;global registry of keywords.
 ;;really irresponsible for now, we just maintain
@@ -303,7 +309,7 @@
 ;;We could leverage equiv here eventually.
 
 (eval-when  (:compile-toplevel :load-toplevel :execute)
-  ;;this gets us persistent maps with -hasheq testing.
+  ;;this gets us persistent maps with -hasheq testing.  which we want for ns.
   (defun symbol-hashmap ()
     (clclojure.cowmap::make-cowmap :table (symbol-hashtable) )))
 
@@ -315,24 +321,31 @@
 ;;symbols can have meta though, so we want them without meta.
 ;;clojure doesn't expose the ctor, this is for bootstrapping.
 (defun* ->keyword
-    ((name)    (make-instance 'CljKey :name name :ns nil))
-    ((ns name) (make-instance 'CljKey :name name :ns ns)))
+    ((name)    (make-instance 'CljKey  :sym (clj-symbol name)))
+    ((ns name) (make-instance 'CljKey :sym (clj-symbol ns name))))
 
 ;;we're hand-waving concurrency and meta at the moment.
 (defun intern-key (symb)
   (cl:let ((res (gethash  symb *keys*)))
     (if res res
-        (cl:let ((kw (if (sym-ns symb)
-                      (->keyword (sym-ns symb) (sym-name symb))
-                      (->keyword (sym-name symb)))))
+        (cl:let ((kw (->keyword symb)))
           (setf (gethash symb *keys*) kw)
           kw))))
 
 ;;do we want to project common lisp keys into
 ;;clojure keys?
-(defun* clj-keyword
+;;Right now, common lisp keywords are distinct.
+;;We can blur them a bit for interop.
+;;we treat this as identity if passed a CL keyword.
+;;Maybe the semantics are that unqualified clj keys are equiv to
+;;CL keys.
+
+(defun* keyword
     ((name)    (typecase name
                  (CljKey name)
+                 (cl:keyword (intern-key (sym-name name)))
+                 (CljSymbol  (intern-key name))
+                 (Symbol     (intern-key (as-symbol name)))
                  (string  (intern-key (clj-symbol name)))
                  (common-lisp:keyword (clj-symbol (symbol-name name))) ;;dubious...
                  (otherwise (throw (ex-info "unknown symbol-string-or-key!" name)))))
@@ -341,20 +354,9 @@
 
 (defun throw (e)
   (error e))
-;;Right now, common lisp keywords are distinct.
-;;We can blur them a bit for interop.
-;;we treat this as identity if passed a CL keyword.
-;;Maybe the semantics are that unqualified clj keys are equiv to
-;;CL keys.
-(defun*  keyword
-    ((name)    (typecase name
-                 (CljKey name)
-                 (string  (intern-key (clj-symbol name)))
-                 (common-lisp:keyword name) ;;dubious...
-                 (otherwise (throw (ex-info "unknown symbol-string-or-key!" name)))))
-  ((name ns) (intern-key (clj-symbol name ns))))
 
-(defun hash (this) (-hasheq this))
+
+(defun hash (this) (-hash this))
 
 ;;namespaces and vars....
 ;;namespaces is a map of symbol->Namespace
@@ -1262,7 +1264,10 @@
      ;;we end up with a lot of unqualified symbols.
      ;;This is just to paper over the bootstrapping
      ;;process....              
-     (-equiv (l r) (or (eq l r)))
+     (-equiv (l r) (or (eq l r)
+                       (and (typep r 'CljKey)
+                            (-equiv (slot-value l 'sym)
+                                    (slot-value r 'sym)))))
     ;;IHash
     ;;(-hash (k) (hash-code k))
      INamed
@@ -1272,7 +1277,12 @@
      CljSymbol
      IEquiv
      ;;same as above...this a dirty hack for now.
-     (-equiv (l r) (or (eq l r)))
+     (-equiv (l r) (or (eq l r)
+                       (and (typep r 'CljSymbol)
+                            (string-equal      (slot-value l 'name)
+                                               (slot-value r 'name))
+                            (string-equal      (slot-value l 'ns)
+                                               (slot-value r 'ns)))))
      ;;IHash
      ;;(-hash (k) (hash-code k))
      INamed
